@@ -188,7 +188,13 @@ window.onFrame = proc() =
   sk.drawRect(sk.at, sk.size, RibbonColor)
 
   sk.drawImage("ui/logo", sk.at)
-  sk.drawText("font/IBMPlexMono-Bold.ttf", "Hello, World!", sk.at + vec2(16, 16), Color(1, 1, 1, 1))
+  sk.drawText(
+    "IBMPlexMono-Bold.ttf", 
+    20, 
+    "Hello, World!", 
+    sk.at + vec2(64, 36), 
+    rgbx(255, 255, 255, 255)
+  )
 
   var at = sk.at + vec2(sk.size.x - 16 - 32, 16)
   sk.drawImage("ui/heart", at)

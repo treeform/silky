@@ -33,6 +33,7 @@ type
 
   FontAtlas* = ref object
     ## The font atlas that gets converted to JSON.
+    size*: float32
     entries*: Table[string, LetterEntry]
 
   SilkyAtlas* = ref object
@@ -128,7 +129,8 @@ proc generateAtlas*(
   margin: int,
   dirsToScan: seq[string],
   rmPrefix: string,
-  supportedGlyphs = AsciiGlyphs
+  supportedGlyphs = AsciiGlyphs,
+  fontSize: float32 = 100.0
 ) =
   ## Generates a pixel atlas from the given directories.
   let atlasImage = newImage(size, size)
@@ -171,7 +173,7 @@ proc generateAtlas*(
           width: image.width,
           height: image.height
         )
-        var key = file.path
+        var key = file.path.replace("\\", "/")
         key.removePrefix(rmPrefix)
         key.removeSuffix(".png")
         atlas.entries[key] = entry
@@ -180,16 +182,19 @@ proc generateAtlas*(
         # Add advance as well
         echo "Reading font: ", file.path
         let fontAtlas = FontAtlas()
-        let typeface = readTypeface("examples/data/IBMPlexMono-Bold.ttf")
+        fontAtlas.size = fontSize
+        let typeface = readTypeface(file.path)
         var font = newFont(typeface)
-        font.size = 50
+        font.size = fontSize
+        var key = file.path.replace("\\", "/")
+        key.removePrefix(rmPrefix)       
         for glyphStr in supportedGlyphs:
           let rune = glyphStr.runeAt(0)
           let path = typeface.getGlyphPath(rune)
           let scale = font.scale
           let scaleMat = scale(vec2(scale))
           let bounds = path.computeBounds(scaleMat).snapToPixels()
-          echo "  Glyph: ", glyphStr, " ", rune, " ", bounds.w, "x", bounds.h
+          # echo "  Glyph: ", glyphStr, " ", rune, " ", bounds.w, "x", bounds.h
           if bounds.w.ceil.int > 0 and bounds.h.ceil.int > 0:
             let glyphImage = newImage(bounds.w.ceil.int, bounds.h.ceil.int)
             glyphImage.fillPath(
@@ -232,8 +237,9 @@ proc generateAtlas*(
           for glyphStr2 in supportedGlyphs:
             let rune2 = glyphStr2.runeAt(0)
             let kerning = typeface.getKerningAdjustment(rune, rune2)
-            fontAtlas.entries[glyphStr].kerning[$rune] = kerning * scale
-        atlas.fonts[file.path] = fontAtlas
+            if kerning != 0:
+              fontAtlas.entries[glyphStr].kerning[glyphStr2] = kerning * scale
+        atlas.fonts[key] = fontAtlas
 
   atlasImage.writeFile(outputImagePath)
   writeFile(outputJsonPath, atlas.toJson())
@@ -262,10 +268,57 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   glClearColor(color.r, color.g, color.b, color.a)
   glClear(GL_COLOR_BUFFER_BIT)
 
-proc drawText*(sk: Silky, text: string, pos: Vec2, color: Color) =
-  ## Draw ASCII text.
+proc drawText*(sk: Silky, font: string, size: float32, text: string, pos: Vec2, color: ColorRGBX) =
+  ## Draw text using the specified font from the atlas.
   assert sk.inFrame
-  discard
+  if font notin sk.atlas.fonts:
+    echo "[Warning] Font not found in atlas: " & font
+    return
+
+  let fontData = sk.atlas.fonts[font]
+  let scale = size / fontData.size
+  var currentPos = pos
+  let runedText = text.toRunes
+
+  for i in 0 ..< runedText.len:
+    let rune = runedText[i]
+    let glyphStr = $rune
+
+    var entry: LetterEntry
+    if glyphStr in fontData.entries:
+      entry = fontData.entries[glyphStr]
+    elif "?" in fontData.entries:
+      entry = fontData.entries["?"]
+    else:
+      continue
+
+    # Draw the glyph if it has dimensions
+    if entry.boundsWidth > 0 and entry.boundsHeight > 0:
+      sk.posData.add(currentPos.x + entry.boundsX * scale)
+      sk.posData.add(currentPos.y + entry.boundsY * scale)
+
+      sk.sizeData.add(entry.boundsWidth * scale)
+      sk.sizeData.add(entry.boundsHeight * scale)
+
+      sk.uvPosData.add(entry.x.uint16)
+      sk.uvPosData.add(entry.y.uint16)
+
+      sk.uvSizeData.add(entry.boundsWidth.uint16)
+      sk.uvSizeData.add(entry.boundsHeight.uint16)
+
+      sk.colorData.add(color)
+
+      inc sk.instanceCount
+
+    currentPos.x += entry.advance * scale
+
+    # Kerning
+    if i < runedText.len - 1:
+      let nextRune = runedText[i+1]
+      let nextGlyphStr = $nextRune
+      if nextGlyphStr in entry.kerning:
+        currentPos.x += entry.kerning[nextGlyphStr] * scale
+  
 
 proc newSilky*(imagePath, jsonPath: string): Silky =
   ## Creates a new Silky.
