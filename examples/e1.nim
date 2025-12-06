@@ -190,7 +190,7 @@ window.onFrame = proc() =
       sk.drawImage(
         "testTexture", 
         vec2(x.float32 * 256, y.float32 * 256),
-        rgbx(100, 100, 100, 255)
+        rgbx(30, 30, 30, 255)
       )
 
   # Header
