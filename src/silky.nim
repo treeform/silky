@@ -124,6 +124,12 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
 
   for i in 0 ..< runedText.len:
     let rune = runedText[i]
+    
+    if rune == Rune(10): # Newline
+      currentPos.x = pos.x
+      currentPos.y += fontData.lineHeight
+      continue
+
     let glyphStr = $rune
 
     var entry: LetterEntry

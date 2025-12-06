@@ -1073,6 +1073,7 @@
     "fonts": {
         "Peragraph": {
             "size": 18.0,
+            "lineHeight": 23.4,
             "entries": {
                 "V": {
                     "x": 187,
@@ -2028,6 +2029,7 @@
         },
         "Title": {
             "size": 22.0,
+            "lineHeight": 28.6,
             "entries": {
                 "V": {
                     "x": 1769,

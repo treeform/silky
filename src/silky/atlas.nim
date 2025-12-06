@@ -33,6 +33,7 @@ type
   FontAtlas* = ref object
     ## The font atlas that is used to draw text.
     size*: float32
+    lineHeight*: float32
     entries*: Table[string, LetterEntry]
 
   SilkyAtlas* = ref object
@@ -112,6 +113,7 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
   let typeface = readTypeface(path)
   var fontObj = newFont(typeface)
   fontObj.size = size
+  fontAtlas.lineHeight = (typeface.ascent - typeface.descent + typeface.lineGap) * fontObj.scale
 
   for glyphStr in chars:
     let rune = glyphStr.runeAt(0)

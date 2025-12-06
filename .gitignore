@@ -1,0 +1,30 @@
+# ignore files with no extention:
+*
+!*/
+!*.*
+
+# normal ignores:
+*.exe
+*.dll
+*.html
+*.data
+*.wasm
+*.js
+*.a
+*.o
+*.so
+*.lib
+*.dylib
+*.pyc
+nimcache
+*.pdb
+*.ilk
+.*
+!.github
+*.glsl
+node_modules
+package-lock.json
+package.json
+tmp
+*.plist
+*.dSYM
