@@ -41,20 +41,26 @@ type
     entries*: Table[string, Entry]
     fonts*: Table[string, FontAtlas]
 
-proc generateAtlas*(
-  outputImagePath: string,
-  outputJsonPath: string,
-  size: int,
-  margin: int,
-  dirsToScan: seq[string],
-  rmPrefix: string,
-  supportedGlyphs = AsciiGlyphs,
-  fontSize: float32 = 100.0
-) =
+  AtlasBuilder* = ref object
+    size: int
+    margin: int
+    dirs: seq[tuple[path: string, removePrefix: string]]
+    fonts: seq[tuple[path: string, name: string, size: float32, chars: seq[string]]]
+
+proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
+  AtlasBuilder(size: size, margin: margin)
+
+proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
+  builder.dirs.add((path, removePrefix))
+
+proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, chars: seq[string] = AsciiGlyphs) =
+  builder.fonts.add((path, name, size, chars))
+
+proc build*(builder: AtlasBuilder, outputImagePath, outputJsonPath: string) =
   ## Generates a pixel atlas from the given directories.
-  let atlasImage = newImage(size, size)
-  let atlas = SilkyAtlas(size: size)
-  let allocator = newSkylineAllocator(size, margin)
+  let atlasImage = newImage(builder.size, builder.size)
+  let atlas = SilkyAtlas(size: builder.size)
+  let allocator = newSkylineAllocator(builder.size, builder.margin)
 
   # Always add black white tile to the atlas.
   let whiteTile = newImage(16, 16)
@@ -69,8 +75,8 @@ proc generateAtlas*(
       height: whiteTile.height
     )
 
-  for dir in dirsToScan:
-    for file in walkDir(dir):
+  for dir in builder.dirs:
+    for file in walkDir(dir.path):
       if file.path.endsWith(".png"):
         let image = readImage(file.path)
         let allocation = allocator.allocate(image.width, image.height)
@@ -93,72 +99,73 @@ proc generateAtlas*(
           height: image.height
         )
         var key = file.path.replace("\\", "/")
-        key.removePrefix(rmPrefix)
+        if dir.removePrefix.len > 0:
+          key.removePrefix(dir.removePrefix)
         key.removeSuffix(".png")
         atlas.entries[key] = entry
-      if file.path.endsWith(".ttf"):
-        # Read each glyph from the font and add it to the atlas.
-        # Add advance as well
-        echo "Reading font: ", file.path
-        let fontAtlas = FontAtlas()
-        fontAtlas.size = fontSize
-        let typeface = readTypeface(file.path)
-        var font = newFont(typeface)
-        font.size = fontSize
-        var key = file.path.replace("\\", "/")
-        key.removePrefix(rmPrefix)       
-        for glyphStr in supportedGlyphs:
-          let rune = glyphStr.runeAt(0)
-          let path = typeface.getGlyphPath(rune)
-          let scale = font.scale
-          let scaleMat = scale(vec2(scale))
-          let bounds = path.computeBounds(scaleMat).snapToPixels()
-          # echo "  Glyph: ", glyphStr, " ", rune, " ", bounds.w, "x", bounds.h
-          if bounds.w.ceil.int > 0 and bounds.h.ceil.int > 0:
-            let glyphImage = newImage(bounds.w.ceil.int, bounds.h.ceil.int)
-            glyphImage.fillPath(
-              path,
-              color(1, 1, 1, 1),
-              translate(-bounds.xy) * scaleMat
-            )
-            let allocation = allocator.allocate(glyphImage.width, glyphImage.height)
-            if not allocation.success:
-              raise newException(
-                ValueError,
-                "Failed to allocate space for glyph: " & glyphStr & "\n" &
-                "You need to increase the size of the atlas"
-              )
-            atlasImage.draw(
-              glyphImage,
-              translate(vec2(allocation.x.float32, allocation.y.float32)),
-              OverwriteBlend
-            )
-            fontAtlas.entries[glyphStr] = LetterEntry(
-              x: allocation.x,
-              y: allocation.y,
-              boundsX: bounds.x,
-              boundsY: bounds.y,
-              boundsWidth: bounds.w,
-              boundsHeight: bounds.h,
-              advance: typeface.getAdvance(rune) * scale
-            )
-          else:
-            # Probably a space of some sort, still has advance, so we can use it.
-            fontAtlas.entries[glyphStr] = LetterEntry(
-              x: 0,
-              y: 0,
-              boundsX: bounds.x,
-              boundsY: bounds.y,
-              boundsWidth: bounds.w,
-              boundsHeight: bounds.h,
-              advance: typeface.getAdvance(rune) * scale
-            )
-          for glyphStr2 in supportedGlyphs:
-            let rune2 = glyphStr2.runeAt(0)
-            let kerning = typeface.getKerningAdjustment(rune, rune2)
-            if kerning != 0:
-              fontAtlas.entries[glyphStr].kerning[glyphStr2] = kerning * scale
-        atlas.fonts[key] = fontAtlas
+  
+  for font in builder.fonts:
+    # Read each glyph from the font and add it to the atlas.
+    # Add advance as well
+    echo "Reading font: ", font.path
+    let fontAtlas = FontAtlas()
+    fontAtlas.size = font.size
+    let typeface = readTypeface(font.path)
+    var fontObj = newFont(typeface)
+    fontObj.size = font.size
+
+    for glyphStr in font.chars:
+      let rune = glyphStr.runeAt(0)
+      let path = typeface.getGlyphPath(rune)
+      let scale = fontObj.scale
+      let scaleMat = scale(vec2(scale))
+      let bounds = path.computeBounds(scaleMat).snapToPixels()
+      # echo "  Glyph: ", glyphStr, " ", rune, " ", bounds.w, "x", bounds.h
+      if bounds.w.ceil.int > 0 and bounds.h.ceil.int > 0:
+        let glyphImage = newImage(bounds.w.ceil.int, bounds.h.ceil.int)
+        glyphImage.fillPath(
+          path,
+          color(1, 1, 1, 1),
+          translate(-bounds.xy) * scaleMat
+        )
+        let allocation = allocator.allocate(glyphImage.width, glyphImage.height)
+        if not allocation.success:
+          raise newException(
+            ValueError,
+            "Failed to allocate space for glyph: " & glyphStr & "\n" &
+            "You need to increase the size of the atlas"
+          )
+        atlasImage.draw(
+          glyphImage,
+          translate(vec2(allocation.x.float32, allocation.y.float32)),
+          OverwriteBlend
+        )
+        fontAtlas.entries[glyphStr] = LetterEntry(
+          x: allocation.x,
+          y: allocation.y,
+          boundsX: bounds.x,
+          boundsY: bounds.y,
+          boundsWidth: bounds.w,
+          boundsHeight: bounds.h,
+          advance: typeface.getAdvance(rune) * scale
+        )
+      else:
+        # Probably a space of some sort, still has advance, so we can use it.
+        fontAtlas.entries[glyphStr] = LetterEntry(
+          x: 0,
+          y: 0,
+          boundsX: bounds.x,
+          boundsY: bounds.y,
+          boundsWidth: bounds.w,
+          boundsHeight: bounds.h,
+          advance: typeface.getAdvance(rune) * scale
+        )
+      for glyphStr2 in font.chars:
+        let rune2 = glyphStr2.runeAt(0)
+        let kerning = typeface.getKerningAdjustment(rune, rune2)
+        if kerning != 0:
+          fontAtlas.entries[glyphStr].kerning[glyphStr2] = kerning * scale
+    atlas.fonts[font.name] = fontAtlas
 
   atlasImage.writeFile(outputImagePath)
   writeFile(outputJsonPath, atlas.toJson())

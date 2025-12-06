@@ -189,7 +189,7 @@ window.onFrame = proc() =
 
   sk.drawImage("ui/logo", sk.at)
   sk.drawText(
-    "IBMPlexMono-Bold.ttf", 
+    "IBMPlexMono-Bold", 
     20, 
     "Hello, World!", 
     sk.at + vec2(64, 36), 
