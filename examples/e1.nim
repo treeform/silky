@@ -1,7 +1,11 @@
 import opengl, windy, bumpy, vmath, chroma,
   ../src/silky
 
-var window = newWindow("Silky Example 1", ivec2(800, 600))
+var window = newWindow(
+  "Silky Example 1", 
+  ivec2(800, 600),
+  vsync = false
+)
 makeContextCurrent(window)
 loadExtensions()
 

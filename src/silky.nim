@@ -100,11 +100,14 @@ proc beginFrame*(sk: Silky, window: Window, size: IVec2) =
         createDir("tmp")
         dumpMeasures(0, "tmp/trace.json")
 
-  measurePush("frame")
-
   sk.pushFrame(vec2(0, 0), size.vec2)
   sk.inFrame = true
+
+  measurePush("glViewport")
   glViewport(0, 0, sk.size.x.int32, sk.size.y.int32)
+  measurePop()
+
+  measurePush("frame")
 
 proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   let color = color.color
