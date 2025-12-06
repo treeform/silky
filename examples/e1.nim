@@ -15,7 +15,7 @@ const
   BackgroundColor = parseHtmlColor("#000000").rgbx
   RibbonColor = parseHtmlColor("#273646").rgbx
   ScrubberColor = parseHtmlColor("#1D1D1D").rgbx
-  m = 8f # Default margin
+  m = 12f # Default margin
 
 var sk = newSilky("examples/dist/atlas.png", "examples/dist/atlas.json")
 
@@ -216,6 +216,7 @@ window.onFrame = proc() =
   # Scrubber
   sk.pushFrame(vec2(0, sk.size.y - 64*2), vec2(sk.size.x, 64))
   sk.drawRect(sk.at, sk.size, ScrubberColor)
+  sk.draw9Patch("track.9patch", 16, sk.at + vec2(16, 32), vec2(sk.size.x - 32, 0))
   sk.popFrame()
 
   # Footer
@@ -223,25 +224,35 @@ window.onFrame = proc() =
   sk.drawRect(sk.at, sk.size, RibbonColor)
 
   at = sk.at + vec2(16, 16)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/rewindToStart", at)
   at += vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/stepBack", at)
   at += vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/play", at)
   at += vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/stepForward", at)
   at += vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/rewindToEnd", at)
 
   at = sk.at + vec2(sk.size.x - 16 - 32, 16)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/heart", at)
   at -= vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/cloud", at)
   at -= vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/grid", at)
   at -= vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/eye", at)
   at -= vec2(32 + m, 0)
+  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
   sk.drawImage("ui/tack", at)
   at -= vec2(32 + m, 0)
 

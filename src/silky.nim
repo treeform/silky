@@ -355,7 +355,7 @@ proc draw9Patch*(
   patch: int, # How much is the border size in pixels
   pos: Vec2,
   size: Vec2,
-  color: ColorRGBX
+  color = rgbx(255, 255, 255, 255)
 ) =
   ## Draws a 9-patch image.
   if name notin sk.atlas.entries:
@@ -366,7 +366,7 @@ proc draw9Patch*(
   let
     pos = pos - vec2(patch.float32, patch.float32)
     size = size + vec2(patch.float32 * 2, patch.float32 * 2)
-    
+
     p = patch.float32
 
     # Source X definitions: (offset from uv.x, width)
