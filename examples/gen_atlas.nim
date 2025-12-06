@@ -8,4 +8,4 @@ builder.addDir("examples/data/vibe/", "examples/data/")
 
 builder.addFont("examples/data/IBMPlexMono-Bold.ttf", "IBMPlexMono-Bold", 100.0)
 
-builder.build("examples/dist/atlas.png", "examples/dist/atlas.json")
+builder.write("examples/dist/atlas.png", "examples/dist/atlas.json")
