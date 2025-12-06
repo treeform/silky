@@ -1,5 +1,5 @@
 import
-  std/[os, strutils, tables, unicode],
+  std/[os, strutils, tables, unicode, times],
   pixie, opengl, boxy/[shaders], jsony, shady, vmath, windy,
   fidget2/measure,
   silky/atlas
@@ -34,6 +34,11 @@ type
     colorData: seq[ColorRGBX]
 
     instanceCount: int
+
+    # Timeing information
+    frameStartTime*: float64
+    frameTime*: float64
+    avgFrameTime*: float64
 
 var
   mvp: Uniform[Mat4]
@@ -102,6 +107,7 @@ proc beginFrame*(sk: Silky, window: Window, size: IVec2) =
 
   sk.pushFrame(vec2(0, 0), size.vec2)
   sk.inFrame = true
+  sk.frameStartTime = epochTime()
 
   measurePush("glViewport")
   glViewport(0, 0, sk.size.x.int32, sk.size.y.int32)
@@ -418,5 +424,8 @@ proc endFrame*(
 
   # Disable blending.
   glDisable(GL_BLEND)
+
+  sk.frameTime = epochTime() - sk.frameStartTime
+  sk.avgFrameTime = (sk.avgFrameTime * 0.99) + (sk.frameTime * 0.01)
 
   measurePop()

@@ -1,4 +1,6 @@
-import opengl, windy, bumpy, vmath, chroma,
+import 
+  std/[strformat],
+  opengl, windy, bumpy, vmath, chroma,
   ../src/silky
 
 var window = newWindow(
@@ -258,6 +260,14 @@ window.onFrame = proc() =
     "Peragraph", 
     "Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10", 
     sk.at + vec2(10, 200), 
+    rgbx(255, 255, 255, 255)
+  )
+
+  let ms = sk.avgFrameTime * 1000
+  sk.drawText(
+    "Peragraph", 
+    &"frame time: {ms:>7.3f}ms", 
+    vec2(sk.size.x - 250, 20), 
     rgbx(255, 255, 255, 255)
   )
 
