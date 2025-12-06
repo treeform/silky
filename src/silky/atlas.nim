@@ -107,7 +107,6 @@ proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
 proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, chars: seq[string] = AsciiGlyphs) =
   # Read each glyph from the font and add it to the atlas.
   # Add advance as well
-  echo "Reading font: ", path
   let fontAtlas = FontAtlas()
   fontAtlas.size = size
   let typeface = readTypeface(path)

@@ -111,7 +111,7 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   glClearColor(color.r, color.g, color.b, color.a)
   glClear(GL_COLOR_BUFFER_BIT)
 
-proc drawText*(sk: Silky, font: string, size: float32, text: string, pos: Vec2, color: ColorRGBX) =
+proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGBX) =
   ## Draw text using the specified font from the atlas.
   assert sk.inFrame
   if font notin sk.atlas.fonts:
@@ -119,7 +119,6 @@ proc drawText*(sk: Silky, font: string, size: float32, text: string, pos: Vec2, 
     return
 
   let fontData = sk.atlas.fonts[font]
-  let scale = size / fontData.size
   var currentPos = pos
   let runedText = text.toRunes
 
@@ -137,11 +136,16 @@ proc drawText*(sk: Silky, font: string, size: float32, text: string, pos: Vec2, 
 
     # Draw the glyph if it has dimensions
     if entry.boundsWidth > 0 and entry.boundsHeight > 0:
-      sk.posData.add(currentPos.x + entry.boundsX * scale)
-      sk.posData.add(currentPos.y + entry.boundsY * scale)
+      let pos = vec2(
+        round(currentPos.x + entry.boundsX),
+        round(currentPos.y + entry.boundsY)
+      )
 
-      sk.sizeData.add(entry.boundsWidth * scale)
-      sk.sizeData.add(entry.boundsHeight * scale)
+      sk.posData.add(pos.x)
+      sk.posData.add(pos.y)
+
+      sk.sizeData.add(entry.boundsWidth)
+      sk.sizeData.add(entry.boundsHeight)
 
       sk.uvPosData.add(entry.x.uint16)
       sk.uvPosData.add(entry.y.uint16)
@@ -153,14 +157,14 @@ proc drawText*(sk: Silky, font: string, size: float32, text: string, pos: Vec2, 
 
       inc sk.instanceCount
 
-    currentPos.x += entry.advance * scale
+    currentPos.x += entry.advance
 
     # Kerning
     if i < runedText.len - 1:
       let nextRune = runedText[i+1]
       let nextGlyphStr = $nextRune
       if nextGlyphStr in entry.kerning:
-        currentPos.x += entry.kerning[nextGlyphStr] * scale
+        currentPos.x += entry.kerning[nextGlyphStr]
   
 
 proc newSilky*(imagePath, jsonPath: string): Silky =
@@ -277,7 +281,8 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
 proc drawImage*(
   sk: Silky,
   name: string,
-  pos: Vec2
+  pos: Vec2,
+  color = rgbx(255, 255, 255, 255)
 ) {.measure.} =
   ## Draws a sprite at the given position.
   if name notin sk.atlas.entries:
@@ -297,7 +302,7 @@ proc drawImage*(
   sk.uvSizeData.add(uv.width.uint16)
   sk.uvSizeData.add(uv.height.uint16)
 
-  sk.colorData.add(rgbx(255, 255, 255, 255))
+  sk.colorData.add(color)
 
   inc sk.instanceCount
 

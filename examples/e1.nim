@@ -181,7 +181,11 @@ window.onFrame = proc() =
 
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.drawImage("testTexture", vec2(x.float32 * 256, y.float32 * 256))
+      sk.drawImage(
+        "testTexture", 
+        vec2(x.float32 * 256, y.float32 * 256),
+        rgbx(100, 100, 100, 255)
+      )
 
   # Header
   sk.pushFrame(sk.at, vec2(sk.size.x, 64))
@@ -189,8 +193,7 @@ window.onFrame = proc() =
 
   sk.drawImage("ui/logo", sk.at)
   sk.drawText(
-    "IBMPlexMono-Bold", 
-    20, 
+    "Title", 
     "Hello, World!", 
     sk.at + vec2(64, 36), 
     rgbx(255, 255, 255, 255)
@@ -245,6 +248,14 @@ window.onFrame = proc() =
       at.y += 32 + m
     sk.drawImage(vibe, at)
     at += vec2(32 + m, 0)
+
+
+  sk.drawText(
+    "Peragraph", 
+    "Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10", 
+    sk.at + vec2(10, 200), 
+    rgbx(255, 255, 255, 255)
+  )
 
   sk.endFrame()
   window.swapBuffers()
