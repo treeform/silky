@@ -349,6 +349,74 @@ proc drawRect*(
 
   inc sk.instanceCount
 
+proc draw9Patch*(
+  sk: Silky,
+  name: string,
+  patch: int, # How much is the border size in pixels
+  pos: Vec2,
+  size: Vec2,
+  color: ColorRGBX
+) =
+  ## Draws a 9-patch image.
+  if name notin sk.atlas.entries:
+    echo "[Warning] Sprite not found in atlas: " & name
+    return
+  let uv = sk.atlas.entries[name]
+
+  let
+    pos = pos - vec2(patch.float32, patch.float32)
+    size = size + vec2(patch.float32 * 2, patch.float32 * 2)
+    
+    p = patch.float32
+
+    # Source X definitions: (offset from uv.x, width)
+    srcXOffsets = [0.int, patch, uv.width - patch]
+    srcWidths = [patch, uv.width - 2 * patch, patch]
+
+    # Source Y definitions: (offset from uv.y, height)
+    srcYOffsets = [0.int, patch, uv.height - patch]
+    srcHeights = [patch, uv.height - 2 * patch, patch]
+
+    # Dest X definitions: (offset from pos.x, width)
+    dstXOffsets = [0.float32, p, size.x - p]
+    dstWidths = [p, size.x - 2 * p, p]
+
+    # Dest Y definitions: (offset from pos.y, height)
+    dstYOffsets = [0.float32, p, size.y - p]
+    dstHeights = [p, size.y - 2 * p, p]
+
+  # Draw order: Corners, Sides, Middle
+  let order = [
+    (0, 0), (2, 0), (0, 2), (2, 2), # Corners
+    (1, 0), (0, 1), (2, 1), (1, 2), # Sides
+    (1, 1)                          # Middle
+  ]
+
+  for (x, y) in order:
+    let sw = srcWidths[x]
+    let sh = srcHeights[y]
+    let dw = dstWidths[x]
+    let dh = dstHeights[y]
+
+    # Skip if drawing nothing (e.g. if middle has 0 width)
+    if dw <= 0.001 or dh <= 0.001 or sw <= 0 or sh <= 0:
+      continue
+
+    sk.posData.add(pos.x + dstXOffsets[x])
+    sk.posData.add(pos.y + dstYOffsets[y])
+
+    sk.sizeData.add(dw)
+    sk.sizeData.add(dh)
+
+    sk.uvPosData.add((uv.x + srcXOffsets[x]).uint16)
+    sk.uvPosData.add((uv.y + srcYOffsets[y]).uint16)
+
+    sk.uvSizeData.add(sw.uint16)
+    sk.uvSizeData.add(sh.uint16)
+
+    sk.colorData.add(color)
+    inc sk.instanceCount
+
 proc contains*(sk: Silky, name: string): bool =
   ## Checks if the given sprite is in the atlas.
   name in sk.atlas.entries

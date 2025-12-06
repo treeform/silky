@@ -247,6 +247,14 @@ window.onFrame = proc() =
 
   sk.popFrame()
 
+  sk.draw9Patch(
+    "window.9patch",
+    patch = 14,
+    vec2(sk.size.x - (11 * (32 + m)), 100),
+    vec2(500, 700),
+    rgbx(255, 255, 255, 255)   
+  )
+
   at = vec2(sk.size.x - (11 * (32 + m)), 100)
   for i, vibe in vibes:
     if i > 0 and i mod 10 == 0:
@@ -254,7 +262,6 @@ window.onFrame = proc() =
       at.y += 32 + m
     sk.drawImage(vibe, at)
     at += vec2(32 + m, 0)
-
 
   sk.drawText(
     "Peragraph", 
@@ -270,6 +277,8 @@ window.onFrame = proc() =
     vec2(sk.size.x - 250, 20), 
     rgbx(255, 255, 255, 255)
   )
+
+
 
   sk.endFrame()
   window.swapBuffers()
