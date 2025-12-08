@@ -107,6 +107,12 @@ template windowFrame*(title: string, show: bool, body) =
     sk.popFrame()
 
     if not windowState.minimized:
+      sk.pushClipRect(rect(
+        windowState.pos.x + theme.border.float32,
+        windowState.pos.y + theme.border.float32 + theme.headerHeight.float32,
+        windowState.size.x - theme.border.float32 * 2,
+        windowState.size.y - theme.border.float32 * 2 - theme.headerHeight.float32
+      ))
       # Draw the body.
       sk.pushFrame(
         windowState.pos + vec2(theme.border, theme.border + theme.headerHeight),
@@ -137,6 +143,7 @@ template windowFrame*(title: string, show: bool, body) =
             windowState.resizing = true
             windowState.resizeOffset = window.mousePos.vec2 - windowState.size
       sk.drawImage("resize", resizeHandleRect.xy)
+      sk.popClipRect()
     sk.popFrame()
 
 template button*(label: string, body) =

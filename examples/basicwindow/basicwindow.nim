@@ -29,6 +29,7 @@ var
 window.onFrame = proc() =
 
   sk.beginUI(window, window.size)
+  # sk.clipRect = rect(100, 100, 200, 200)
 
   # Draw tiled test texture as the background.
   for x in 0 ..< 16:

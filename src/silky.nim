@@ -38,6 +38,8 @@ type
     uvPosVbo: GLuint         ## Per-instance UV position (u, v)
     uvSizeVbo: GLuint        ## Per-instance UV size (uw, uh)
     colorVbo: GLuint         ## Per-instance color (ColorRGBX)
+    clipPosVbo: GLuint       ## Per-instance clip position (x, y)
+    clipSizeVbo: GLuint      ## Per-instance clip size (w, h)
 
     atlasTexture: GLuint     ## GL texture for the atlas image
 
@@ -47,8 +49,12 @@ type
     uvPosData: seq[uint16]
     uvSizeData: seq[uint16]
     colorData: seq[ColorRGBX]
+    clipPosData: seq[float32]
+    clipSizeData: seq[float32]
 
     instanceCount: int
+
+    clipStack: seq[Rect]
 
     # Timeing information
     frameStartTime*: float64
@@ -97,6 +103,15 @@ proc size*(sk: Silky): Vec2 =
 proc stackDirection*(sk: Silky): StackDirection =
   sk.directionStack[^1]
 
+proc pushClipRect*(sk: Silky, rect: Rect) =
+  sk.clipStack.add(rect)
+
+proc popClipRect*(sk: Silky) =
+  discard sk.clipStack.pop()
+
+proc clipRect*(sk: Silky): Rect =
+  sk.clipStack[^1]
+
 proc pushLayer*(sk: Silky) =
   inc sk.layer
 
@@ -127,8 +142,13 @@ proc SilkyVert*(
   uvPos: Vec2,
   uvSize: Vec2,
   color: Vec4,
+  clipPos: Vec2,
+  clipSize: Vec2,
   fragmentUv: var Vec2,
-  fragmentColor: var Vec4
+  fragmentColor: var Vec4,
+  fragmentClipPos: var Vec2,
+  fragmentClipSize: var Vec2,
+  fragmentPos: var Vec2
 ) =
   # Compute the corner of the quad based on the vertex ID.
   # 0:(0,0), 1:(1,0), 2:(0,1), 3:(1,1)
@@ -144,10 +164,27 @@ proc SilkyVert*(
   let sy = uvPos.y + float(corner.y) * uvSize.y
   fragmentUv = vec2(sx, sy) / atlasSize
   fragmentColor = color
+  fragmentClipPos = clipPos
+  fragmentClipSize = clipSize
+  fragmentPos = vec2(dx, dy)
 
-proc SilkyFrag*(fragmentUv: Vec2, fragmentColor: Vec4, FragColor: var Vec4) =
-  # Compute the texture coordinates of the pixel.
-  FragColor = texture(atlasSampler, fragmentUv) * fragmentColor
+proc SilkyFrag*(
+  fragmentUv: Vec2,
+  fragmentColor: Vec4,
+  fragmentClipPos: Vec2,
+  fragmentClipSize: Vec2,
+  fragmentPos: Vec2,
+  FragColor: var Vec4
+) =
+  if fragmentPos.x < fragmentClipPos.x or
+    fragmentPos.y < fragmentClipPos.y or
+    fragmentPos.x > fragmentClipPos.x + fragmentClipSize.x or
+    fragmentPos.y > fragmentClipPos.y + fragmentClipSize.y:
+      # Clip the pixel.
+      discard()
+  else:
+    # Compute the texture coordinates of the pixel.
+    FragColor = texture(atlasSampler, fragmentUv) * fragmentColor
 
 proc beginUi*(sk: Silky, window: Window, size: IVec2) =
 
@@ -171,6 +208,8 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   measurePop()
 
   measurePush("frame")
+
+  sk.pushClipRect(rect(0, 0, sk.size.x, sk.size.y))
 
 proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   let color = color.color
@@ -226,6 +265,12 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
       sk.uvSizeData.add(entry.boundsHeight.uint16)
 
       sk.colorData.add(color)
+
+      sk.clipPosData.add(sk.clipRect.x)
+      sk.clipPosData.add(sk.clipRect.y)
+
+      sk.clipSizeData.add(sk.clipRect.w)
+      sk.clipSizeData.add(sk.clipRect.h)
 
       inc sk.instanceCount
 
@@ -286,6 +331,8 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   result.uvPosData = @[]
   result.uvSizeData = @[]
   result.colorData = @[]
+  result.clipPosData = @[]
+  result.clipSizeData = @[]
   result.instanceCount = 0
 
   when defined(emscripten):
@@ -383,9 +430,60 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(colorLoc.GLuint, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ColorRGBX).GLsizei, nil)
   glVertexAttribDivisor(colorLoc.GLuint, 1)
 
+  # 6. Clip Position VBO (vec2)
+  glGenBuffers(1, result.clipPosVbo.addr)
+  glBindBuffer(GL_ARRAY_BUFFER, result.clipPosVbo)
+  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
+  let clipPosLoc = glGetAttribLocation(program, "clipPos")
+  doAssert clipPosLoc != -1, "clipPos attribute not found"
+  glEnableVertexAttribArray(clipPosLoc.GLuint)
+  glVertexAttribPointer(clipPosLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
+  glVertexAttribDivisor(clipPosLoc.GLuint, 1)
+
+  # 7. Clip Size VBO (vec2)
+  glGenBuffers(1, result.clipSizeVbo.addr)
+  glBindBuffer(GL_ARRAY_BUFFER, result.clipSizeVbo)
+  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
+  let clipSizeLoc = glGetAttribLocation(program, "clipSize")
+  doAssert clipSizeLoc != -1, "clipSize attribute not found"
+  glEnableVertexAttribArray(clipSizeLoc.GLuint)
+  glVertexAttribPointer(clipSizeLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
+  glVertexAttribDivisor(clipSizeLoc.GLuint, 1)
+
   # Unbind the buffers.
   glBindBuffer(GL_ARRAY_BUFFER, 0)
   glBindVertexArray(0)
+
+proc drawQuad*(
+  sk: Silky,
+  pos: Vec2,
+  size: Vec2,
+  uvPos: Vec2,
+  uvSize: Vec2,
+  color: ColorRGBX
+) {.measure.} =
+  ## Draws a quad.
+  sk.posData.add(pos.x)
+  sk.posData.add(pos.y)
+
+  sk.sizeData.add(size.x.float32)
+  sk.sizeData.add(size.y.float32)
+
+  sk.uvPosData.add(uvPos.x.uint16)
+  sk.uvPosData.add(uvPos.y.uint16)
+
+  sk.uvSizeData.add(uvSize.x.uint16)
+  sk.uvSizeData.add(uvSize.y.uint16)
+
+  sk.colorData.add(color)
+
+  sk.clipPosData.add(sk.clipRect.x)
+  sk.clipPosData.add(sk.clipRect.y)
+
+  sk.clipSizeData.add(sk.clipRect.w)
+  sk.clipSizeData.add(sk.clipRect.h)
+
+  inc sk.instanceCount
 
 proc drawImage*(
   sk: Silky,
@@ -398,22 +496,13 @@ proc drawImage*(
     echo "[Warning] Sprite not found in atlas: " & name
     return
   let uv = sk.atlas.entries[name]
-
-  sk.posData.add(pos.x)
-  sk.posData.add(pos.y)
-
-  sk.sizeData.add(uv.width.float32)
-  sk.sizeData.add(uv.height.float32)
-
-  sk.uvPosData.add(uv.x.uint16)
-  sk.uvPosData.add(uv.y.uint16)
-
-  sk.uvSizeData.add(uv.width.uint16)
-  sk.uvSizeData.add(uv.height.uint16)
-
-  sk.colorData.add(color)
-
-  inc sk.instanceCount
+  sk.drawQuad(
+    pos,
+    vec2(uv.width.float32, uv.height.float32),
+    vec2(uv.x.float32, uv.y.float32),
+    vec2(uv.width.float32, uv.height.float32),
+    color
+  )
 
 proc drawRect*(
   sk: Silky,
@@ -423,25 +512,8 @@ proc drawRect*(
 ) {.measure.} =
   ## Draws a colored rectangle.
   let uv = sk.atlas.entries[WhiteTileKey]
-
-  sk.posData.add(pos.x)
-  sk.posData.add(pos.y)
-
-  sk.sizeData.add(size.x)
-  sk.sizeData.add(size.y)
-
-  # Use the center of the white tile for UVs to avoid edge bleeding
   let center = vec2(uv.x.float32, uv.y.float32) + vec2(uv.width.float32, uv.height.float32) / 2
-  sk.uvPosData.add(center.x.uint16)
-  sk.uvPosData.add(center.y.uint16)
-
-  # UV size is effectively 0 or 1 pixel for solid color, but let's keep it consistent
-  sk.uvSizeData.add(0)
-  sk.uvSizeData.add(0)
-
-  sk.colorData.add(color)
-
-  inc sk.instanceCount
+  sk.drawQuad(pos, size, center, vec2(0, 0), color)
 
 proc draw9Patch*(
   sk: Silky,
@@ -493,20 +565,13 @@ proc draw9Patch*(
     if dw <= 0.001 or dh <= 0.001 or sw <= 0 or sh <= 0:
       continue
 
-    sk.posData.add(pos.x + dstXOffsets[x])
-    sk.posData.add(pos.y + dstYOffsets[y])
-
-    sk.sizeData.add(dw)
-    sk.sizeData.add(dh)
-
-    sk.uvPosData.add((uv.x + srcXOffsets[x]).uint16)
-    sk.uvPosData.add((uv.y + srcYOffsets[y]).uint16)
-
-    sk.uvSizeData.add(sw.uint16)
-    sk.uvSizeData.add(sh.uint16)
-
-    sk.colorData.add(color)
-    inc sk.instanceCount
+    sk.drawQuad(
+      vec2(pos.x + dstXOffsets[x], pos.y + dstYOffsets[y]),
+      vec2(dw, dh),
+      vec2((uv.x + srcXOffsets[x]).float32, (uv.y + srcYOffsets[y]).float32),
+      vec2(sw.float32, sh.float32),
+      color
+    )
 
 proc contains*(sk: Silky, name: string): bool =
   ## Checks if the given sprite is in the atlas.
@@ -519,6 +584,8 @@ proc clear*(sk: Silky) =
   sk.uvPosData.setLen(0)
   sk.uvSizeData.setLen(0)
   sk.colorData.setLen(0)
+  sk.clipPosData.setLen(0)
+  sk.clipSizeData.setLen(0)
   sk.instanceCount = 0
 
 proc endUi*(
@@ -555,6 +622,14 @@ proc endUi*(
   glBindBuffer(GL_ARRAY_BUFFER, sk.colorVbo)
   glBufferData(GL_ARRAY_BUFFER, sk.colorData.len * sizeof(ColorRGBX), sk.colorData[0].addr, GL_STREAM_DRAW)
 
+  # Upload clipPos buffer.
+  glBindBuffer(GL_ARRAY_BUFFER, sk.clipPosVbo)
+  glBufferData(GL_ARRAY_BUFFER, sk.clipPosData.len * sizeof(float32), sk.clipPosData[0].addr, GL_STREAM_DRAW)
+
+  # Upload clipSize buffer.
+  glBindBuffer(GL_ARRAY_BUFFER, sk.clipSizeVbo)
+  glBufferData(GL_ARRAY_BUFFER, sk.clipSizeData.len * sizeof(float32), sk.clipSizeData[0].addr, GL_STREAM_DRAW)
+
   # Bind the shader and the atlas texture.
   glUseProgram(sk.shader.programId)
   mvp = ortho(0.float32, sk.size.x.float32, sk.size.y.float32, 0, -1000, 1000)
@@ -583,6 +658,8 @@ proc endUi*(
 
   # Disable blending.
   glDisable(GL_BLEND)
+
+  sk.popClipRect()
 
   sk.frameTime = epochTime() - sk.frameStartTime
   sk.avgFrameTime = (sk.avgFrameTime * 0.99) + (sk.frameTime * 0.01)
