@@ -7,6 +7,13 @@ import
 export atlas, widgets
 
 type
+
+  StackDirection = enum
+    TopToBottom
+    BottomToTop
+    LeftToRight
+    RightToLeft
+
   Silky* = ref object
     ## The Silky that draws the AA pixel art sprites.
     inFrame: bool = false
@@ -14,6 +21,7 @@ type
     atStack: seq[Vec2]
     posStack: seq[Vec2]
     sizeStack: seq[Vec2]
+    directionStack: seq[StackDirection]
     textStyle*: string = "Default"
     padding*: float32 = 12
     topLayer*: int = 0
@@ -54,11 +62,26 @@ var
 
   traceActive: bool = false
 
-proc pushFrame*(sk: Silky, pos: Vec2, size: Vec2) =
+proc pushFrame*(
+  sk: Silky, 
+  pos: Vec2, 
+  size: Vec2, 
+  direction: StackDirection = TopToBottom
+) =
   sk.atStack.add(sk.at)
   sk.posStack.add(pos)
   sk.at = pos
   sk.sizeStack.add(size)
+  sk.directionStack.add(direction)
+  case direction:
+    of TopToBottom:
+      sk.at = pos
+    of BottomToTop:
+      sk.at = pos + vec2(0, size.y)
+    of LeftToRight:
+      sk.at = pos + vec2(size.x, 0)
+    of RightToLeft:
+      sk.at = pos - vec2(size.x, 0)
 
 proc popFrame*(sk: Silky) =
   sk.at = sk.atStack.pop()
@@ -71,11 +94,25 @@ proc pos*(sk: Silky): Vec2 =
 proc size*(sk: Silky): Vec2 =
   sk.sizeStack[^1]
 
+proc stackDirection*(sk: Silky): StackDirection =
+  sk.directionStack[^1]
+
 proc pushLayer*(sk: Silky) =
   inc sk.layer
 
 proc popLayer*(sk: Silky) =
   dec sk.layer
+
+proc advance*(sk: Silky, amount: Vec2) =
+  case sk.stackDirection:
+    of TopToBottom:
+      sk.at.y += amount.y
+    of BottomToTop:
+      sk.at.y -= amount.y
+    of LeftToRight:
+      sk.at.x += amount.x
+    of RightToLeft:
+      sk.at.x -= amount.x
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   if image notin sk.atlas.entries:
@@ -140,7 +177,7 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   glClearColor(color.r, color.g, color.b, color.a)
   glClear(GL_COLOR_BUFFER_BIT)
 
-proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGBX) =
+proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGBX): Vec2 =
   ## Draw text using the specified font from the atlas.
   assert sk.inFrame
   if font notin sk.atlas.fonts:
@@ -201,7 +238,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
       if nextGlyphStr in entry.kerning:
         currentPos.x += entry.kerning[nextGlyphStr]
   
-  sk.at.x = currentPos.x + sk.padding
+  return currentPos - pos
 
 proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
   ## Draw text using the specified font from the atlas.

@@ -43,11 +43,12 @@ type
     fonts*: Table[string, FontAtlas]
 
   AtlasBuilder* = ref object
-    size: int
-    margin: int
-    allocator: SkylineAllocator
-    atlasImage: Image
-    atlas: SilkyAtlas
+    ## Use to build a pixel atlas from a given directories, fonts, and images.
+    size*: int
+    margin*: int
+    allocator*: SkylineAllocator
+    atlasImage*: Image
+    atlas*: SilkyAtlas
 
 proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
   ## Generates a pixel atlas from the given directories.
@@ -77,6 +78,7 @@ proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
   )
 
 proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
+  ## Add all images in the given directory to the atlas.
   for file in walkDir(path):
     if file.path.endsWith(".png"):
       let image = readImage(file.path)
@@ -106,8 +108,7 @@ proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
       builder.atlas.entries[key] = entry
 
 proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, chars: seq[string] = AsciiGlyphs) =
-  # Read each glyph from the font and add it to the atlas.
-  # Add advance as well
+  ## Add a font to the atlas.
   let fontAtlas = FontAtlas()
   fontAtlas.size = size
   let typeface = readTypeface(path)
@@ -169,5 +170,8 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
   builder.atlas.fonts[name] = fontAtlas
 
 proc write*(builder: AtlasBuilder, outputImagePath, outputJsonPath: string) =
+  ## Write the atlas image and JSON file to the given paths.
+  createDir(outputImagePath.splitPath().head)
   builder.atlasImage.writeFile(outputImagePath)
+  createDir(outputJsonPath.splitPath().head)
   writeFile(outputJsonPath, builder.atlas.toJson())
