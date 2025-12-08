@@ -2,16 +2,23 @@ import
   std/[os, strutils, tables, unicode, times],
   pixie, opengl, boxy/[shaders], jsony, shady, vmath, windy,
   fidget2/measure,
-  silky/atlas
+  silky/[atlas, widgets]
 
-export atlas
+export atlas, widgets
 
 type
   Silky* = ref object
     ## The Silky that draws the AA pixel art sprites.
     inFrame: bool = false
+    at*: Vec2
     atStack: seq[Vec2]
+    posStack: seq[Vec2]
     sizeStack: seq[Vec2]
+    textStyle*: string = "Default"
+    padding*: float32 = 12
+    topLayer*: int = 0
+    layer*: int = 0
+
     atlas: SilkyAtlas
     image: Image
     shader: Shader
@@ -47,22 +54,35 @@ var
 
   traceActive: bool = false
 
-proc pushFrame*(sk: Silky, at: Vec2, size: Vec2) =
-  sk.atStack.add(at)
+proc pushFrame*(sk: Silky, pos: Vec2, size: Vec2) =
+  sk.atStack.add(sk.at)
+  sk.posStack.add(pos)
+  sk.at = pos
   sk.sizeStack.add(size)
 
-proc move*(sk: Silky, v: Vec2) =
-  sk.atStack[^1] += v
-
 proc popFrame*(sk: Silky) =
-  discard sk.atStack.pop()
+  sk.at = sk.atStack.pop()
+  discard sk.posStack.pop()
   discard sk.sizeStack.pop()
 
-proc at*(sk: Silky): Vec2 =
-  sk.atStack[^1]
+proc pos*(sk: Silky): Vec2 =
+  sk.posStack[^1]
 
 proc size*(sk: Silky): Vec2 =
   sk.sizeStack[^1]
+
+proc pushLayer*(sk: Silky) =
+  inc sk.layer
+
+proc popLayer*(sk: Silky) =
+  dec sk.layer
+
+proc getImageSize*(sk: Silky, image: string): Vec2 =
+  if image notin sk.atlas.entries:
+    echo "[Warning] Image not found in atlas: " & image
+    return vec2(0, 0)
+  let uv = sk.atlas.entries[image]
+  return vec2(uv.width.float32, uv.height.float32)
 
 proc SilkyVert*(
   pos: Vec2,
@@ -92,7 +112,7 @@ proc SilkyFrag*(fragmentUv: Vec2, fragmentColor: Vec4, FragColor: var Vec4) =
   # Compute the texture coordinates of the pixel.
   FragColor = texture(atlasSampler, fragmentUv) * fragmentColor
 
-proc beginFrame*(sk: Silky, window: Window, size: IVec2) =
+proc beginUi*(sk: Silky, window: Window, size: IVec2) =
 
   when not defined(emscripten):
     if window.buttonPressed[KeyF3]:
@@ -128,7 +148,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
     return
 
   let fontData = sk.atlas.fonts[font]
-  var currentPos = pos
+  var currentPos = pos + vec2(0, fontData.lineHeight)
   let runedText = text.toRunes
 
   for i in 0 ..< runedText.len:
@@ -181,7 +201,44 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
       if nextGlyphStr in entry.kerning:
         currentPos.x += entry.kerning[nextGlyphStr]
   
+  sk.at.x = currentPos.x + sk.padding
 
+proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
+  ## Draw text using the specified font from the atlas.
+
+  let fontData = sk.atlas.fonts[font]
+  var currentPos = vec2(0, fontData.lineHeight)
+  let runedText = text.toRunes
+
+  for i in 0 ..< runedText.len:
+    let rune = runedText[i]
+    
+    if rune == Rune(10): # Newline
+      currentPos.x = 0
+      currentPos.y += fontData.lineHeight
+      continue
+
+    let glyphStr = $rune
+
+    var entry: LetterEntry
+    if glyphStr in fontData.entries:
+      entry = fontData.entries[glyphStr]
+    elif "?" in fontData.entries:
+      entry = fontData.entries["?"]
+    else:
+      continue
+
+    currentPos.x += entry.advance
+
+    # Kerning
+    if i < runedText.len - 1:
+      let nextRune = runedText[i+1]
+      let nextGlyphStr = $nextRune
+      if nextGlyphStr in entry.kerning:
+        currentPos.x += entry.kerning[nextGlyphStr]
+  
+  return currentPos
+  
 proc newSilky*(imagePath, jsonPath: string): Silky =
   ## Creates a new Silky.
   result = Silky()
@@ -364,9 +421,6 @@ proc draw9Patch*(
   let uv = sk.atlas.entries[name]
 
   let
-    pos = pos - vec2(patch.float32, patch.float32)
-    size = size + vec2(patch.float32 * 2, patch.float32 * 2)
-
     p = patch.float32
 
     # Source X definitions: (offset from uv.x, width)
@@ -430,7 +484,7 @@ proc clear*(sk: Silky) =
   sk.colorData.setLen(0)
   sk.instanceCount = 0
 
-proc endFrame*(
+proc endUi*(
   sk: Silky,
 ) {.measure.} =
   ## Draw all queued instances for the current sprite.

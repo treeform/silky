@@ -1,7 +1,7 @@
 import 
   std/[strformat],
   opengl, windy, bumpy, vmath, chroma,
-  ../src/silky
+  silky
 
 var window = newWindow(
   "Silky Example 1", 
@@ -17,7 +17,7 @@ const
   ScrubberColor = parseHtmlColor("#1D1D1D").rgbx
   m = 12f # Default margin
 
-var sk = newSilky("examples/dist/atlas.png", "examples/dist/atlas.json")
+var sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
 var vibes = @[
   "vibe/alembic",
@@ -182,116 +182,76 @@ var vibes = @[
 
 window.onFrame = proc() =
 
-  sk.beginFrame(window, window.size)
-  sk.clearScreen(BackgroundColor)
+  sk.beginUI(window, window.size)
 
+  # Draw map background
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.drawImage(
-        "testTexture", 
-        vec2(x.float32 * 256, y.float32 * 256),
-        rgbx(30, 30, 30, 255)
-      )
+      sk.at = vec2(x.float32 * 256, y.float32 * 256)
+      image("testTexture", rgbx(30, 30, 30, 255))
 
   # Header
-  sk.pushFrame(sk.at, vec2(sk.size.x, 64))
-  sk.drawRect(sk.at, sk.size, RibbonColor)
+  ribbon(sk.pos, vec2(sk.size.x, 64), RibbonColor):
+    image("ui/logo")
+    h1text("Hello, World!")
 
-  sk.drawImage("ui/logo", sk.at)
-  sk.drawText(
-    "Title", 
-    "Hello, World!", 
-    sk.at + vec2(64, 36), 
-    rgbx(255, 255, 255, 255)
-  )
+    button("press me"):
+      echo "pressed"
 
-  var at = sk.at + vec2(sk.size.x - 16 - 32, 16)
-  sk.drawImage("ui/heart", at)
-  at -= vec2(32 + m, 0)
-  sk.drawImage("ui/cloud", at)
-  at -= vec2(32 + m, 0)
-
-  sk.popFrame()
+    sk.at = sk.pos + vec2(sk.size.x - 100, 16)
+    iconButton("ui/heart"):
+      echo "heart"
+    iconButton("ui/cloud"):
+      echo "cloud"
 
   # Scrubber
-  sk.pushFrame(vec2(0, sk.size.y - 64*2), vec2(sk.size.x, 64))
-  sk.drawRect(sk.at, sk.size, ScrubberColor)
-  sk.draw9Patch("track.9patch", 16, sk.at + vec2(16, 32), vec2(sk.size.x - 32, 0))
-  sk.popFrame()
+  ribbon(vec2(0, sk.size.y - 64*2), vec2(sk.size.x, 64), ScrubberColor):
+    scrubber(sk.pos + vec2(16, 32), vec2(sk.size.x - 32, 32))
 
-  # Footer
-  sk.pushFrame(vec2(0, sk.size.y - 64), vec2(sk.size.x, 64))
-  sk.drawRect(sk.at, sk.size, RibbonColor)
+  # Footer 
+  ribbon(vec2(0, sk.size.y - 64), vec2(sk.size.x, 64), RibbonColor):
 
-  at = sk.at + vec2(16, 16)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/rewindToStart", at)
-  at += vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/stepBack", at)
-  at += vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/play", at)
-  at += vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/stepForward", at)
-  at += vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/rewindToEnd", at)
+    group(vec2(16, 16)):
+      iconButton("ui/rewindToStart"):
+        echo "rewindToStart"  
+      iconButton("ui/stepBack"):
+        echo "stepBack"
+      iconButton("ui/play"):
+        echo "play"
+      iconButton("ui/stepForward"):
+        echo "stepForward"
+      iconButton("ui/rewindToEnd"):
+        echo "rewindToEnd"
 
-  at = sk.at + vec2(sk.size.x - 16 - 32, 16)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/heart", at)
-  at -= vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/cloud", at)
-  at -= vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/grid", at)
-  at -= vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/eye", at)
-  at -= vec2(32 + m, 0)
-  sk.draw9Patch("button.9patch", 8, at, vec2(32, 32))
-  sk.drawImage("ui/tack", at)
-  at -= vec2(32 + m, 0)
+    group(vec2(sk.size.x - 240, 16)):
+      iconButton("ui/heart"):
+        echo "heart"
+      iconButton("ui/cloud"):
+        echo "cloud"
+      iconButton("ui/grid"):
+        echo "grid"
+      iconButton("ui/eye"):
+        echo "eye"
+      iconButton("ui/tack"):
+        echo "tack"
 
-  sk.popFrame()
+  frame(vec2(sk.size.x - (11 * (32 + m)), 100) - vec2(14, 14), vec2(500, 800) + vec2(14, 14)):
+    sk.at = sk.pos + vec2(m, m) * 2
+    for i, vibe in vibes:
+      if i > 0 and i mod 10 == 0:
+        sk.at.x = sk.pos.x + m * 2
+        sk.at.y += 32 + m
+      iconButton(vibe):
+        echo vibe
 
-  sk.draw9Patch(
-    "window.9patch",
-    patch = 14,
-    vec2(sk.size.x - (11 * (32 + m)), 100),
-    vec2(500, 700),
-    rgbx(255, 255, 255, 255)   
-  )
-
-  at = vec2(sk.size.x - (11 * (32 + m)), 100)
-  for i, vibe in vibes:
-    if i > 0 and i mod 10 == 0:
-      at.x = (sk.size.x - (11 * (32 + m)))
-      at.y += 32 + m
-    sk.drawImage(vibe, at)
-    at += vec2(32 + m, 0)
-
-  sk.drawText(
-    "Peragraph", 
-    "Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10", 
-    sk.at + vec2(10, 200), 
-    rgbx(255, 255, 255, 255)
-  )
+  group vec2(10, 200):
+    text("Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10")
 
   let ms = sk.avgFrameTime * 1000
-  sk.drawText(
-    "Peragraph", 
-    &"frame time: {ms:>7.3f}ms", 
-    vec2(sk.size.x - 250, 20), 
-    rgbx(255, 255, 255, 255)
-  )
+  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
+  text(&"frame time: {ms:>7.3f}ms")
 
-
-
-  sk.endFrame()
+  sk.endUi()
   window.swapBuffers()
 
 while not window.closeRequested:
