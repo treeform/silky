@@ -21,6 +21,7 @@ type
     atStack: seq[Vec2]
     posStack: seq[Vec2]
     sizeStack: seq[Vec2]
+    stretchAt*: Vec2
     directionStack: seq[StackDirection]
     textStyle*: string = "Default"
     padding*: float32 = 12
@@ -79,6 +80,7 @@ proc pushFrame*(
   sk.at = pos
   sk.sizeStack.add(size)
   sk.directionStack.add(direction)
+  sk.stretchAt = sk.at
   case direction:
     of TopToBottom:
       sk.at = pos
@@ -119,6 +121,8 @@ proc popLayer*(sk: Silky) =
   dec sk.layer
 
 proc advance*(sk: Silky, amount: Vec2) =
+  ## Advance the position.
+  sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(theme.spacing.float32))
   case sk.stackDirection:
     of TopToBottom:
       sk.at.y += amount.y + theme.spacing.float32

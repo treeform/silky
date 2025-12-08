@@ -40,9 +40,11 @@ window.onFrame = proc() =
     text("Hello world!")
     button("Close Me"):
       showWindow = false
-    text("A bunch of text to test the clipping")
+    text("A bunch of text to test the scrolling, in any direction.")
     text("Does it work?")
-    text("Time will tell...")
+
+    for i in 0 ..< 10:
+      text("Time will tell...")
 
   if not showWindow:
     if window.buttonPressed[MouseLeft]:

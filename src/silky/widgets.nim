@@ -22,6 +22,8 @@ type
     resizing*: bool
     resizeOffset*: Vec2
 
+    scrollPos*: Vec2
+
 var
   theme*: Theme = Theme()
   windowStates*: Table[string, WindowState]
@@ -121,8 +123,77 @@ template windowFrame*(title: string, show: bool, body) =
         sk.size.y - 2
       ))
       sk.at += vec2(theme.padding)
+      let originPos = sk.at
+      sk.at -= windowState.scrollPos
+
       body
+
+      # Death with scroll delta.
+      if window.scrollDelta.y != 0:
+        windowState.scrollPos.y -= window.scrollDelta.y * 10
+      if window.scrollDelta.x != 0:
+        windowState.scrollPos.x -= window.scrollDelta.x * 10
+      windowState.scrollPos = max(windowState.scrollPos, vec2(0, 0))
+
+      # Deal with scrolling.
+      sk.stretchAt += vec2(16) # Add some extra stretch.
+      let stretch = sk.stretchAt + windowState.scrollPos - originPos
+      let scrollMax = stretch - sk.size
+
+      # Limit scroll position to the max scrollable amount.
+      if scrollMax.y > 0:
+        windowState.scrollPos.y = min(windowState.scrollPos.y, scrollMax.y)
+      else:
+        windowState.scrollPos.y = 0
+      if scrollMax.x > 0:
+        windowState.scrollPos.x = min(windowState.scrollPos.x, scrollMax.x)
+      else:
+        windowState.scrollPos.x = 0
+
+      # Draw the scrollbar if the content is too large in the Y direction.
+      if stretch.y > sk.size.y:
+        let scrollSize = stretch.y
+        let scrollbarTrackRect = rect(
+          sk.pos.x + sk.size.x - 10,
+          sk.pos.y + 2,
+          8,
+          sk.size.y - 4 - 10
+        )
+        sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+
+        let scrollPosPercent = windowState.scrollPos.y / scrollMax.y
+        let scrollSizePercent = sk.size.y / scrollSize
+        let scrollbarHandleRect = rect(
+          scrollbarTrackRect.x,
+          scrollbarTrackRect.y + (scrollbarTrackRect.h - (scrollbarTrackRect.h * scrollSizePercent)) * scrollPosPercent,
+          8,
+          scrollbarTrackRect.h * scrollSizePercent
+        )
+        sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+
+      # Deal with scrolling X direction.
+      if stretch.x > sk.size.x:
+        let scrollSize = stretch.x
+        let scrollbarTrackRect = rect(
+          sk.pos.x + 2,
+          sk.pos.y + sk.size.y - 10,
+          sk.size.x - 4 - 10,
+          8
+        )
+        sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+
+        let scrollPosPercent = windowState.scrollPos.x / scrollMax.x
+        let scrollSizePercent = sk.size.x / scrollSize
+        let scrollbarHandleRect = rect(
+          scrollbarTrackRect.x + (scrollbarTrackRect.w - (scrollbarTrackRect.w * scrollSizePercent)) * scrollPosPercent,
+          scrollbarTrackRect.y,
+          scrollbarTrackRect.w * scrollSizePercent,
+          8
+        )
+        sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+
       sk.popFrame()
+      sk.popClipRect()
 
       # Draw the resize handle.
       let resizeHandleSize = sk.getImageSize("resize")
@@ -144,7 +215,7 @@ template windowFrame*(title: string, show: bool, body) =
             windowState.resizing = true
             windowState.resizeOffset = window.mousePos.vec2 - windowState.size
       sk.drawImage("resize", resizeHandleRect.xy)
-      sk.popClipRect()
+
     sk.popFrame()
 
 template button*(label: string, body) =
@@ -206,8 +277,8 @@ template text*(t: string) =
   sk.advance(textSize)
 
 template h1text*(t: string) =
-  sk.drawText("H1", t, sk.at, rgbx(255, 255, 255, 255))
-  sk.at.x += sk.padding
+  let textSize = sk.drawText("H1", t, sk.at, rgbx(255, 255, 255, 255))
+  sk.advance(textSize)
 
 template scrubber*(p, s: Vec2) =
   sk.pushFrame(p, s)
