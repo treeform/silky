@@ -126,7 +126,6 @@ template windowFrame*(title: string, show: bool, body) =
         resizeHandleSize.y.float32
       )
       if windowState.resizing and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-        echo "resizing stopped"
         windowState.resizing = false
       if windowState.resizing:
         windowState.size = window.mousePos.vec2 - windowState.resizeOffset
@@ -135,7 +134,6 @@ template windowFrame*(title: string, show: bool, body) =
       else:
         if window.mousePos.vec2.overlaps(resizeHandleRect):
           if window.buttonPressed[MouseLeft]:
-            echo "resizing"
             windowState.resizing = true
             windowState.resizeOffset = window.mousePos.vec2 - windowState.size
       sk.drawImage("resize", resizeHandleRect.xy)
