@@ -107,18 +107,19 @@ template windowFrame*(title: string, show: bool, body) =
     sk.popFrame()
 
     if not windowState.minimized:
-      sk.pushClipRect(rect(
-        windowState.pos.x + theme.border.float32,
-        windowState.pos.y + theme.border.float32 + theme.headerHeight.float32,
-        windowState.size.x - theme.border.float32 * 2,
-        windowState.size.y - theme.border.float32 * 2 - theme.headerHeight.float32
-      ))
+
       # Draw the body.
       sk.pushFrame(
         windowState.pos + vec2(theme.border, theme.border + theme.headerHeight),
         windowState.size - vec2(theme.border * 2, theme.border * 2 + theme.headerHeight)
       )
       sk.draw9Patch("frame.9patch", 6, sk.pos, sk.size)
+      sk.pushClipRect(rect(
+        sk.pos.x + 1,
+        sk.pos.y + 1,
+        sk.size.x - 2,
+        sk.size.y - 2
+      ))
       sk.at += vec2(theme.padding)
       body
       sk.popFrame()
@@ -136,7 +137,7 @@ template windowFrame*(title: string, show: bool, body) =
       if windowState.resizing:
         windowState.size = window.mousePos.vec2 - windowState.resizeOffset
         windowState.size.x = max(windowState.size.x, 200f)
-        windowState.size.y = max(windowState.size.y, float32(theme.headerHeight + theme.border * 2))
+        windowState.size.y = max(windowState.size.y, float32(theme.headerHeight * 2 + theme.border * 2))
       else:
         if window.mousePos.vec2.overlaps(resizeHandleRect):
           if window.buttonPressed[MouseLeft]:

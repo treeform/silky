@@ -29,7 +29,6 @@ var
 window.onFrame = proc() =
 
   sk.beginUI(window, window.size)
-  # sk.clipRect = rect(100, 100, 200, 200)
 
   # Draw tiled test texture as the background.
   for x in 0 ..< 16:
@@ -41,6 +40,9 @@ window.onFrame = proc() =
     text("Hello world!")
     button("Close Me"):
       showWindow = false
+    text("A bunch of text to test the clipping")
+    text("Does it work?")
+    text("Time will tell...")
 
   if not showWindow:
     if window.buttonPressed[MouseLeft]:
