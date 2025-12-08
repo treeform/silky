@@ -63,9 +63,9 @@ var
   traceActive: bool = false
 
 proc pushFrame*(
-  sk: Silky, 
-  pos: Vec2, 
-  size: Vec2, 
+  sk: Silky,
+  pos: Vec2,
+  size: Vec2,
   direction: StackDirection = TopToBottom
 ) =
   sk.atStack.add(sk.at)
@@ -106,13 +106,13 @@ proc popLayer*(sk: Silky) =
 proc advance*(sk: Silky, amount: Vec2) =
   case sk.stackDirection:
     of TopToBottom:
-      sk.at.y += amount.y
+      sk.at.y += amount.y + theme.spacing.float32
     of BottomToTop:
-      sk.at.y -= amount.y
+      sk.at.y -= amount.y + theme.spacing.float32
     of LeftToRight:
-      sk.at.x += amount.x
+      sk.at.x += amount.x + theme.spacing.float32
     of RightToLeft:
-      sk.at.x -= amount.x
+      sk.at.x -= amount.x + theme.spacing.float32
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   if image notin sk.atlas.entries:
@@ -185,12 +185,12 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
     return
 
   let fontData = sk.atlas.fonts[font]
-  var currentPos = pos + vec2(0, fontData.lineHeight)
+  var currentPos = pos + vec2(0, fontData.ascent)
   let runedText = text.toRunes
 
   for i in 0 ..< runedText.len:
     let rune = runedText[i]
-    
+
     if rune == Rune(10): # Newline
       currentPos.x = pos.x
       currentPos.y += fontData.lineHeight
@@ -237,7 +237,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
       let nextGlyphStr = $nextRune
       if nextGlyphStr in entry.kerning:
         currentPos.x += entry.kerning[nextGlyphStr]
-  
+
   return currentPos - pos
 
 proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
@@ -249,7 +249,7 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
 
   for i in 0 ..< runedText.len:
     let rune = runedText[i]
-    
+
     if rune == Rune(10): # Newline
       currentPos.x = 0
       currentPos.y += fontData.lineHeight
@@ -273,9 +273,9 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
       let nextGlyphStr = $nextRune
       if nextGlyphStr in entry.kerning:
         currentPos.x += entry.kerning[nextGlyphStr]
-  
+
   return currentPos
-  
+
 proc newSilky*(imagePath, jsonPath: string): Silky =
   ## Creates a new Silky.
   result = Silky()

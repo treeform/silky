@@ -34,6 +34,9 @@ type
     ## The font atlas that is used to draw text.
     size*: float32
     lineHeight*: float32
+    descent*: float32
+    ascent*: float32
+    lineGap*: float32
     entries*: Table[string, LetterEntry]
 
   SilkyAtlas* = ref object
@@ -68,7 +71,7 @@ proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
       width: whiteTile.width,
       height: whiteTile.height
     )
-  
+
   result = AtlasBuilder(
     size: size,
     margin: margin,
@@ -115,6 +118,9 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
   var fontObj = newFont(typeface)
   fontObj.size = size
   fontAtlas.lineHeight = (typeface.ascent - typeface.descent + typeface.lineGap) * fontObj.scale
+  fontAtlas.ascent = typeface.ascent * fontObj.scale
+  fontAtlas.descent = typeface.descent * fontObj.scale
+  fontAtlas.lineGap = typeface.lineGap * fontObj.scale
 
   for glyphStr in chars:
     let rune = glyphStr.runeAt(0)
