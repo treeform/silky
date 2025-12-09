@@ -223,8 +223,9 @@ template windowFrame*(title: string, show: bool, body) =
 
 template button*(label: string, body) =
   ## Create a button.
-  let textSize = sk.getTextSize(sk.textStyle, label)
-  let buttonSize = textSize + vec2(theme.padding) * 2
+  let
+    textSize = sk.getTextSize(sk.textStyle, label)
+    buttonSize = textSize + vec2(theme.padding) * 2
   if sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(rect(sk.at, buttonSize)):
     if window.buttonReleased[MouseLeft]:
       body
@@ -240,8 +241,9 @@ template button*(label: string, body) =
 
 template iconButton*(image: string, body) =
   ## Create an icon button.
-  let m2 = vec2(8, 8)
-  let s2 = vec2(32, 32) + vec2(8, 8) * 2
+  let
+    m2 = vec2(8, 8)
+    s2 = vec2(32, 32) + vec2(8, 8) * 2
   if sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(rect(sk.at - m2, s2)):
     if window.buttonReleased[MouseLeft]:
       body

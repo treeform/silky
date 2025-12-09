@@ -172,13 +172,15 @@ proc SilkyVert*(
   let corner = uvec2(gl_VertexID mod 2, gl_VertexID div 2)
 
   # Compute the position of the vertex in the atlas.
-  let dx = pos.x + corner.x.float32 * size.x
-  let dy = pos.y + corner.y.float32 * size.y
+  let
+    dx = pos.x + corner.x.float32 * size.x
+    dy = pos.y + corner.y.float32 * size.y
   gl_Position = mvp * vec4(dx, dy, 0.0, 1.0)
 
   # Compute the texture coordinates of the vertex.
-  let sx = uvPos.x + float(corner.x) * uvSize.x
-  let sy = uvPos.y + float(corner.y) * uvSize.y
+  let
+    sx = uvPos.x + float(corner.x) * uvSize.x
+    sy = uvPos.y + float(corner.y) * uvSize.y
   fragmentUv = vec2(sx, sy) / atlasSize
   fragmentColor = color
   fragmentClipPos = clipPos

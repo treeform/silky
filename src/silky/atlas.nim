@@ -55,9 +55,10 @@ type
 
 proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
   ## Generate a pixel atlas from the given directories.
-  let atlasImage = newImage(size, size)
-  let atlas = SilkyAtlas(size: size)
-  let allocator = newSkylineAllocator(size, margin)
+  let
+    atlasImage = newImage(size, size)
+    atlas = SilkyAtlas(size: size)
+    allocator = newSkylineAllocator(size, margin)
 
   # Always add pure white square to the atlas.
   let whiteTile = newImage(16, 16)
@@ -123,11 +124,12 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
   fontAtlas.lineGap = typeface.lineGap * fontObj.scale
 
   for glyphStr in chars:
-    let rune = glyphStr.runeAt(0)
-    let glyphPath = typeface.getGlyphPath(rune)
-    let scale = fontObj.scale
-    let scaleMat = scale(vec2(scale))
-    let bounds = glyphPath.computeBounds(scaleMat).snapToPixels()
+    let
+      rune = glyphStr.runeAt(0)
+      glyphPath = typeface.getGlyphPath(rune)
+      scale = fontObj.scale
+      scaleMat = scale(vec2(scale))
+      bounds = glyphPath.computeBounds(scaleMat).snapToPixels()
     # echo "  Glyph: ", glyphStr, " ", rune, " ", bounds.w, "x", bounds.h
     if bounds.w.ceil.int > 0 and bounds.h.ceil.int > 0:
       let glyphImage = newImage(bounds.w.ceil.int, bounds.h.ceil.int)

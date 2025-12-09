@@ -144,9 +144,10 @@ proc split*(area: Area, layout: AreaLayout) =
 proc scan*(area: Area): (Area, AreaScan, Rect) =
   ## Scan the area to find the target under mouse.
   let mousePos = window.mousePos.vec2
-  var targetArea: Area
-  var areaScan: AreaScan
-  var resRect: Rect
+  var
+    targetArea: Area
+    areaScan: AreaScan
+    resRect: Rect
 
   proc visit(area: Area) =
     if not mousePos.overlaps(area.rect):
