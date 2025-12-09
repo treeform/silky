@@ -95,8 +95,9 @@ proc compute() =
 
 let builder = newAtlasBuilder(1024, 4)
 builder.addDir("data/", "data/")
-builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0)
-builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
+const calculatorChars = @["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "-", "×", "÷", "±", "%", ".", "=", "C"]
+builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0, chars = calculatorChars)
+builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0, chars = calculatorChars)
 builder.write("dist/atlas.png", "dist/atlas.json")
 
 let window = newWindow(
