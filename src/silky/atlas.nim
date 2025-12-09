@@ -54,7 +54,7 @@ type
     atlas*: SilkyAtlas
 
 proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
-  ## Generates a pixel atlas from the given directories.
+  ## Generate a pixel atlas from the given directories.
   let atlasImage = newImage(size, size)
   let atlas = SilkyAtlas(size: size)
   let allocator = newSkylineAllocator(size, margin)

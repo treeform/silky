@@ -32,20 +32,20 @@ type
     atlas: SilkyAtlas
     image: Image
     shader: Shader
-    vao: GLuint              ## Vertex array object
+    vao: GLuint              ## Vertex array object.
 
-    # VBOs
-    posVbo: GLuint           ## Per-instance position (x, y)
-    sizeVbo: GLuint          ## Per-instance size (w, h)
-    uvPosVbo: GLuint         ## Per-instance UV position (u, v)
-    uvSizeVbo: GLuint        ## Per-instance UV size (uw, uh)
-    colorVbo: GLuint         ## Per-instance color (ColorRGBX)
-    clipPosVbo: GLuint       ## Per-instance clip position (x, y)
-    clipSizeVbo: GLuint      ## Per-instance clip size (w, h)
+    # VBOs.
+    posVbo: GLuint           ## Per-instance position (x, y).
+    sizeVbo: GLuint          ## Per-instance size (w, h).
+    uvPosVbo: GLuint         ## Per-instance UV position (u, v).
+    uvSizeVbo: GLuint        ## Per-instance UV size (uw, uh).
+    colorVbo: GLuint         ## Per-instance color (ColorRGBX).
+    clipPosVbo: GLuint       ## Per-instance clip position (x, y).
+    clipSizeVbo: GLuint      ## Per-instance clip size (w, h).
 
-    atlasTexture: GLuint     ## GL texture for the atlas image
+    atlasTexture: GLuint     ## GL texture for the atlas image.
 
-    # Instance Data
+    # Instance Data.
     posData: seq[float32]
     sizeData: seq[float32]
     uvPosData: seq[uint16]
@@ -58,7 +58,7 @@ type
 
     clipStack: seq[Rect]
 
-    # Timeing information
+    # Timing information.
     frameStartTime*: float64
     frameTime*: float64
     avgFrameTime*: float64
@@ -76,6 +76,7 @@ proc pushFrame*(
   size: Vec2,
   direction: StackDirection = TopToBottom
 ) =
+  ## Push a new frame onto the stack.
   sk.atStack.add(sk.at)
   sk.posStack.add(pos)
   sk.at = pos
@@ -93,32 +94,41 @@ proc pushFrame*(
       sk.at = pos - vec2(size.x, 0)
 
 proc popFrame*(sk: Silky) =
+  ## Pop the current frame from the stack.
   sk.at = sk.atStack.pop()
   discard sk.posStack.pop()
   discard sk.sizeStack.pop()
 
 proc pos*(sk: Silky): Vec2 =
+  ## Get the current frame position.
   sk.posStack[^1]
 
 proc size*(sk: Silky): Vec2 =
+  ## Get the current frame size.
   sk.sizeStack[^1]
 
 proc stackDirection*(sk: Silky): StackDirection =
+  ## Get the current stack direction.
   sk.directionStack[^1]
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
+  ## Push a new clip rectangle onto the stack.
   sk.clipStack.add(rect)
 
 proc popClipRect*(sk: Silky) =
+  ## Pop the current clip rectangle from the stack.
   discard sk.clipStack.pop()
 
 proc clipRect*(sk: Silky): Rect =
+  ## Get the current clip rectangle.
   sk.clipStack[^1]
 
 proc pushLayer*(sk: Silky) =
+  ## Push a new layer.
   inc sk.layer
 
 proc popLayer*(sk: Silky) =
+  ## Pop the current layer.
   dec sk.layer
 
 proc advance*(sk: Silky, amount: Vec2) =
@@ -135,6 +145,7 @@ proc advance*(sk: Silky, amount: Vec2) =
       sk.at.x -= amount.x + theme.spacing.float32
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
+  ## Get the size of an image in the atlas.
   if image notin sk.atlas.entries:
     echo "[Warning] Image not found in atlas: " & image
     return vec2(0, 0)
@@ -155,8 +166,9 @@ proc SilkyVert*(
   fragmentClipSize: var Vec2,
   fragmentPos: var Vec2
 ) =
+  ## Vertex shader for Silky.
   # Compute the corner of the quad based on the vertex ID.
-  # 0:(0,0), 1:(1,0), 2:(0,1), 3:(1,1)
+  # 0:(0,0), 1:(1,0), 2:(0,1), 3:(1,1).
   let corner = uvec2(gl_VertexID mod 2, gl_VertexID div 2)
 
   # Compute the position of the vertex in the atlas.
@@ -181,6 +193,7 @@ proc SilkyFrag*(
   fragmentPos: Vec2,
   FragColor: var Vec4
 ) =
+  ## Fragment shader for Silky.
   if fragmentPos.x < fragmentClipPos.x or
     fragmentPos.y < fragmentClipPos.y or
     fragmentPos.x > fragmentClipPos.x + fragmentClipSize.x or
@@ -192,7 +205,7 @@ proc SilkyFrag*(
     FragColor = texture(atlasSampler, fragmentUv) * fragmentColor
 
 proc beginUi*(sk: Silky, window: Window, size: IVec2) =
-
+  ## Begin the UI frame.
   when not defined(emscripten):
     if window.buttonPressed[KeyF3]:
       if traceActive == false:
@@ -217,6 +230,7 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   sk.pushClipRect(rect(0, 0, sk.size.x, sk.size.y))
 
 proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
+  ## Clear the screen with a color.
   let color = color.color
   glClearColor(color.r, color.g, color.b, color.a)
   glClear(GL_COLOR_BUFFER_BIT)
@@ -235,7 +249,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
   for i in 0 ..< runedText.len:
     let rune = runedText[i]
 
-    if rune == Rune(10): # Newline
+    if rune == Rune(10): # Newline.
       currentPos.x = pos.x
       currentPos.y += fontData.lineHeight
       continue
@@ -250,7 +264,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
     else:
       continue
 
-    # Draw the glyph if it has dimensions
+    # Draw the glyph if it has dimensions.
     if entry.boundsWidth > 0 and entry.boundsHeight > 0:
       let pos = vec2(
         round(currentPos.x + entry.boundsX),
@@ -281,7 +295,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
 
     currentPos.x += entry.advance
 
-    # Kerning
+    # Kerning.
     if i < runedText.len - 1:
       let nextRune = runedText[i+1]
       let nextGlyphStr = $nextRune
@@ -291,8 +305,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
   return currentPos - pos
 
 proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
-  ## Draw text using the specified font from the atlas.
-
+  ## Get the size of the text.
   let fontData = sk.atlas.fonts[font]
   var currentPos = vec2(0, fontData.lineHeight)
   let runedText = text.toRunes
@@ -300,7 +313,7 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
   for i in 0 ..< runedText.len:
     let rune = runedText[i]
 
-    if rune == Rune(10): # Newline
+    if rune == Rune(10): # Newline.
       currentPos.x = 0
       currentPos.y += fontData.lineHeight
       continue
@@ -317,7 +330,7 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
 
     currentPos.x += entry.advance
 
-    # Kerning
+    # Kerning.
     if i < runedText.len - 1:
       let nextRune = runedText[i+1]
       let nextGlyphStr = $nextRune
@@ -327,7 +340,7 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
   return currentPos
 
 proc newSilky*(imagePath, jsonPath: string): Silky =
-  ## Creates a new Silky.
+  ## Create a new Silky.
   result = Silky()
   result.image = readImage(imagePath)
   result.atlas = readFile(jsonPath).fromJson(SilkyAtlas)
@@ -359,7 +372,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
       ("SilkyFrag", toGLSL(SilkyFrag, "410", ""))
     )
 
-  # Upload atlas image to GL texture
+  # Upload atlas image to GL texture.
   glGenTextures(1, result.atlasTexture.addr)
   glActiveTexture(GL_TEXTURE0)
   glBindTexture(GL_TEXTURE_2D, result.atlasTexture)
@@ -385,7 +398,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glBindVertexArray(result.vao)
   let program = result.shader.programId
 
-  # 1. Position VBO (vec2)
+  # 1. Position VBO (vec2).
   glGenBuffers(1, result.posVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.posVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -395,7 +408,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(posLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
   glVertexAttribDivisor(posLoc.GLuint, 1)
 
-  # 2. Size VBO (vec2)
+  # 2. Size VBO (vec2).
   glGenBuffers(1, result.sizeVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.sizeVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -405,7 +418,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(sizeLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
   glVertexAttribDivisor(sizeLoc.GLuint, 1)
 
-  # 3. UV Position VBO (vec2)
+  # 3. UV Position VBO (vec2).
   glGenBuffers(1, result.uvPosVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.uvPosVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -415,7 +428,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(uvPosLoc.GLuint, 2, GL_UNSIGNED_SHORT, GL_FALSE, 2 * sizeof(uint16), nil)
   glVertexAttribDivisor(uvPosLoc.GLuint, 1)
 
-  # 4. UV Size VBO (vec2)
+  # 4. UV Size VBO (vec2).
   glGenBuffers(1, result.uvSizeVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.uvSizeVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -425,7 +438,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(uvSizeLoc.GLuint, 2, GL_UNSIGNED_SHORT, GL_FALSE, 2 * sizeof(uint16), nil)
   glVertexAttribDivisor(uvSizeLoc.GLuint, 1)
 
-  # 5. Color VBO (vec4, normalized uint8)
+  # 5. Color VBO (vec4, normalized uint8).
   glGenBuffers(1, result.colorVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.colorVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -435,7 +448,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(colorLoc.GLuint, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ColorRGBX).GLsizei, nil)
   glVertexAttribDivisor(colorLoc.GLuint, 1)
 
-  # 6. Clip Position VBO (vec2)
+  # 6. Clip Position VBO (vec2).
   glGenBuffers(1, result.clipPosVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.clipPosVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -445,7 +458,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glVertexAttribPointer(clipPosLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
   glVertexAttribDivisor(clipPosLoc.GLuint, 1)
 
-  # 7. Clip Size VBO (vec2)
+  # 7. Clip Size VBO (vec2).
   glGenBuffers(1, result.clipSizeVbo.addr)
   glBindBuffer(GL_ARRAY_BUFFER, result.clipSizeVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
@@ -467,7 +480,7 @@ proc drawQuad*(
   uvSize: Vec2,
   color: ColorRGBX
 ) {.measure.} =
-  ## Draws a quad.
+  ## Draw a quad.
   sk.posData.add(pos.x)
   sk.posData.add(pos.y)
 
@@ -496,7 +509,7 @@ proc drawImage*(
   pos: Vec2,
   color = rgbx(255, 255, 255, 255)
 ) {.measure.} =
-  ## Draws a sprite at the given position.
+  ## Draw a sprite at the given position.
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name
     return
@@ -515,7 +528,7 @@ proc drawRect*(
   size: Vec2,
   color: ColorRGBX
 ) {.measure.} =
-  ## Draws a colored rectangle.
+  ## Draw a colored rectangle.
   let uv = sk.atlas.entries[WhiteTileKey]
   let center = vec2(uv.x.float32, uv.y.float32) + vec2(uv.width.float32, uv.height.float32) / 2
   sk.drawQuad(pos, size, center, vec2(0, 0), color)
@@ -523,12 +536,12 @@ proc drawRect*(
 proc draw9Patch*(
   sk: Silky,
   name: string,
-  patch: int, # How much is the border size in pixels
+  patch: int, # How much is the border size in pixels.
   pos: Vec2,
   size: Vec2,
   color = rgbx(255, 255, 255, 255)
 ) =
-  ## Draws a 9-patch image.
+  ## Draw a 9-patch image.
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name
     return
@@ -537,27 +550,27 @@ proc draw9Patch*(
   let
     p = patch.float32
 
-    # Source X definitions: (offset from uv.x, width)
+    # Source X definitions: (offset from uv.x, width).
     srcXOffsets = [0.int, patch, uv.width - patch]
     srcWidths = [patch, uv.width - 2 * patch, patch]
 
-    # Source Y definitions: (offset from uv.y, height)
+    # Source Y definitions: (offset from uv.y, height).
     srcYOffsets = [0.int, patch, uv.height - patch]
     srcHeights = [patch, uv.height - 2 * patch, patch]
 
-    # Dest X definitions: (offset from pos.x, width)
+    # Dest X definitions: (offset from pos.x, width).
     dstXOffsets = [0.float32, p, size.x - p]
     dstWidths = [p, size.x - 2 * p, p]
 
-    # Dest Y definitions: (offset from pos.y, height)
+    # Dest Y definitions: (offset from pos.y, height).
     dstYOffsets = [0.float32, p, size.y - p]
     dstHeights = [p, size.y - 2 * p, p]
 
-  # Draw order: Corners, Sides, Middle
+  # Draw order: Corners, Sides, Middle.
   let order = [
-    (0, 0), (2, 0), (0, 2), (2, 2), # Corners
-    (1, 0), (0, 1), (2, 1), (1, 2), # Sides
-    (1, 1)                          # Middle
+    (0, 0), (2, 0), (0, 2), (2, 2), # Corners.
+    (1, 0), (0, 1), (2, 1), (1, 2), # Sides.
+    (1, 1)                          # Middle.
   ]
 
   for (x, y) in order:
@@ -566,7 +579,7 @@ proc draw9Patch*(
     let dw = dstWidths[x]
     let dh = dstHeights[y]
 
-    # Skip if drawing nothing (e.g. if middle has 0 width)
+    # Skip if drawing nothing (e.g. if middle has 0 width).
     if dw <= 0.001 or dh <= 0.001 or sw <= 0 or sh <= 0:
       continue
 
@@ -579,11 +592,11 @@ proc draw9Patch*(
     )
 
 proc contains*(sk: Silky, name: string): bool =
-  ## Checks if the given sprite is in the atlas.
+  ## Check if the given sprite is in the atlas.
   name in sk.atlas.entries
 
 proc clear*(sk: Silky) =
-  ## Clears the current instance queue.
+  ## Clear the current instance queue.
   sk.posData.setLen(0)
   sk.sizeData.setLen(0)
   sk.uvPosData.setLen(0)
@@ -645,13 +658,13 @@ proc endUi*(
   sk.shader.setUniform("atlasSampler", 0)
   sk.shader.bindUniforms()
 
-  # Make sure VAO is bound before drawing
+  # Make sure VAO is bound before drawing.
   glBindVertexArray(sk.vao)
 
-  # Draw 4-vertex triangle strip per instance (expanded in vertex shader)
+  # Draw 4-vertex triangle strip per instance (expanded in vertex shader).
   glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, sk.instanceCount.GLsizei)
 
-  # Unbind minimal state
+  # Unbind minimal state.
   glBindVertexArray(0)
   glUseProgram(0)
   glBindTexture(GL_TEXTURE_2D, 0)

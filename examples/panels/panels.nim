@@ -74,6 +74,7 @@ proc movePanels*(area: Area, panels: seq[Panel])
 
 # Logic
 proc clear*(area: Area) =
+  ## Clear the area.
   for panel in area.panels:
     panel.parentArea = nil
   for subarea in area.areas:
@@ -82,6 +83,7 @@ proc clear*(area: Area) =
   area.areas.setLen(0)
 
 proc removeBlankAreas*(area: Area) =
+  ## Remove blank areas recursively.
   if area.areas.len > 0:
     assert area.areas.len == 2
     if area.areas[0].panels.len == 0 and area.areas[0].areas.len == 0:
@@ -111,10 +113,12 @@ proc removeBlankAreas*(area: Area) =
       removeBlankAreas(subarea)
 
 proc addPanel*(area: Area, name: string) =
+  ## Add a panel to the area.
   let panel = Panel(name: name, parentArea: area)
   area.panels.add(panel)
 
 proc movePanel*(area: Area, panel: Panel) =
+  ## Move a panel to this area.
   let idx = panel.parentArea.panels.find(panel)
   if idx != -1:
     panel.parentArea.panels.delete(idx)
@@ -122,11 +126,13 @@ proc movePanel*(area: Area, panel: Panel) =
   panel.parentArea = area
 
 proc movePanels*(area: Area, panels: seq[Panel]) =
+  ## Move multiple panels to this area.
   var panelList = panels # Copy
   for panel in panelList:
     area.movePanel(panel)
 
 proc split*(area: Area, layout: AreaLayout) =
+  ## Split the area.
   let
     area1 = Area(rect: area.rect) # inherit rect initially
     area2 = Area(rect: area.rect)
@@ -136,6 +142,7 @@ proc split*(area: Area, layout: AreaLayout) =
   area.areas.add(area2)
 
 proc scan*(area: Area): (Area, AreaScan, Rect) =
+  ## Scan the area to find the target under mouse.
   let mousePos = window.mousePos.vec2
   var targetArea: Area
   var areaScan: AreaScan
@@ -357,7 +364,6 @@ window.onFrame = proc() =
   sk.drawRect(vec2(0, 0), window.size.vec2, BackgroundColor)
 
   # Reset cursor
-
   sk.cursor = Cursor(kind: ArrowCursor)
 
   # Update Dragging Split
