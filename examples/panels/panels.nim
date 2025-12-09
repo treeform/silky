@@ -251,7 +251,7 @@ proc drawAreaRecursive(area: Area, r: Rect) =
       let splitRect = rect(r.x, r.y + splitPos - 2, r.w, 4)
       
       if dragArea == nil and window.mousePos.vec2.overlaps(splitRect):
-        window.cursor = Cursor(kind: ResizeUpDownCursor)
+        sk.cursor = Cursor(kind: ResizeUpDownCursor)
         if window.buttonPressed[MouseLeft]:
           dragArea = area
       
@@ -267,7 +267,7 @@ proc drawAreaRecursive(area: Area, r: Rect) =
       let splitRect = rect(r.x + splitPos - 2, r.y, 4, r.h)
       
       if dragArea == nil and window.mousePos.vec2.overlaps(splitRect):
-        window.cursor = Cursor(kind: ResizeLeftRightCursor)
+        sk.cursor = Cursor(kind: ResizeLeftRightCursor)
         if window.buttonPressed[MouseLeft]:
           dragArea = area
           
@@ -308,9 +308,9 @@ proc drawAreaRecursive(area: Area, r: Rect) =
            discard
       
       if isSelected:
-        sk.draw9Patch("button.down.9patch", 4, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
+        sk.draw9Patch("header.dragging.9patch", 6, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
       elif isHovered:
-        sk.draw9Patch("button.hover.9patch", 4, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
+        sk.draw9Patch("header.hover.9patch", 6, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
         
       discard sk.drawText("Default", panel.name, vec2(x + 8, r.y + 4 + 2), rgbx(255, 255, 255, 255))
       
@@ -335,7 +335,8 @@ window.onFrame = proc() =
   sk.drawRect(vec2(0, 0), window.size.vec2, BackgroundColor)
   
   # Reset cursor
-  window.cursor = Cursor(kind: ArrowCursor)
+  
+  sk.cursor = Cursor(kind: ArrowCursor)
   
   # Update Dragging Split
   if dragArea != nil:
@@ -343,10 +344,10 @@ window.onFrame = proc() =
       dragArea = nil
     else:
       if dragArea.layout == Horizontal:
-        window.cursor = Cursor(kind: ResizeUpDownCursor)
+        sk.cursor = Cursor(kind: ResizeUpDownCursor)
         dragArea.split = (window.mousePos.vec2.y - dragArea.rect.y) / dragArea.rect.h
       else:
-        window.cursor = Cursor(kind: ResizeLeftRightCursor)
+        sk.cursor = Cursor(kind: ResizeLeftRightCursor)
         dragArea.split = (window.mousePos.vec2.x - dragArea.rect.x) / dragArea.rect.w
       dragArea.split = clamp(dragArea.split, 0.1, 0.9)
       
@@ -396,7 +397,7 @@ window.onFrame = proc() =
     let label = dragPanel.name
     let textSize = sk.getTextSize("Default", label)
     let size = textSize + vec2(16, 8)
-    sk.draw9Patch("button.down.9patch", 4, window.mousePos.vec2 + vec2(10, 10), size, rgbx(255, 255, 255, 200))
+    sk.draw9Patch("tooltip.9patch", 4, window.mousePos.vec2 + vec2(10, 10), size, rgbx(255, 255, 255, 200))
     discard sk.drawText("Default", label, window.mousePos.vec2 + vec2(18, 14), rgbx(255, 255, 255, 255))
 
   # Input Handling for Refresh
@@ -405,6 +406,10 @@ window.onFrame = proc() =
 
   sk.endUi()
   window.swapBuffers()
+  
+  if window.cursor.kind != sk.cursor.kind:
+    echo "cursor changed to ", sk.cursor.kind
+    window.cursor = sk.cursor
 
 while not window.closeRequested:
   pollEvents()

@@ -27,6 +27,7 @@ type
     padding*: float32 = 12
     topLayer*: int = 0
     layer*: int = 0
+    cursor*: Cursor = Cursor(kind: ArrowCursor)
 
     atlas: SilkyAtlas
     image: Image
