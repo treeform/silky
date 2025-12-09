@@ -4,13 +4,13 @@ import
   opengl, windy, bumpy, vmath, chroma,
   silky
 
-var builder = newAtlasBuilder(1024, 4)
+let builder = newAtlasBuilder(1024, 4)
 builder.addDir("data/", "data/")
 builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0)
 builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
 builder.write("dist/atlas.png", "dist/atlas.json")
 
-var window = newWindow(
+let window = newWindow(
   "Basic Window",
   ivec2(800, 600),
   vsync = false
@@ -21,7 +21,7 @@ loadExtensions()
 const
   BackgroundColor = parseHtmlColor("#000000").rgbx
 
-var sk = newSilky("dist/atlas.png", "dist/atlas.json")
+let sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
 var
   showWindow = true

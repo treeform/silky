@@ -33,8 +33,7 @@ proc grow*(allocator: SkylineAllocator, newSize: int) =
     allocator.skyline[^1].width = allocator.atlasSize - allocator.skyline[^1].x
 
 proc findSkylinePosition(allocator: SkylineAllocator, width, height: int): (bool, int, int) =
-  ## Find the best position for a rectangle in the skyline packing.
-  ## Returns (found, x, y).
+  ## Find the best position for a rectangle in the skyline packing, returns (found, x, y).
   var
     bestY = allocator.atlasSize + 1
     bestX = 0

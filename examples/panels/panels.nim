@@ -5,14 +5,14 @@ import
   silky
 
 # Setup Atlas
-var builder = newAtlasBuilder(1024, 4)
+let builder = newAtlasBuilder(1024, 4)
 builder.addDir("data/", "data/")
 builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0)
 builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
 builder.write("dist/atlas.png", "dist/atlas.json")
 
 # Setup Window
-var window = newWindow(
+let window = newWindow(
   "Panels Example",
   ivec2(1200, 800),
   vsync = false
@@ -24,7 +24,7 @@ proc snapToPixels(rect: Rect): Rect =
   rect(rect.x.int.float32, rect.y.int.float32, rect.w.int.float32, rect.h.int.float32)
 
 # Setup Silky
-var sk = newSilky("dist/atlas.png", "dist/atlas.json")
+let sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
 # Types
 type
