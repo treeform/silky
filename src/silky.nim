@@ -28,9 +28,10 @@ type
     topLayer*: int = 0
     layer*: int = 0
     cursor*: Cursor = Cursor(kind: ArrowCursor)
+    inputRunes*: seq[Rune]
 
-    atlas: SilkyAtlas
-    image: Image
+    atlas*: SilkyAtlas
+    image*: Image
     shader: Shader
     vao: GLuint              ## Vertex array object.
 
@@ -683,5 +684,7 @@ proc endUi*(
 
   sk.frameTime = epochTime() - sk.frameStartTime
   sk.avgFrameTime = (sk.avgFrameTime * 0.99) + (sk.frameTime * 0.01)
+
+  sk.inputRunes.setLen(0)
 
   measurePop()

@@ -23,6 +23,10 @@ const
 
 let sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
+window.runeInputEnabled = true
+window.onRune = proc(rune: Rune) =
+  sk.inputRunes.add(rune)
+
 var
   showWindow = true
   inputText = "Type here!"

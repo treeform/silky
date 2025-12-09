@@ -1,8 +1,9 @@
 import
-  std/[tables],
-  vmath, bumpy, chroma, windy
+  std/[tables, unicode, times],
+  vmath, bumpy, chroma, windy,
+  silky/textinput
 
-export tables
+export tables, textinput
 
 type
   Theme* = object
@@ -24,16 +25,11 @@ type
 
     scrollPos*: Vec2
 
-  InputTextState* = ref object
-    text*: string
-    cursor*: int
-    selectionStart*: int
-    selectionEnd*: int
 
 var
   theme*: Theme = Theme()
   windowStates*: Table[string, WindowState]
-  textInputStates*: Table[string, InputTextState]
+  textInputStates*: Table[int, InputTextState]
 
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
@@ -306,17 +302,60 @@ template scrubber*(p, s: Vec2) =
   sk.draw9Patch("track.9patch", 16, sk.pos, sk.size)
   sk.popFrame()
 
-template inputText*(id: int, t: string) =
+template inputText*(id: int, t: var string) =
   ## Create an input text.
-  sk.pushFrame(sk.at, sk.size)
-  sk.draw9Patch("input.9patch", 4, sk.pos, sk.size)
+  let font = sk.atlas.fonts[sk.textStyle]
+  let height = font.lineHeight + theme.padding.float32 * 2
+  let width = sk.size.x - theme.padding.float32 * 2
+  sk.pushFrame(sk.at, vec2(width, height))
 
   if id notin textInputStates:
-    textInputStates[id] = InputTextState(text: t, cursor: 0, selectionStart: 0, selectionEnd: 0)
+    textInputStates[id] = InputTextState(focused: false)
+    textInputStates[id].setText(t)
+
   let textInputState = textInputStates[id]
 
-  # Keyboard commands to delete text.
+  # Handle focus
+  if window.buttonPressed[MouseLeft]:
+    if window.mousePos.vec2.overlaps(rect(sk.pos, sk.size)):
+      textInputState.focused = true
+      # TODO: Set cursor position based on click
+    else:
+      textInputState.focused = false
 
-  sk.drawText(sk.textStyle, t, sk.at + vec2(theme.padding), rgbx(255, 255, 255, 255))
+  # Handle input if focused
+  if textInputState.focused:
+    sk.draw9Patch("frame.9patch", 6, sk.pos, sk.size, rgbx(220, 220, 255, 255))
+
+    # Process runes
+    for r in sk.inputRunes:
+      textInputState.typeCharacter(r)
+
+    textInputState.handleInput(window)
+
+    # Sync back
+    t = textInputState.getText()
+  else:
+    sk.draw9Patch("frame.9patch", 6, sk.pos, sk.size)
+
+  # Draw text
+  # We should probably clip or scroll text
+  let padding = vec2(theme.padding)
+  discard sk.drawText(sk.textStyle, t, sk.at + padding, theme.defaultTextColor)
+
+  # Draw cursor
+  if textInputState.focused and (epochTime() * 2).int mod 2 == 0:
+    # Calculate cursor position
+    # This is inefficient, measuring text up to cursor
+    # But fine for now
+    let textBeforeCursor = $textInputState.runes[0 ..< min(textInputState.cursor, textInputState.runes.len)]
+    let textSize = sk.getTextSize(sk.textStyle, textBeforeCursor)
+    let cursorHeight = sk.atlas.fonts[sk.textStyle].lineHeight
+
+    let cursorX = sk.at.x + padding.x + textSize.x
+    let cursorY = sk.at.y + padding.y
+
+    sk.drawRect(vec2(cursorX, cursorY), vec2(2, cursorHeight), theme.defaultTextColor)
 
   sk.popFrame()
+  sk.advance(vec2(width, height))
