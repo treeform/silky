@@ -1,6 +1,6 @@
 
 import
-  std/[random],
+  std/[random, strformat],
   opengl, windy, bumpy, vmath, chroma,
   silky
 
@@ -19,6 +19,9 @@ var window = newWindow(
 )
 makeContextCurrent(window)
 loadExtensions()
+
+proc snapToPixels(rect: Rect): Rect =
+  rect(rect.x.int.float32, rect.y.int.float32, rect.w.int.float32, rect.h.int.float32)
 
 # Setup Silky
 var sk = newSilky("dist/atlas.png", "dist/atlas.json")
@@ -62,6 +65,9 @@ var
   dragPanel: Panel # For moving panels
   dropHighlight: Rect
   showDropHighlight: bool
+
+  maybeDragStartPos: Vec2
+  maybeDragPanel: Panel
 
 # Forward declarations
 proc movePanels*(area: Area, panels: seq[Panel])
@@ -239,7 +245,7 @@ initRootArea()
 
 # Drawing
 proc drawAreaRecursive(area: Area, r: Rect) =
-  area.rect = r
+  area.rect = r.snapToPixels()
 
   if area.areas.len > 0:
     let m = AreaMargin / 2
@@ -291,10 +297,11 @@ proc drawAreaRecursive(area: Area, r: Rect) =
 
     # Draw Tabs
     var x = r.x + 4
+    sk.pushClipRect(rect(r.x, r.y, r.w - 2, AreaHeaderHeight))
     for i, panel in area.panels:
       let textSize = sk.getTextSize("Default", panel.name)
       let tabW = textSize.x + 16
-      let tabRect = rect(x, r.y + 2, tabW, AreaHeaderHeight - 4)
+      let tabRect = rect(x, r.y + 4, tabW, AreaHeaderHeight - 4)
 
       let isSelected = i == area.selectedPanelNum
       let isHovered = window.mousePos.vec2.overlaps(tabRect)
@@ -302,11 +309,22 @@ proc drawAreaRecursive(area: Area, r: Rect) =
       # Handle Tab Clicks and Dragging
       if isHovered:
         if window.buttonPressed[MouseLeft]:
-           area.selectedPanelNum = i
-           dragPanel = panel
+          area.selectedPanelNum = i
+          # Only start dragging if the mouse moves 10 pixels.
+          maybeDragStartPos = window.mousePos.vec2
+          maybeDragPanel = panel
         elif window.buttonDown[MouseLeft] and dragPanel == panel:
-           # Dragging started
-           discard
+          # Dragging started
+          discard
+
+      if window.buttonDown[MouseLeft]:
+        if maybeDragPanel != nil and (maybeDragStartPos - window.mousePos.vec2).length() > 10:
+          dragPanel = maybeDragPanel
+          maybeDragStartPos = vec2(0, 0)
+          maybeDragPanel = nil
+      else:
+        maybeDragStartPos = vec2(0, 0)
+        maybeDragPanel = nil
 
       if isSelected:
         sk.draw9Patch("panel.tab.selected.9patch", 3, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
@@ -318,6 +336,7 @@ proc drawAreaRecursive(area: Area, r: Rect) =
       discard sk.drawText("Default", panel.name, vec2(x + 8, r.y + 4 + 2), rgbx(255, 255, 255, 255))
 
       x += tabW + 2
+    sk.popClipRect()
 
     # Draw Content
     let contentRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
@@ -390,7 +409,7 @@ window.onFrame = proc() =
       showDropHighlight = true
 
   # Draw Areas
-  drawAreaRecursive(rootArea, rect(0, 0, window.size.x.float32, window.size.y.float32))
+  drawAreaRecursive(rootArea, rect(0, 1, window.size.x.float32, window.size.y.float32))
 
   # Draw Drop Highlight
   if showDropHighlight and dragPanel != nil:
@@ -406,6 +425,10 @@ window.onFrame = proc() =
   # Input Handling for Refresh
   if window.buttonPressed[KeyR]:
     regenerate()
+
+  let ms = sk.avgFrameTime * 1000
+  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
+  text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()
   window.swapBuffers()
