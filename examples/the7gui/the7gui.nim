@@ -11,7 +11,7 @@ builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
 builder.write("dist/atlas.png", "dist/atlas.json")
 
 let window = newWindow(
-  "Basic Window",
+  "7GUIs - Counter",
   ivec2(800, 600),
   vsync = false
 )
@@ -25,7 +25,7 @@ let sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
 var
   showWindow = true
-  inputText = "Type here!"
+  counter = 0
 
 window.onFrame = proc() =
 
@@ -37,16 +37,10 @@ window.onFrame = proc() =
       sk.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
-  windowFrame("A Window", showWindow):
-    text("Hello world!")
-    button("Close Me"):
-      showWindow = false
-    inputText(10, inputText)
-    text("A bunch of text to test the scrolling, in any direction.")
-    text("Does it work?")
-
-    for i in 0 ..< 10:
-      text("Time will tell...")
+  windowFrame("Counter", showWindow):
+    text(&"{counter}")
+    button("Count"):
+      inc counter
 
   if not showWindow:
     if window.buttonPressed[MouseLeft]:

@@ -8,7 +8,7 @@ export atlas, widgets
 
 type
 
-  StackDirection = enum
+  StackDirection* = enum
     TopToBottom
     BottomToTop
     LeftToRight

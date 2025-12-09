@@ -24,9 +24,16 @@ type
 
     scrollPos*: Vec2
 
+  InputTextState* = ref object
+    text*: string
+    cursor*: int
+    selectionStart*: int
+    selectionEnd*: int
+
 var
   theme*: Theme = Theme()
   windowStates*: Table[string, WindowState]
+  textInputStates*: Table[string, InputTextState]
 
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
@@ -297,4 +304,19 @@ template scrubber*(p, s: Vec2) =
   ## Create a scrubber.
   sk.pushFrame(p, s)
   sk.draw9Patch("track.9patch", 16, sk.pos, sk.size)
+  sk.popFrame()
+
+template inputText*(id: int, t: string) =
+  ## Create an input text.
+  sk.pushFrame(sk.at, sk.size)
+  sk.draw9Patch("input.9patch", 4, sk.pos, sk.size)
+
+  if id notin textInputStates:
+    textInputStates[id] = InputTextState(text: t, cursor: 0, selectionStart: 0, selectionEnd: 0)
+  let textInputState = textInputStates[id]
+
+  # Keyboard commands to delete text.
+
+  sk.drawText(sk.textStyle, t, sk.at + vec2(theme.padding), rgbx(255, 255, 255, 255))
+
   sk.popFrame()
