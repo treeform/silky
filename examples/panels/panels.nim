@@ -51,7 +51,7 @@ type
 
 # Constants
 const
-  AreaHeaderHeight = 28.0
+  AreaHeaderHeight = 32.0
   AreaMargin = 6.0
   BackgroundColor = parseHtmlColor("#222222").rgbx
 
@@ -62,7 +62,7 @@ var
   dragPanel: Panel # For moving panels
   dropHighlight: Rect
   showDropHighlight: bool
-  
+
 # Forward declarations
 proc movePanels*(area: Area, panels: seq[Panel])
 
@@ -134,11 +134,11 @@ proc scan*(area: Area): (Area, AreaScan, Rect) =
   var targetArea: Area
   var areaScan: AreaScan
   var resRect: Rect
-  
+
   proc visit(area: Area) =
     if not mousePos.overlaps(area.rect):
       return
-      
+
     if area.areas.len > 0:
       for subarea in area.areas:
         visit(subarea)
@@ -187,7 +187,7 @@ proc scan*(area: Area): (Area, AreaScan, Rect) =
       elif mousePos.overlaps(bodyRect):
         areaScan = Body
         resRect = bodyRect
-      
+
       targetArea = area
 
   visit(rootArea)
@@ -216,7 +216,7 @@ proc initRootArea() =
 
 proc regenerate() =
   rootArea = Area()
-  
+
   var panelNum = 1
   proc iterate(area: Area, depth: int) =
     if rand(0 .. depth) < 2:
@@ -240,64 +240,65 @@ initRootArea()
 # Drawing
 proc drawAreaRecursive(area: Area, r: Rect) =
   area.rect = r
-  
+
   if area.areas.len > 0:
     let m = AreaMargin / 2
     if area.layout == Horizontal:
       # Top/Bottom
       let splitPos = r.h * area.split
-      
+
       # Handle split resizing
       let splitRect = rect(r.x, r.y + splitPos - 2, r.w, 4)
-      
+
       if dragArea == nil and window.mousePos.vec2.overlaps(splitRect):
         sk.cursor = Cursor(kind: ResizeUpDownCursor)
         if window.buttonPressed[MouseLeft]:
           dragArea = area
-      
+
       let r1 = rect(r.x, r.y, r.w, splitPos - m)
       let r2 = rect(r.x, r.y + splitPos + m, r.w, r.h - splitPos - m)
       drawAreaRecursive(area.areas[0], r1)
       drawAreaRecursive(area.areas[1], r2)
-      
+
     else:
       # Left/Right
       let splitPos = r.w * area.split
-      
+
       let splitRect = rect(r.x + splitPos - 2, r.y, 4, r.h)
-      
+
       if dragArea == nil and window.mousePos.vec2.overlaps(splitRect):
         sk.cursor = Cursor(kind: ResizeLeftRightCursor)
         if window.buttonPressed[MouseLeft]:
           dragArea = area
-          
+
       let r1 = rect(r.x, r.y, splitPos - m, r.h)
       let r2 = rect(r.x + splitPos + m, r.y, r.w - splitPos - m, r.h)
       drawAreaRecursive(area.areas[0], r1)
       drawAreaRecursive(area.areas[1], r2)
-      
+
   elif area.panels.len > 0:
     # Draw Panel
     if area.selectedPanelNum > area.panels.len - 1:
       area.selectedPanelNum = area.panels.len - 1
-      
-    # Draw Background
-    sk.draw9Patch("window.9patch", 14, r.xy, r.wh)
-    
+
     # Draw Header
     let headerRect = rect(r.x, r.y, r.w, AreaHeaderHeight)
-    sk.draw9Patch("header.9patch", 6, headerRect.xy, headerRect.wh)
-    
+    sk.draw9Patch("panel.header.9patch", 3, headerRect.xy, headerRect.wh)
+
+    # Draw Body
+    let bodyRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
+    sk.draw9Patch("panel.body.9patch", 3, bodyRect.xy, bodyRect.wh)
+
     # Draw Tabs
     var x = r.x + 4
     for i, panel in area.panels:
       let textSize = sk.getTextSize("Default", panel.name)
       let tabW = textSize.x + 16
       let tabRect = rect(x, r.y + 2, tabW, AreaHeaderHeight - 4)
-      
+
       let isSelected = i == area.selectedPanelNum
       let isHovered = window.mousePos.vec2.overlaps(tabRect)
-      
+
       # Handle Tab Clicks and Dragging
       if isHovered:
         if window.buttonPressed[MouseLeft]:
@@ -306,38 +307,40 @@ proc drawAreaRecursive(area: Area, r: Rect) =
         elif window.buttonDown[MouseLeft] and dragPanel == panel:
            # Dragging started
            discard
-      
+
       if isSelected:
-        sk.draw9Patch("header.dragging.9patch", 6, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
+        sk.draw9Patch("panel.tab.selected.9patch", 3, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
       elif isHovered:
-        sk.draw9Patch("header.hover.9patch", 6, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
-        
+        sk.draw9Patch("panel.tab.hover.9patch", 3, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
+      else:
+        sk.draw9Patch("panel.tab.9patch", 3, tabRect.xy, tabRect.wh)
+
       discard sk.drawText("Default", panel.name, vec2(x + 8, r.y + 4 + 2), rgbx(255, 255, 255, 255))
-      
+
       x += tabW + 2
-      
+
     # Draw Content
     let contentRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
     sk.pushClipRect(contentRect)
-    
+
     let activePanel = area.panels[area.selectedPanelNum]
     discard sk.drawText("H1", activePanel.name, contentRect.xy + vec2(20, 20), rgbx(255, 255, 255, 255))
     discard sk.drawText("Default", "This is the content of " & activePanel.name, contentRect.xy + vec2(20, 60), rgbx(200, 200, 200, 255))
-    
+
     sk.popClipRect()
 
 
 # Main Loop
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
-  
+
   # Background
   sk.drawRect(vec2(0, 0), window.size.vec2, BackgroundColor)
-  
+
   # Reset cursor
-  
+
   sk.cursor = Cursor(kind: ArrowCursor)
-  
+
   # Update Dragging Split
   if dragArea != nil:
     if not window.buttonDown[MouseLeft]:
@@ -350,7 +353,7 @@ window.onFrame = proc() =
         sk.cursor = Cursor(kind: ResizeLeftRightCursor)
         dragArea.split = (window.mousePos.vec2.x - dragArea.rect.x) / dragArea.rect.w
       dragArea.split = clamp(dragArea.split, 0.1, 0.9)
-      
+
   # Update Dragging Panel
   showDropHighlight = false
   if dragPanel != nil:
@@ -377,7 +380,7 @@ window.onFrame = proc() =
             targetArea.split(Vertical)
             targetArea.areas[0].movePanel(dragPanel)
             targetArea.areas[1].movePanels(targetArea.panels)
-            
+
         rootArea.removeBlankAreas()
       dragPanel = nil
     else:
@@ -388,11 +391,11 @@ window.onFrame = proc() =
 
   # Draw Areas
   drawAreaRecursive(rootArea, rect(0, 0, window.size.x.float32, window.size.y.float32))
-  
+
   # Draw Drop Highlight
   if showDropHighlight and dragPanel != nil:
     sk.drawRect(dropHighlight.xy, dropHighlight.wh, rgbx(255, 255, 0, 100))
-    
+
     # Draw dragging ghost
     let label = dragPanel.name
     let textSize = sk.getTextSize("Default", label)
@@ -406,9 +409,8 @@ window.onFrame = proc() =
 
   sk.endUi()
   window.swapBuffers()
-  
+
   if window.cursor.kind != sk.cursor.kind:
-    echo "cursor changed to ", sk.cursor.kind
     window.cursor = sk.cursor
 
 while not window.closeRequested:
