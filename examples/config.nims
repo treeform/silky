@@ -38,7 +38,6 @@ when defined(emscripten):
     -o ../emscripten/{projectName()}.html
     --preload-file data
     --shell-file ../emscripten/emscripten.html
-    -s ASYNCIFY
     -s FETCH
     -s USE_WEBGL2=1
     -s MAX_WEBGL_VERSION=2

@@ -59,5 +59,8 @@ window.onFrame = proc() =
   sk.endUi()
   window.swapBuffers()
 
-while not window.closeRequested:
-  pollEvents()
+when defined(emscripten):
+  window.run()
+else:
+  while not window.closeRequested:
+    pollEvents()
