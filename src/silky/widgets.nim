@@ -130,9 +130,9 @@ template windowFrame*(title: string, show: bool, body) =
 
       # Death with scroll delta.
       if window.scrollDelta.y != 0:
-        windowState.scrollPos.y -= window.scrollDelta.y * 10
+        windowState.scrollPos.y += window.scrollDelta.y * 10
       if window.scrollDelta.x != 0:
-        windowState.scrollPos.x -= window.scrollDelta.x * 10
+        windowState.scrollPos.x += window.scrollDelta.x * 10
       windowState.scrollPos = max(windowState.scrollPos, vec2(0, 0))
 
       # Deal with scrolling.

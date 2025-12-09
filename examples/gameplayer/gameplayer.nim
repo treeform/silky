@@ -1,10 +1,10 @@
-import 
+import
   std/[strformat],
   opengl, windy, bumpy, vmath, chroma,
   silky
 
 var window = newWindow(
-  "Silky Example 1", 
+  "Silky Example 1",
   ivec2(800, 600),
   vsync = false
 )
@@ -195,8 +195,8 @@ window.onFrame = proc() =
     image("ui/logo")
     h1text("Hello, World!")
 
-    button("press me"):
-      echo "pressed"
+    # button("press me"):
+    #   echo "pressed"
 
     sk.at = sk.pos + vec2(sk.size.x - 100, 16)
     iconButton("ui/heart"):
@@ -208,12 +208,12 @@ window.onFrame = proc() =
   ribbon(vec2(0, sk.size.y - 64*2), vec2(sk.size.x, 64), ScrubberColor):
     scrubber(sk.pos + vec2(16, 32), vec2(sk.size.x - 32, 32))
 
-  # Footer 
+  # Footer
   ribbon(vec2(0, sk.size.y - 64), vec2(sk.size.x, 64), RibbonColor):
 
     group(vec2(16, 16)):
       iconButton("ui/rewindToStart"):
-        echo "rewindToStart"  
+        echo "rewindToStart"
       iconButton("ui/stepBack"):
         echo "stepBack"
       iconButton("ui/play"):
