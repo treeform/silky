@@ -1,0 +1,410 @@
+
+import
+  std/[random],
+  opengl, windy, bumpy, vmath, chroma,
+  silky
+
+# Setup Atlas
+var builder = newAtlasBuilder(1024, 4)
+builder.addDir("data/", "data/")
+builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0)
+builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
+builder.write("dist/atlas.png", "dist/atlas.json")
+
+# Setup Window
+var window = newWindow(
+  "Panels Example",
+  ivec2(1200, 800),
+  vsync = false
+)
+makeContextCurrent(window)
+loadExtensions()
+
+# Setup Silky
+var sk = newSilky("dist/atlas.png", "dist/atlas.json")
+
+# Types
+type
+  AreaLayout = enum
+    Horizontal
+    Vertical
+
+  Area = ref object
+    layout: AreaLayout
+    areas: seq[Area]
+    panels: seq[Panel]
+    split: float32
+    selectedPanelNum: int
+    rect: Rect # Calculated during draw
+
+  Panel = ref object
+    name: string
+    parentArea: Area
+
+  AreaScan = enum
+    Header
+    Body
+    North
+    South
+    East
+    West
+
+# Constants
+const
+  AreaHeaderHeight = 28.0
+  AreaMargin = 6.0
+  BackgroundColor = parseHtmlColor("#222222").rgbx
+
+# Globals
+var
+  rootArea: Area
+  dragArea: Area # For resizing splits
+  dragPanel: Panel # For moving panels
+  dropHighlight: Rect
+  showDropHighlight: bool
+  
+# Forward declarations
+proc movePanels*(area: Area, panels: seq[Panel])
+
+# Logic
+proc clear*(area: Area) =
+  for panel in area.panels:
+    panel.parentArea = nil
+  for subarea in area.areas:
+    subarea.clear()
+  area.panels.setLen(0)
+  area.areas.setLen(0)
+
+proc removeBlankAreas*(area: Area) =
+  if area.areas.len > 0:
+    assert area.areas.len == 2
+    if area.areas[0].panels.len == 0 and area.areas[0].areas.len == 0:
+      if area.areas[1].panels.len > 0:
+        area.movePanels(area.areas[1].panels)
+        area.areas.setLen(0)
+      elif area.areas[1].areas.len > 0:
+        let oldAreas = area.areas
+        area.areas = area.areas[1].areas
+        area.split = oldAreas[1].split
+        area.layout = oldAreas[1].layout
+      else:
+        discard
+    elif area.areas[1].panels.len == 0 and area.areas[1].areas.len == 0:
+      if area.areas[0].panels.len > 0:
+        area.movePanels(area.areas[0].panels)
+        area.areas.setLen(0)
+      elif area.areas[0].areas.len > 0:
+        let oldAreas = area.areas
+        area.areas = area.areas[0].areas
+        area.split = oldAreas[0].split
+        area.layout = oldAreas[0].layout
+      else:
+        discard
+
+    for subarea in area.areas:
+      removeBlankAreas(subarea)
+
+proc addPanel*(area: Area, name: string) =
+  let panel = Panel(name: name, parentArea: area)
+  area.panels.add(panel)
+
+proc movePanel*(area: Area, panel: Panel) =
+  let idx = panel.parentArea.panels.find(panel)
+  if idx != -1:
+    panel.parentArea.panels.delete(idx)
+  area.panels.add(panel)
+  panel.parentArea = area
+
+proc movePanels*(area: Area, panels: seq[Panel]) =
+  var panelList = panels # Copy
+  for panel in panelList:
+    area.movePanel(panel)
+
+proc split*(area: Area, layout: AreaLayout) =
+  let
+    area1 = Area(rect: area.rect) # inherit rect initially
+    area2 = Area(rect: area.rect)
+  area.layout = layout
+  area.split = 0.5
+  area.areas.add(area1)
+  area.areas.add(area2)
+
+proc scan*(area: Area): (Area, AreaScan, Rect) =
+  let mousePos = window.mousePos.vec2
+  var targetArea: Area
+  var areaScan: AreaScan
+  var resRect: Rect
+  
+  proc visit(area: Area) =
+    if not mousePos.overlaps(area.rect):
+      return
+      
+    if area.areas.len > 0:
+      for subarea in area.areas:
+        visit(subarea)
+    else:
+      let
+        headerRect = rect(
+          area.rect.xy,
+          vec2(area.rect.w, AreaHeaderHeight)
+        )
+        bodyRect = rect(
+          area.rect.xy + vec2(0, AreaHeaderHeight),
+          vec2(area.rect.w, area.rect.h - AreaHeaderHeight)
+        )
+        northRect = rect(
+          area.rect.xy + vec2(0, AreaHeaderHeight),
+          vec2(area.rect.w, area.rect.h * 0.2)
+        )
+        southRect = rect(
+          area.rect.xy + vec2(0, area.rect.h * 0.8),
+          vec2(area.rect.w, area.rect.h * 0.2)
+        )
+        eastRect = rect(
+          area.rect.xy + vec2(area.rect.w * 0.8, 0) + vec2(0, AreaHeaderHeight),
+          vec2(area.rect.w * 0.2, area.rect.h - AreaHeaderHeight)
+        )
+        westRect = rect(
+          area.rect.xy + vec2(0, 0) + vec2(0, AreaHeaderHeight),
+          vec2(area.rect.w * 0.2, area.rect.h - AreaHeaderHeight)
+        )
+
+      if mousePos.overlaps(headerRect):
+        areaScan = Header
+        resRect = headerRect
+      elif mousePos.overlaps(northRect):
+        areaScan = North
+        resRect = northRect
+      elif mousePos.overlaps(southRect):
+        areaScan = South
+        resRect = southRect
+      elif mousePos.overlaps(eastRect):
+        areaScan = East
+        resRect = eastRect
+      elif mousePos.overlaps(westRect):
+        areaScan = West
+        resRect = westRect
+      elif mousePos.overlaps(bodyRect):
+        areaScan = Body
+        resRect = bodyRect
+      
+      targetArea = area
+
+  visit(rootArea)
+  return (targetArea, areaScan, resRect)
+
+# Initialization
+proc initRootArea() =
+  randomize()
+  rootArea = Area()
+  rootArea.split(Vertical)
+  rootArea.split = 0.20
+
+  rootArea.areas[0].addPanel("Super Panel 1")
+  rootArea.areas[0].addPanel("Cool Panel 2")
+
+  rootArea.areas[1].split(Horizontal)
+  rootArea.areas[1].split = 0.5
+
+  rootArea.areas[1].areas[0].addPanel("Nice Panel 3")
+  rootArea.areas[1].areas[0].addPanel("The Other Panel 4")
+  rootArea.areas[1].areas[0].addPanel("Panel 5")
+
+  rootArea.areas[1].areas[1].addPanel("World Class Panel 6")
+  rootArea.areas[1].areas[1].addPanel("FUN Panel 7")
+  rootArea.areas[1].areas[1].addPanel("Amazing Panel 8")
+
+proc regenerate() =
+  rootArea = Area()
+  
+  var panelNum = 1
+  proc iterate(area: Area, depth: int) =
+    if rand(0 .. depth) < 2:
+      # Split the area.
+      if rand(0 .. 1) == 0:
+        area.split(Horizontal)
+      else:
+        area.split(Vertical)
+      area.split = rand(0.2 .. 0.8)
+      iterate(area.areas[0], depth + 1)
+      iterate(area.areas[1], depth + 1)
+    else:
+      # Don't split the area.
+      for i in 0 ..< rand(1 .. 3):
+        area.addPanel("Panel " & $panelNum)
+        panelNum += 1
+  iterate(rootArea, 0)
+
+initRootArea()
+
+# Drawing
+proc drawAreaRecursive(area: Area, r: Rect) =
+  area.rect = r
+  
+  if area.areas.len > 0:
+    let m = AreaMargin / 2
+    if area.layout == Horizontal:
+      # Top/Bottom
+      let splitPos = r.h * area.split
+      
+      # Handle split resizing
+      let splitRect = rect(r.x, r.y + splitPos - 2, r.w, 4)
+      
+      if dragArea == nil and window.mousePos.vec2.overlaps(splitRect):
+        window.cursor = Cursor(kind: ResizeUpDownCursor)
+        if window.buttonPressed[MouseLeft]:
+          dragArea = area
+      
+      let r1 = rect(r.x, r.y, r.w, splitPos - m)
+      let r2 = rect(r.x, r.y + splitPos + m, r.w, r.h - splitPos - m)
+      drawAreaRecursive(area.areas[0], r1)
+      drawAreaRecursive(area.areas[1], r2)
+      
+    else:
+      # Left/Right
+      let splitPos = r.w * area.split
+      
+      let splitRect = rect(r.x + splitPos - 2, r.y, 4, r.h)
+      
+      if dragArea == nil and window.mousePos.vec2.overlaps(splitRect):
+        window.cursor = Cursor(kind: ResizeLeftRightCursor)
+        if window.buttonPressed[MouseLeft]:
+          dragArea = area
+          
+      let r1 = rect(r.x, r.y, splitPos - m, r.h)
+      let r2 = rect(r.x + splitPos + m, r.y, r.w - splitPos - m, r.h)
+      drawAreaRecursive(area.areas[0], r1)
+      drawAreaRecursive(area.areas[1], r2)
+      
+  elif area.panels.len > 0:
+    # Draw Panel
+    if area.selectedPanelNum > area.panels.len - 1:
+      area.selectedPanelNum = area.panels.len - 1
+      
+    # Draw Background
+    sk.draw9Patch("window.9patch", 14, r.xy, r.wh)
+    
+    # Draw Header
+    let headerRect = rect(r.x, r.y, r.w, AreaHeaderHeight)
+    sk.draw9Patch("header.9patch", 6, headerRect.xy, headerRect.wh)
+    
+    # Draw Tabs
+    var x = r.x + 4
+    for i, panel in area.panels:
+      let textSize = sk.getTextSize("Default", panel.name)
+      let tabW = textSize.x + 16
+      let tabRect = rect(x, r.y + 2, tabW, AreaHeaderHeight - 4)
+      
+      let isSelected = i == area.selectedPanelNum
+      let isHovered = window.mousePos.vec2.overlaps(tabRect)
+      
+      # Handle Tab Clicks and Dragging
+      if isHovered:
+        if window.buttonPressed[MouseLeft]:
+           area.selectedPanelNum = i
+           dragPanel = panel
+        elif window.buttonDown[MouseLeft] and dragPanel == panel:
+           # Dragging started
+           discard
+      
+      if isSelected:
+        sk.draw9Patch("button.down.9patch", 4, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
+      elif isHovered:
+        sk.draw9Patch("button.hover.9patch", 4, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
+        
+      discard sk.drawText("Default", panel.name, vec2(x + 8, r.y + 4 + 2), rgbx(255, 255, 255, 255))
+      
+      x += tabW + 2
+      
+    # Draw Content
+    let contentRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
+    sk.pushClipRect(contentRect)
+    
+    let activePanel = area.panels[area.selectedPanelNum]
+    discard sk.drawText("H1", activePanel.name, contentRect.xy + vec2(20, 20), rgbx(255, 255, 255, 255))
+    discard sk.drawText("Default", "This is the content of " & activePanel.name, contentRect.xy + vec2(20, 60), rgbx(200, 200, 200, 255))
+    
+    sk.popClipRect()
+
+
+# Main Loop
+window.onFrame = proc() =
+  sk.beginUI(window, window.size)
+  
+  # Background
+  sk.drawRect(vec2(0, 0), window.size.vec2, BackgroundColor)
+  
+  # Reset cursor
+  window.cursor = Cursor(kind: ArrowCursor)
+  
+  # Update Dragging Split
+  if dragArea != nil:
+    if not window.buttonDown[MouseLeft]:
+      dragArea = nil
+    else:
+      if dragArea.layout == Horizontal:
+        window.cursor = Cursor(kind: ResizeUpDownCursor)
+        dragArea.split = (window.mousePos.vec2.y - dragArea.rect.y) / dragArea.rect.h
+      else:
+        window.cursor = Cursor(kind: ResizeLeftRightCursor)
+        dragArea.split = (window.mousePos.vec2.x - dragArea.rect.x) / dragArea.rect.w
+      dragArea.split = clamp(dragArea.split, 0.1, 0.9)
+      
+  # Update Dragging Panel
+  showDropHighlight = false
+  if dragPanel != nil:
+    if not window.buttonDown[MouseLeft]:
+      # Drop
+      let (targetArea, areaScan, _) = rootArea.scan()
+      if targetArea != nil:
+        case areaScan:
+          of Header, Body:
+            targetArea.movePanel(dragPanel)
+          of North:
+            targetArea.split(Horizontal)
+            targetArea.areas[0].movePanel(dragPanel)
+            targetArea.areas[1].movePanels(targetArea.panels)
+          of South:
+            targetArea.split(Horizontal)
+            targetArea.areas[1].movePanel(dragPanel)
+            targetArea.areas[0].movePanels(targetArea.panels)
+          of East:
+            targetArea.split(Vertical)
+            targetArea.areas[1].movePanel(dragPanel)
+            targetArea.areas[0].movePanels(targetArea.panels)
+          of West:
+            targetArea.split(Vertical)
+            targetArea.areas[0].movePanel(dragPanel)
+            targetArea.areas[1].movePanels(targetArea.panels)
+            
+        rootArea.removeBlankAreas()
+      dragPanel = nil
+    else:
+      # Dragging
+      let (_, _, rect) = rootArea.scan()
+      dropHighlight = rect
+      showDropHighlight = true
+
+  # Draw Areas
+  drawAreaRecursive(rootArea, rect(0, 0, window.size.x.float32, window.size.y.float32))
+  
+  # Draw Drop Highlight
+  if showDropHighlight and dragPanel != nil:
+    sk.drawRect(dropHighlight.xy, dropHighlight.wh, rgbx(255, 255, 0, 100))
+    
+    # Draw dragging ghost
+    let label = dragPanel.name
+    let textSize = sk.getTextSize("Default", label)
+    let size = textSize + vec2(16, 8)
+    sk.draw9Patch("button.down.9patch", 4, window.mousePos.vec2 + vec2(10, 10), size, rgbx(255, 255, 255, 200))
+    discard sk.drawText("Default", label, window.mousePos.vec2 + vec2(18, 14), rgbx(255, 255, 255, 255))
+
+  # Input Handling for Refresh
+  if window.buttonPressed[KeyR]:
+    regenerate()
+
+  sk.endUi()
+  window.swapBuffers()
+
+while not window.closeRequested:
+  pollEvents()
