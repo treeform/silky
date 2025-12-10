@@ -299,11 +299,12 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
   if frameState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
     frameState.scrollingX = false
 
-  # Scroll wheel handling
-  if not frameState.scrollingY and window.scrollDelta.y != 0:
-    frameState.scrollPos.y -= window.scrollDelta.y * 10
-  if not frameState.scrollingX and window.scrollDelta.x != 0:
-    frameState.scrollPos.x -= window.scrollDelta.x * 10
+  # Scroll wheel handling (only when mouse over frame)
+  if window.mousePos.vec2.overlaps(rect(sk.pos, sk.size)):
+    if not frameState.scrollingY and window.scrollDelta.y != 0:
+      frameState.scrollPos.y -= window.scrollDelta.y * 10
+    if not frameState.scrollingX and window.scrollDelta.x != 0:
+      frameState.scrollPos.x -= window.scrollDelta.x * 10
   frameState.scrollPos = max(frameState.scrollPos, vec2(0, 0))
 
   # Stretch and clamp scroll positions
