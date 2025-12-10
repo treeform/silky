@@ -202,7 +202,7 @@ proc SilkyFrag*(
     fragmentPos.x > fragmentClipPos.x + fragmentClipSize.x or
     fragmentPos.y > fragmentClipPos.y + fragmentClipSize.y:
       # Clip the pixel.
-      discard()
+      discardFragment()
   else:
     # Compute the texture coordinates of the pixel.
     FragColor = texture(atlasSampler, fragmentUv) * fragmentColor
@@ -374,6 +374,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
       ("SilkyVert", toGLSL(SilkyVert, "410", "")),
       ("SilkyFrag", toGLSL(SilkyFrag, "410", ""))
     )
+    echo toGLSL(SilkyFrag, "410", "")
 
   # Upload atlas image to GL texture.
   glGenTextures(1, result.atlasTexture.addr)
