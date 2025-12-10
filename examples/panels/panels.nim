@@ -125,6 +125,62 @@ proc movePanel*(area: Area, panel: Panel) =
   area.panels.add(panel)
   panel.parentArea = area
 
+proc insertPanel*(area: Area, panel: Panel, index: int) =
+  ## Insert a panel into this area at a specific index.
+  let idx = panel.parentArea.panels.find(panel)
+  var finalIndex = index
+
+  # If moving within the same area, adjust index if we're moving forward
+  if panel.parentArea == area and idx != -1:
+    if idx < index:
+      finalIndex = index - 1
+  
+  if idx != -1:
+    panel.parentArea.panels.delete(idx)
+  
+  # Clamp index to be safe
+  finalIndex = clamp(finalIndex, 0, area.panels.len)
+  
+  area.panels.insert(panel, finalIndex)
+  panel.parentArea = area
+  # Update selection to the new panel position
+  area.selectedPanelNum = finalIndex
+
+proc getTabInsertInfo(area: Area, mousePos: Vec2): (int, Rect) =
+  ## Get the insert information for a tab.
+  var x = area.rect.x + 4
+  let headerH = AreaHeaderHeight
+  
+  # If no panels, insert at 0
+  if area.panels.len == 0:
+    return (0, rect(x, area.rect.y + 2, 4, headerH - 4))
+  
+  var bestIndex = 0
+  var minDist = float32.high
+  var bestX = x
+  
+  # Check before first tab (index 0)
+  let dist0 = abs(mousePos.x - x)
+  minDist = dist0
+  bestX = x
+  bestIndex = 0
+  
+  for i, panel in area.panels:
+    let textSize = sk.getTextSize("Default", panel.name)
+    let tabW = textSize.x + 16
+    
+    # The gap after this tab (index i + 1)
+    let gapX = x + tabW + 2
+    let dist = abs(mousePos.x - gapX)
+    if dist < minDist:
+      minDist = dist
+      bestIndex = i + 1
+      bestX = gapX
+    
+    x += tabW + 2
+    
+  return (bestIndex, rect(bestX - 2, area.rect.y + 2, 4, headerH - 4))
+
 proc movePanels*(area: Area, panels: seq[Panel]) =
   ## Move multiple panels to this area.
   var panelList = panels # Copy
@@ -388,7 +444,10 @@ window.onFrame = proc() =
       let (targetArea, areaScan, _) = rootArea.scan()
       if targetArea != nil:
         case areaScan:
-          of Header, Body:
+          of Header:
+            let (idx, _) = targetArea.getTabInsertInfo(window.mousePos.vec2)
+            targetArea.insertPanel(dragPanel, idx)
+          of Body:
             targetArea.movePanel(dragPanel)
           of North:
             targetArea.split(Horizontal)
@@ -411,9 +470,13 @@ window.onFrame = proc() =
       dragPanel = nil
     else:
       # Dragging
-      let (_, _, rect) = rootArea.scan()
+      let (targetArea, areaScan, rect) = rootArea.scan()
       dropHighlight = rect
       showDropHighlight = true
+      
+      if targetArea != nil and areaScan == Header:
+         let (_, highlightRect) = targetArea.getTabInsertInfo(window.mousePos.vec2)
+         dropHighlight = highlightRect
 
   # Draw Areas
   drawAreaRecursive(rootArea, rect(0, 1, window.size.x.float32, window.size.y.float32))
