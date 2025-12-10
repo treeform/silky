@@ -1,6 +1,6 @@
 
 import
-  std/[strformat],
+  std/[strformat, strutils],
   opengl, windy, bumpy, vmath, chroma,
   silky
 
@@ -23,9 +23,16 @@ const
 
 let sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
+window.runeInputEnabled = true
+window.onRune = proc(rune: Rune) =
+  sk.inputRunes.add(rune)
+
 var
-  showWindow = true
+  showCounter = true
+  showTemperature = true
   counter = 0
+  celsius = "0"
+  fahrenheit = "32"
 
 window.onFrame = proc() =
 
@@ -37,16 +44,44 @@ window.onFrame = proc() =
       sk.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
-  windowFrame("Counter", showWindow):
+  windowFrame("Counter", showCounter):
     text(&"{counter}")
     button("Count"):
       inc counter
 
-  if not showWindow:
+  windowFrame("Temperature Converter", showTemperature):
+    let oldCelsius = celsius
+    text("Celsius")
+    inputText(1, celsius)
+    if celsius != oldCelsius:
+      try:
+        let c = parseFloat(celsius)
+        let f = c * (9.0 / 5.0) + 32.0
+        fahrenheit = fmt"{f:.1f}"
+        if 2 in textInputStates:
+           textInputStates[2].setText(fahrenheit)
+      except ValueError:
+        discard
+
+    let oldFahrenheit = fahrenheit
+    text("Fahrenheit")
+    inputText(2, fahrenheit)
+    if fahrenheit != oldFahrenheit:
+      try:
+        let f = parseFloat(fahrenheit)
+        let c = (f - 32.0) * (5.0 / 9.0)
+        celsius = fmt"{c:.1f}"
+        if 1 in textInputStates:
+           textInputStates[1].setText(celsius)
+      except ValueError:
+        discard
+
+  if not showCounter and not showTemperature:
     if window.buttonPressed[MouseLeft]:
-      showWindow = true
+      showCounter = true
+      showTemperature = true
     sk.at = vec2(100, 100)
-    text("Click anywhere to show the window")
+    text("Click anywhere to show the windows")
 
   let ms = sk.avgFrameTime * 1000
   sk.at = sk.pos + vec2(sk.size.x - 250, 20)
