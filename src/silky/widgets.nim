@@ -29,10 +29,14 @@ type
     scrollingY*: bool
     scrollDragOffset*: Vec2
 
+  ScrubberState* = ref object
+    dragging*: bool
+
 var
   theme*: Theme = Theme()
   subWindowStates*: Table[string, SubWindowState]
   frameStates*: Table[string, FrameState]
+  scrubberStates*: Table[string, ScrubberState]
   textInputStates*: Table[int, InputTextState]
 
 proc vec2(v: SomeNumber): Vec2 =
@@ -344,10 +348,51 @@ template h1text*(t: string) =
   let textSize = sk.drawText("H1", t, sk.at, rgbx(255, 255, 255, 255))
   sk.advance(textSize)
 
-template scrubber*(p, s: Vec2) =
-  ## Create a scrubber.
+template scrubber*[T, U](id: string, p, s: Vec2, value: var float32, minVal: T, maxVal: U) =
+  ## Draggable scrubber with a handle that updates `value`.
+  let minF = minVal.float32
+  let maxF = maxVal.float32
+  let range = maxF - minF
+
+  if id notin scrubberStates:
+    scrubberStates[id] = ScrubberState()
+  let scrubState = scrubberStates[id]
+
   sk.pushFrame(p, s)
-  sk.draw9Patch("track.9patch", 16, sk.pos, sk.size)
+  sk.draw9Patch("scrubber.track.9patch", 16, sk.pos, sk.size)
+
+
+  let
+    # Normalize current value.
+    norm = if range == 0: 0f else: clamp((value - minF) / range, 0f, 1f)
+
+    # Handle geometry.
+    handleSize = vec2(18, 18)
+    trackStart = sk.pos.x + 8
+    trackEnd = sk.pos.x + s.x + 6
+    travel = max(0f, trackEnd - trackStart)
+    travelSafe = if travel <= 0: 1f else: travel
+    handlePos = vec2(trackStart + norm * travel, sk.pos.y + (s.y - handleSize.y) * 0.5)
+    handleRect = rect(handlePos, handleSize)
+
+  # Dragging logic.
+  if scrubState.dragging and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    scrubState.dragging = false
+
+  if scrubState.dragging:
+    let t = clamp((window.mousePos.vec2.x - trackStart - handleSize.x * 0.5) / travelSafe, 0f, 1f)
+    value = minF + t * range
+  elif sk.layer == sk.topLayer and (window.mousePos.vec2.overlaps(handleRect) or window.mousePos.vec2.overlaps(rect(sk.pos, s))):
+    if window.buttonPressed[MouseLeft]:
+      scrubState.dragging = true
+      let t = clamp((window.mousePos.vec2.x - trackStart - handleSize.x * 0.5) / travelSafe, 0f, 1f)
+      value = minF + t * range
+
+  # Recompute normalized position after potential changes.
+  let norm2 = if range == 0: 0f else: clamp((value - minF) / range, 0f, 1f)
+  let handlePos2 = vec2(trackStart + norm2 * travel, sk.pos.y + 7)
+
+  sk.drawImage("scrubber.handle", handlePos2)
   sk.popFrame()
 
 template inputText*(id: int, t: var string) =
