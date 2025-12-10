@@ -24,11 +24,10 @@ type
     resizeOffset*: Vec2
 
     scrollPos*: Vec2
-    
+
     scrollingX*: bool
     scrollingY*: bool
     scrollDragOffset*: Vec2
-
 
 var
   theme*: Theme = Theme()
@@ -146,9 +145,9 @@ template windowFrame*(title: string, show: bool, body) =
 
       # Deal with scroll delta.
       if not windowState.scrollingY and window.scrollDelta.y != 0:
-        windowState.scrollPos.y += window.scrollDelta.y * 10
+        windowState.scrollPos.y -= window.scrollDelta.y * 10
       if not windowState.scrollingX and window.scrollDelta.x != 0:
-        windowState.scrollPos.x += window.scrollDelta.x * 10
+        windowState.scrollPos.x -= window.scrollDelta.x * 10
       windowState.scrollPos = max(windowState.scrollPos, vec2(0, 0))
 
       # Deal with scrolling.
@@ -185,7 +184,7 @@ template windowFrame*(title: string, show: bool, body) =
           8,
           scrollbarTrackRect.h * scrollSizePercent
         )
-        
+
         # Handle scrollbar Y dragging
         if windowState.scrollingY:
           # Calculate new scroll position from mouse position
@@ -200,7 +199,7 @@ template windowFrame*(title: string, show: bool, body) =
             windowState.scrollingY = true
             # Store offset from top of handle to mouse
             windowState.scrollDragOffset.y = window.mousePos.vec2.y - scrollbarHandleRect.y
-        
+
         sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
       # Deal with scrolling X direction.
@@ -222,7 +221,7 @@ template windowFrame*(title: string, show: bool, body) =
           scrollbarTrackRect.w * scrollSizePercent,
           8
         )
-        
+
         # Handle scrollbar X dragging
         if windowState.scrollingX:
           # Calculate new scroll position from mouse position
@@ -237,7 +236,7 @@ template windowFrame*(title: string, show: bool, body) =
             windowState.scrollingX = true
             # Store offset from left of handle to mouse
             windowState.scrollDragOffset.x = window.mousePos.vec2.x - scrollbarHandleRect.x
-        
+
         sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
       sk.popFrame()
@@ -348,7 +347,7 @@ template inputText*(id: int, t: var string) =
   ## Create an input text.
   let font = sk.atlas.fonts[sk.textStyle]
   let height = font.lineHeight + theme.padding.float32 * 2
-  let width = sk.size.x - theme.padding.float32 * 2
+  let width = sk.size.x - theme.padding.float32 * 3
   sk.pushFrame(sk.at, vec2(width, height))
 
   if id notin textInputStates:

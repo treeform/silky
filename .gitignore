@@ -28,3 +28,7 @@ package.json
 tmp
 *.plist
 *.dSYM
+
+# silky specific ignores:
+dist/*.json
+dist/*.png
