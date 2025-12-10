@@ -30,5 +30,5 @@ tmp
 *.dSYM
 
 # silky specific ignores:
-dist/*.json
-dist/*.png
+examples/*/dist/*.json
+examples/*/dist/*.png
