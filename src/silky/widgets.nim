@@ -43,7 +43,7 @@ template windowFrame*(title: string, show: bool, body) =
   ## Create a window frame.
   if title notin windowStates:
     windowStates[title] = WindowState(
-      pos: vec2(100, 100),
+      pos: vec2(10 + windowStates.len * (300 + theme.spacing), 10),
       size: vec2(300, 400),
       minimized: false
     )
