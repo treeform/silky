@@ -41,7 +41,7 @@ window.onFrame = proc() =
       sk.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
-  windowFrame("A Window", showWindow):
+  subWindow("A SubWindow", showWindow):
     text("Hello world!")
     button("Close Me"):
       showWindow = false

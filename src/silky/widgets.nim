@@ -14,7 +14,7 @@ type
     headerHeight*: int = 32
     defaultTextColor*: ColorRGBX = rgbx(255, 255, 255, 255)
 
-  WindowState* = ref object
+  SubWindowState* = ref object
     pos*: Vec2
     size*: Vec2
     minimized*: bool
@@ -31,7 +31,7 @@ type
 
 var
   theme*: Theme = Theme()
-  windowStates*: Table[string, WindowState]
+  subWindowStates*: Table[string, SubWindowState]
   frameStates*: Table[string, FrameState]
   textInputStates*: Table[int, InputTextState]
 
@@ -43,41 +43,41 @@ proc vec2[A, B](x: A, y: B): Vec2 =
   ## Create a Vec2 from two numbers.
   vec2(x.float32, y.float32)
 
-template windowFrame*(title: string, show: bool, body) =
+template subWindow*(title: string, show: bool, body) =
   ## Create a window frame.
-  if title notin windowStates:
-    windowStates[title] = WindowState(
-      pos: vec2(10 + windowStates.len * (300 + theme.spacing), 10),
+  if title notin subWindowStates:
+    subWindowStates[title] = SubWindowState(
+      pos: vec2(10 + subWindowStates.len * (300 + theme.spacing), 10),
       size: vec2(300, 400),
       minimized: false
     )
-  let windowState = windowStates[title]
+  let subWindowState = subWindowStates[title]
   if show:
     # Draw the main window frame.
-    let size = if windowState.minimized:
-        vec2(windowState.size.x, float32(theme.headerHeight + theme.border * 2))
+    let size = if subWindowState.minimized:
+        vec2(subWindowState.size.x, float32(theme.headerHeight + theme.border * 2))
       else:
-        windowState.size
-    sk.pushFrame(windowState.pos, size)
+        subWindowState.size
+    sk.pushFrame(subWindowState.pos, size)
     sk.draw9Patch("window.9patch", 14, sk.pos, sk.size)
 
     # Draw the header.
     sk.pushFrame(
-      windowState.pos + vec2(theme.border),
-      vec2(windowState.size.x - theme.border.float32 * 2, theme.headerHeight)
+      subWindowState.pos + vec2(theme.border),
+      vec2(subWindowState.size.x - theme.border.float32 * 2, theme.headerHeight)
     )
 
     # Handle dragging the window.
-    if windowState.dragging and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-      windowState.dragging = false
-    if windowState.dragging:
-      windowState.pos = window.mousePos.vec2 - windowState.dragOffset
-    if windowState.dragging:
+    if subWindowState.dragging and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+      subWindowState.dragging = false
+    if subWindowState.dragging:
+      subWindowState.pos = window.mousePos.vec2 - subWindowState.dragOffset
+    if subWindowState.dragging:
       sk.draw9Patch("header.dragging.9patch", 6, sk.pos, sk.size)
     elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(rect(sk.pos, sk.size)):
       if window.buttonPressed[MouseLeft]:
-        windowState.dragging = true
-        windowState.dragOffset = window.mousePos.vec2 - windowState.pos
+        subWindowState.dragging = true
+        subWindowState.dragOffset = window.mousePos.vec2 - subWindowState.pos
       else:
         sk.draw9Patch("header.hover.9patch", 6, sk.pos, sk.size)
     else:
@@ -94,8 +94,8 @@ template windowFrame*(title: string, show: bool, body) =
     )
     if window.mousePos.vec2.overlaps(minimizeRect):
       if window.buttonReleased[MouseLeft]:
-        windowState.minimized = not windowState.minimized
-    if windowState.minimized:
+        subWindowState.minimized = not subWindowState.minimized
+    if subWindowState.minimized:
       sk.drawImage("minimized", minimizeRect.xy)
     else:
       sk.drawImage("maximized", minimizeRect.xy)
@@ -118,10 +118,10 @@ template windowFrame*(title: string, show: bool, body) =
     sk.drawImage("close", closeRect.xy)
     sk.popFrame()
 
-    if not windowState.minimized:
+    if not subWindowState.minimized:
 
-      let bodyPos = windowState.pos + vec2(theme.border, theme.border + theme.headerHeight)
-      let bodySize = windowState.size - vec2(theme.border * 2, theme.border * 2 + theme.headerHeight)
+      let bodyPos = subWindowState.pos + vec2(theme.border, theme.border + theme.headerHeight)
+      let bodySize = subWindowState.size - vec2(theme.border * 2, theme.border * 2 + theme.headerHeight)
 
       frame(title, bodyPos, bodySize):
         body
@@ -134,17 +134,17 @@ template windowFrame*(title: string, show: bool, body) =
         resizeHandleSize.x.float32,
         resizeHandleSize.y.float32
       )
-      if windowState.resizing and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-        windowState.resizing = false
-      if windowState.resizing:
-        windowState.size = window.mousePos.vec2 - windowState.resizeOffset
-        windowState.size.x = max(windowState.size.x, 200f)
-        windowState.size.y = max(windowState.size.y, float32(theme.headerHeight * 2 + theme.border * 2))
+      if subWindowState.resizing and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+        subWindowState.resizing = false
+      if subWindowState.resizing:
+        subWindowState.size = window.mousePos.vec2 - subWindowState.resizeOffset
+        subWindowState.size.x = max(subWindowState.size.x, 200f)
+        subWindowState.size.y = max(subWindowState.size.y, float32(theme.headerHeight * 2 + theme.border * 2))
       else:
         if window.mousePos.vec2.overlaps(resizeHandleRect):
           if window.buttonPressed[MouseLeft]:
-            windowState.resizing = true
-            windowState.resizeOffset = window.mousePos.vec2 - windowState.size
+            subWindowState.resizing = true
+            subWindowState.resizeOffset = window.mousePos.vec2 - subWindowState.size
       sk.drawImage("resize", resizeHandleRect.xy)
 
     sk.popFrame()

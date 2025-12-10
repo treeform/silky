@@ -44,12 +44,12 @@ window.onFrame = proc() =
       sk.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
-  windowFrame("Counter", showCounter):
+  subWindow("Counter", showCounter):
     text(&"{counter}")
     button("Count"):
       inc counter
 
-  windowFrame("Temperature Converter", showTemperature):
+  subWindow("Temperature Converter", showTemperature):
     let oldCelsius = celsius
     text("Celsius")
     inputText(1, celsius)
