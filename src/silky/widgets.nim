@@ -24,6 +24,10 @@ type
     resizeOffset*: Vec2
 
     scrollPos*: Vec2
+    
+    scrollingX*: bool
+    scrollingY*: bool
+    scrollDragOffset*: Vec2
 
 
 var
@@ -134,10 +138,16 @@ template windowFrame*(title: string, show: bool, body) =
 
       body
 
+      # Handle scrollbar drag release
+      if windowState.scrollingY and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+        windowState.scrollingY = false
+      if windowState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+        windowState.scrollingX = false
+
       # Deal with scroll delta.
-      if window.scrollDelta.y != 0:
+      if not windowState.scrollingY and window.scrollDelta.y != 0:
         windowState.scrollPos.y += window.scrollDelta.y * 10
-      if window.scrollDelta.x != 0:
+      if not windowState.scrollingX and window.scrollDelta.x != 0:
         windowState.scrollPos.x += window.scrollDelta.x * 10
       windowState.scrollPos = max(windowState.scrollPos, vec2(0, 0))
 
@@ -167,7 +177,7 @@ template windowFrame*(title: string, show: bool, body) =
         )
         sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
 
-        let scrollPosPercent = windowState.scrollPos.y / scrollMax.y
+        let scrollPosPercent = if scrollMax.y > 0: windowState.scrollPos.y / scrollMax.y else: 0.0
         let scrollSizePercent = sk.size.y / scrollSize
         let scrollbarHandleRect = rect(
           scrollbarTrackRect.x,
@@ -175,6 +185,22 @@ template windowFrame*(title: string, show: bool, body) =
           8,
           scrollbarTrackRect.h * scrollSizePercent
         )
+        
+        # Handle scrollbar Y dragging
+        if windowState.scrollingY:
+          # Calculate new scroll position from mouse position
+          let mouseY = window.mousePos.vec2.y
+          let relativeY = mouseY - windowState.scrollDragOffset.y - scrollbarTrackRect.y
+          let availableTrackHeight = scrollbarTrackRect.h - scrollbarHandleRect.h
+          if availableTrackHeight > 0:
+            let newScrollPosPercent = clamp(relativeY / availableTrackHeight, 0.0, 1.0)
+            windowState.scrollPos.y = newScrollPosPercent * scrollMax.y
+        elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
+          if window.buttonPressed[MouseLeft]:
+            windowState.scrollingY = true
+            # Store offset from top of handle to mouse
+            windowState.scrollDragOffset.y = window.mousePos.vec2.y - scrollbarHandleRect.y
+        
         sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
       # Deal with scrolling X direction.
@@ -188,7 +214,7 @@ template windowFrame*(title: string, show: bool, body) =
         )
         sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
 
-        let scrollPosPercent = windowState.scrollPos.x / scrollMax.x
+        let scrollPosPercent = if scrollMax.x > 0: windowState.scrollPos.x / scrollMax.x else: 0.0
         let scrollSizePercent = sk.size.x / scrollSize
         let scrollbarHandleRect = rect(
           scrollbarTrackRect.x + (scrollbarTrackRect.w - (scrollbarTrackRect.w * scrollSizePercent)) * scrollPosPercent,
@@ -196,6 +222,22 @@ template windowFrame*(title: string, show: bool, body) =
           scrollbarTrackRect.w * scrollSizePercent,
           8
         )
+        
+        # Handle scrollbar X dragging
+        if windowState.scrollingX:
+          # Calculate new scroll position from mouse position
+          let mouseX = window.mousePos.vec2.x
+          let relativeX = mouseX - windowState.scrollDragOffset.x - scrollbarTrackRect.x
+          let availableTrackWidth = scrollbarTrackRect.w - scrollbarHandleRect.w
+          if availableTrackWidth > 0:
+            let newScrollPosPercent = clamp(relativeX / availableTrackWidth, 0.0, 1.0)
+            windowState.scrollPos.x = newScrollPosPercent * scrollMax.x
+        elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
+          if window.buttonPressed[MouseLeft]:
+            windowState.scrollingX = true
+            # Store offset from left of handle to mouse
+            windowState.scrollDragOffset.x = window.mousePos.vec2.x - scrollbarHandleRect.x
+        
         sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
       sk.popFrame()
