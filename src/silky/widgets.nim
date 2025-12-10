@@ -23,12 +23,6 @@ type
     resizing*: bool
     resizeOffset*: Vec2
 
-    scrollPos*: Vec2
-
-    scrollingX*: bool
-    scrollingY*: bool
-    scrollDragOffset*: Vec2
-
   FrameState* = ref object
     scrollPos*: Vec2
     scrollingX*: bool
@@ -126,128 +120,11 @@ template windowFrame*(title: string, show: bool, body) =
 
     if not windowState.minimized:
 
-      # Draw the body.
-      sk.pushFrame(
-        windowState.pos + vec2(theme.border, theme.border + theme.headerHeight),
-        windowState.size - vec2(theme.border * 2, theme.border * 2 + theme.headerHeight)
-      )
-      sk.draw9Patch("frame.9patch", 6, sk.pos, sk.size)
-      sk.pushClipRect(rect(
-        sk.pos.x + 1,
-        sk.pos.y + 1,
-        sk.size.x - 2,
-        sk.size.y - 2
-      ))
-      sk.at += vec2(theme.padding)
-      let originPos = sk.at
-      sk.at -= windowState.scrollPos
+      let bodyPos = windowState.pos + vec2(theme.border, theme.border + theme.headerHeight)
+      let bodySize = windowState.size - vec2(theme.border * 2, theme.border * 2 + theme.headerHeight)
 
-      body
-
-      # Handle scrollbar drag release
-      if windowState.scrollingY and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-        windowState.scrollingY = false
-      if windowState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-        windowState.scrollingX = false
-
-      # Deal with scroll delta.
-      if not windowState.scrollingY and window.scrollDelta.y != 0:
-        windowState.scrollPos.y -= window.scrollDelta.y * 10
-      if not windowState.scrollingX and window.scrollDelta.x != 0:
-        windowState.scrollPos.x -= window.scrollDelta.x * 10
-      windowState.scrollPos = max(windowState.scrollPos, vec2(0, 0))
-
-      # Deal with scrolling.
-      sk.stretchAt += vec2(16) # Add some extra stretch.
-      let stretch = sk.stretchAt + windowState.scrollPos - originPos
-      let scrollMax = stretch - sk.size
-
-      # Limit scroll position to the max scrollable amount.
-      if scrollMax.y > 0:
-        windowState.scrollPos.y = min(windowState.scrollPos.y, scrollMax.y)
-      else:
-        windowState.scrollPos.y = 0
-      if scrollMax.x > 0:
-        windowState.scrollPos.x = min(windowState.scrollPos.x, scrollMax.x)
-      else:
-        windowState.scrollPos.x = 0
-
-      # Draw the scrollbar if the content is too large in the Y direction.
-      if stretch.y > sk.size.y:
-        let scrollSize = stretch.y
-        let scrollbarTrackRect = rect(
-          sk.pos.x + sk.size.x - 10,
-          sk.pos.y + 2,
-          8,
-          sk.size.y - 4 - 10
-        )
-        sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
-
-        let scrollPosPercent = if scrollMax.y > 0: windowState.scrollPos.y / scrollMax.y else: 0.0
-        let scrollSizePercent = sk.size.y / scrollSize
-        let scrollbarHandleRect = rect(
-          scrollbarTrackRect.x,
-          scrollbarTrackRect.y + (scrollbarTrackRect.h - (scrollbarTrackRect.h * scrollSizePercent)) * scrollPosPercent,
-          8,
-          scrollbarTrackRect.h * scrollSizePercent
-        )
-
-        # Handle scrollbar Y dragging
-        if windowState.scrollingY:
-          # Calculate new scroll position from mouse position
-          let mouseY = window.mousePos.vec2.y
-          let relativeY = mouseY - windowState.scrollDragOffset.y - scrollbarTrackRect.y
-          let availableTrackHeight = scrollbarTrackRect.h - scrollbarHandleRect.h
-          if availableTrackHeight > 0:
-            let newScrollPosPercent = clamp(relativeY / availableTrackHeight, 0.0, 1.0)
-            windowState.scrollPos.y = newScrollPosPercent * scrollMax.y
-        elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
-          if window.buttonPressed[MouseLeft]:
-            windowState.scrollingY = true
-            # Store offset from top of handle to mouse
-            windowState.scrollDragOffset.y = window.mousePos.vec2.y - scrollbarHandleRect.y
-
-        sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
-
-      # Deal with scrolling X direction.
-      if stretch.x > sk.size.x:
-        let scrollSize = stretch.x
-        let scrollbarTrackRect = rect(
-          sk.pos.x + 2,
-          sk.pos.y + sk.size.y - 10,
-          sk.size.x - 4 - 10,
-          8
-        )
-        sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
-
-        let scrollPosPercent = if scrollMax.x > 0: windowState.scrollPos.x / scrollMax.x else: 0.0
-        let scrollSizePercent = sk.size.x / scrollSize
-        let scrollbarHandleRect = rect(
-          scrollbarTrackRect.x + (scrollbarTrackRect.w - (scrollbarTrackRect.w * scrollSizePercent)) * scrollPosPercent,
-          scrollbarTrackRect.y,
-          scrollbarTrackRect.w * scrollSizePercent,
-          8
-        )
-
-        # Handle scrollbar X dragging
-        if windowState.scrollingX:
-          # Calculate new scroll position from mouse position
-          let mouseX = window.mousePos.vec2.x
-          let relativeX = mouseX - windowState.scrollDragOffset.x - scrollbarTrackRect.x
-          let availableTrackWidth = scrollbarTrackRect.w - scrollbarHandleRect.w
-          if availableTrackWidth > 0:
-            let newScrollPosPercent = clamp(relativeX / availableTrackWidth, 0.0, 1.0)
-            windowState.scrollPos.x = newScrollPosPercent * scrollMax.x
-        elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
-          if window.buttonPressed[MouseLeft]:
-            windowState.scrollingX = true
-            # Store offset from left of handle to mouse
-            windowState.scrollDragOffset.x = window.mousePos.vec2.x - scrollbarHandleRect.x
-
-        sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
-
-      sk.popFrame()
-      sk.popClipRect()
+      frame(title, bodyPos, bodySize):
+        body
 
       # Draw the resize handle.
       let resizeHandleSize = sk.getImageSize("resize")
