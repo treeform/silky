@@ -134,13 +134,13 @@ proc insertPanel*(area: Area, panel: Panel, index: int) =
   if panel.parentArea == area and idx != -1:
     if idx < index:
       finalIndex = index - 1
-  
+
   if idx != -1:
     panel.parentArea.panels.delete(idx)
-  
+
   # Clamp index to be safe
   finalIndex = clamp(finalIndex, 0, area.panels.len)
-  
+
   area.panels.insert(panel, finalIndex)
   panel.parentArea = area
   # Update selection to the new panel position
@@ -150,25 +150,25 @@ proc getTabInsertInfo(area: Area, mousePos: Vec2): (int, Rect) =
   ## Get the insert information for a tab.
   var x = area.rect.x + 4
   let headerH = AreaHeaderHeight
-  
+
   # If no panels, insert at 0
   if area.panels.len == 0:
     return (0, rect(x, area.rect.y + 2, 4, headerH - 4))
-  
+
   var bestIndex = 0
   var minDist = float32.high
   var bestX = x
-  
+
   # Check before first tab (index 0)
   let dist0 = abs(mousePos.x - x)
   minDist = dist0
   bestX = x
   bestIndex = 0
-  
+
   for i, panel in area.panels:
     let textSize = sk.getTextSize("Default", panel.name)
     let tabW = textSize.x + 16
-    
+
     # The gap after this tab (index i + 1)
     let gapX = x + tabW + 2
     let dist = abs(mousePos.x - gapX)
@@ -176,9 +176,9 @@ proc getTabInsertInfo(area: Area, mousePos: Vec2): (int, Rect) =
       minDist = dist
       bestIndex = i + 1
       bestX = gapX
-    
+
     x += tabW + 2
-    
+
   return (bestIndex, rect(bestX - 2, area.rect.y + 2, 4, headerH - 4))
 
 proc movePanels*(area: Area, panels: seq[Panel]) =
@@ -355,10 +355,6 @@ proc drawAreaRecursive(area: Area, r: Rect) =
     let headerRect = rect(r.x, r.y, r.w, AreaHeaderHeight)
     sk.draw9Patch("panel.header.9patch", 3, headerRect.xy, headerRect.wh)
 
-    # Draw Body
-    let bodyRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
-    sk.draw9Patch("panel.body.9patch", 3, bodyRect.xy, bodyRect.wh)
-
     # Draw Tabs
     var x = r.x + 4
     sk.pushClipRect(rect(r.x, r.y, r.w - 2, AreaHeaderHeight))
@@ -404,13 +400,17 @@ proc drawAreaRecursive(area: Area, r: Rect) =
 
     # Draw Content
     let contentRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
-    sk.pushClipRect(contentRect)
-
     let activePanel = area.panels[area.selectedPanelNum]
-    discard sk.drawText("H1", activePanel.name, contentRect.xy + vec2(20, 20), rgbx(255, 255, 255, 255))
-    discard sk.drawText("Default", "This is the content of " & activePanel.name, contentRect.xy + vec2(20, 60), rgbx(200, 200, 200, 255))
-
-    sk.popClipRect()
+    let frameId = "panel:" & $cast[uint](activePanel)
+    let contentPos = vec2(contentRect.x, contentRect.y)
+    let contentSize = vec2(contentRect.w, contentRect.h)
+    frame(frameId, contentPos, contentSize):
+      # Start content a bit inset.
+      sk.at += vec2(8, 8)
+      h1text(activePanel.name)
+      text("This is the content of " & activePanel.name)
+      for i in 0 ..< 20:
+        text(&"Scrollable line {i} for " & activePanel.name)
 
 
 # Main Loop
@@ -473,7 +473,7 @@ window.onFrame = proc() =
       let (targetArea, areaScan, rect) = rootArea.scan()
       dropHighlight = rect
       showDropHighlight = true
-      
+
       if targetArea != nil and areaScan == Header:
          let (_, highlightRect) = targetArea.getTabInsertInfo(window.mousePos.vec2)
          dropHighlight = highlightRect

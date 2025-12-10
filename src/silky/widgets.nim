@@ -29,9 +29,16 @@ type
     scrollingY*: bool
     scrollDragOffset*: Vec2
 
+  FrameState* = ref object
+    scrollPos*: Vec2
+    scrollingX*: bool
+    scrollingY*: bool
+    scrollDragOffset*: Vec2
+
 var
   theme*: Theme = Theme()
   windowStates*: Table[string, WindowState]
+  frameStates*: Table[string, FrameState]
   textInputStates*: Table[int, InputTextState]
 
 proc vec2(v: SomeNumber): Vec2 =
@@ -264,6 +271,128 @@ template windowFrame*(title: string, show: bool, body) =
       sk.drawImage("resize", resizeHandleRect.xy)
 
     sk.popFrame()
+
+template frame*(id: string, framePos, frameSize: Vec2, body) =
+  ## Frame with scrollbars similar to a window body.
+  if id notin frameStates:
+    frameStates[id] = FrameState()
+  let frameState = frameStates[id]
+
+  sk.pushFrame(framePos, frameSize)
+  sk.draw9Patch("frame.9patch", 6, sk.pos, sk.size)
+  sk.pushClipRect(rect(
+    sk.pos.x + 1,
+    sk.pos.y + 1,
+    sk.size.x - 2,
+    sk.size.y - 2
+  ))
+
+  sk.at = sk.pos + vec2(theme.padding)
+  let originPos = sk.at
+  sk.at -= frameState.scrollPos
+
+  body
+
+  # Handle scrollbar drag release
+  if frameState.scrollingY and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    frameState.scrollingY = false
+  if frameState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    frameState.scrollingX = false
+
+  # Scroll wheel handling
+  if not frameState.scrollingY and window.scrollDelta.y != 0:
+    frameState.scrollPos.y -= window.scrollDelta.y * 10
+  if not frameState.scrollingX and window.scrollDelta.x != 0:
+    frameState.scrollPos.x -= window.scrollDelta.x * 10
+  frameState.scrollPos = max(frameState.scrollPos, vec2(0, 0))
+
+  # Stretch and clamp scroll positions
+  sk.stretchAt += vec2(16)
+  let stretch = sk.stretchAt + frameState.scrollPos - originPos
+  let scrollMax = stretch - sk.size
+
+  if scrollMax.y > 0:
+    frameState.scrollPos.y = min(frameState.scrollPos.y, scrollMax.y)
+  else:
+    frameState.scrollPos.y = 0
+
+  if scrollMax.x > 0:
+    frameState.scrollPos.x = min(frameState.scrollPos.x, scrollMax.x)
+  else:
+    frameState.scrollPos.x = 0
+
+  # Draw Y scrollbar
+  if stretch.y > sk.size.y:
+    let scrollSize = stretch.y
+    let scrollbarTrackRect = rect(
+      sk.pos.x + sk.size.x - 10,
+      sk.pos.y + 2,
+      8,
+      sk.size.y - 4 - 10
+    )
+    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+
+    let scrollPosPercent = if scrollMax.y > 0: frameState.scrollPos.y / scrollMax.y else: 0.0
+    let scrollSizePercent = sk.size.y / scrollSize
+    let scrollbarHandleRect = rect(
+      scrollbarTrackRect.x,
+      scrollbarTrackRect.y + (scrollbarTrackRect.h - (scrollbarTrackRect.h * scrollSizePercent)) * scrollPosPercent,
+      8,
+      scrollbarTrackRect.h * scrollSizePercent
+    )
+
+    # Handle scrollbar Y dragging
+    if frameState.scrollingY:
+      let mouseY = window.mousePos.vec2.y
+      let relativeY = mouseY - frameState.scrollDragOffset.y - scrollbarTrackRect.y
+      let availableTrackHeight = scrollbarTrackRect.h - scrollbarHandleRect.h
+      if availableTrackHeight > 0:
+        let newScrollPosPercent = clamp(relativeY / availableTrackHeight, 0.0, 1.0)
+        frameState.scrollPos.y = newScrollPosPercent * scrollMax.y
+    elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
+      if window.buttonPressed[MouseLeft]:
+        frameState.scrollingY = true
+        frameState.scrollDragOffset.y = window.mousePos.vec2.y - scrollbarHandleRect.y
+
+    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+
+  # Draw X scrollbar
+  if stretch.x > sk.size.x:
+    let scrollSize = stretch.x
+    let scrollbarTrackRect = rect(
+      sk.pos.x + 2,
+      sk.pos.y + sk.size.y - 10,
+      sk.size.x - 4 - 10,
+      8
+    )
+    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+
+    let scrollPosPercent = if scrollMax.x > 0: frameState.scrollPos.x / scrollMax.x else: 0.0
+    let scrollSizePercent = sk.size.x / scrollSize
+    let scrollbarHandleRect = rect(
+      scrollbarTrackRect.x + (scrollbarTrackRect.w - (scrollbarTrackRect.w * scrollSizePercent)) * scrollPosPercent,
+      scrollbarTrackRect.y,
+      scrollbarTrackRect.w * scrollSizePercent,
+      8
+    )
+
+    # Handle scrollbar X dragging
+    if frameState.scrollingX:
+      let mouseX = window.mousePos.vec2.x
+      let relativeX = mouseX - frameState.scrollDragOffset.x - scrollbarTrackRect.x
+      let availableTrackWidth = scrollbarTrackRect.w - scrollbarHandleRect.w
+      if availableTrackWidth > 0:
+        let newScrollPosPercent = clamp(relativeX / availableTrackWidth, 0.0, 1.0)
+        frameState.scrollPos.x = newScrollPosPercent * scrollMax.x
+    elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
+      if window.buttonPressed[MouseLeft]:
+        frameState.scrollingX = true
+        frameState.scrollDragOffset.x = window.mousePos.vec2.x - scrollbarHandleRect.x
+
+    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+
+  sk.popFrame()
+  sk.popClipRect()
 
 template button*(label: string, body) =
   ## Create a button.
