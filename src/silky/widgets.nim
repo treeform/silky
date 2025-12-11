@@ -47,6 +47,12 @@ proc vec2[A, B](x: A, y: B): Vec2 =
   ## Create a Vec2 from two numbers.
   vec2(x.float32, y.float32)
 
+template mouseInsideClip*(r: Rect): bool =
+  ## Check mouse inside rect, current clip, and top layer.
+  sk.layer == sk.topLayer and
+  window.mousePos.vec2.overlaps(r) and
+  window.mousePos.vec2.overlaps(sk.clipRect)
+
 template subWindow*(title: string, show: bool, body) =
   ## Create a window frame.
   if title notin subWindowStates:
@@ -78,7 +84,7 @@ template subWindow*(title: string, show: bool, body) =
       subWindowState.pos = window.mousePos.vec2 - subWindowState.dragOffset
     if subWindowState.dragging:
       sk.draw9Patch("header.dragging.9patch", 6, sk.pos, sk.size)
-    elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(rect(sk.pos, sk.size)):
+    elif mouseInsideClip(rect(sk.pos, sk.size)):
       if window.buttonPressed[MouseLeft]:
         subWindowState.dragging = true
         subWindowState.dragOffset = window.mousePos.vec2 - subWindowState.pos
@@ -96,7 +102,7 @@ template subWindow*(title: string, show: bool, body) =
       minimizeSize.x.float32,
       minimizeSize.y.float32
     )
-    if window.mousePos.vec2.overlaps(minimizeRect):
+    if mouseInsideClip(minimizeRect):
       if window.buttonReleased[MouseLeft]:
         subWindowState.minimized = not subWindowState.minimized
     if subWindowState.minimized:
@@ -116,7 +122,7 @@ template subWindow*(title: string, show: bool, body) =
       closeSize.x.float32,
       closeSize.y.float32
     )
-    if window.mousePos.vec2.overlaps(closeRect):
+    if mouseInsideClip(closeRect):
       if window.buttonReleased[MouseLeft]:
         show = false
     sk.drawImage("close", closeRect.xy)
@@ -145,7 +151,7 @@ template subWindow*(title: string, show: bool, body) =
         subWindowState.size.x = max(subWindowState.size.x, 200f)
         subWindowState.size.y = max(subWindowState.size.y, float32(theme.headerHeight * 2 + theme.border * 2))
       else:
-        if window.mousePos.vec2.overlaps(resizeHandleRect):
+        if mouseInsideClip(resizeHandleRect):
           if window.buttonPressed[MouseLeft]:
             subWindowState.resizing = true
             subWindowState.resizeOffset = window.mousePos.vec2 - subWindowState.size
@@ -181,7 +187,7 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
     frameState.scrollingX = false
 
   # Scroll wheel handling (only when mouse over frame)
-  if window.mousePos.vec2.overlaps(rect(sk.pos, sk.size)):
+  if mouseInsideClip(rect(sk.pos, sk.size)):
     if not frameState.scrollingY and window.scrollDelta.y != 0:
       frameState.scrollPos.y -= window.scrollDelta.y * 10
     if not frameState.scrollingX and window.scrollDelta.x != 0:
@@ -231,7 +237,7 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
       if availableTrackHeight > 0:
         let newScrollPosPercent = clamp(relativeY / availableTrackHeight, 0.0, 1.0)
         frameState.scrollPos.y = newScrollPosPercent * scrollMax.y
-    elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
+    elif mouseInsideClip(scrollbarHandleRect):
       if window.buttonPressed[MouseLeft]:
         frameState.scrollingY = true
         frameState.scrollDragOffset.y = window.mousePos.vec2.y - scrollbarHandleRect.y
@@ -266,7 +272,7 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
       if availableTrackWidth > 0:
         let newScrollPosPercent = clamp(relativeX / availableTrackWidth, 0.0, 1.0)
         frameState.scrollPos.x = newScrollPosPercent * scrollMax.x
-    elif sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(scrollbarHandleRect):
+    elif mouseInsideClip(scrollbarHandleRect):
       if window.buttonPressed[MouseLeft]:
         frameState.scrollingX = true
         frameState.scrollDragOffset.x = window.mousePos.vec2.x - scrollbarHandleRect.x
@@ -281,7 +287,7 @@ template button*(label: string, body) =
   let
     textSize = sk.getTextSize(sk.textStyle, label)
     buttonSize = textSize + vec2(theme.padding) * 2
-  if sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(rect(sk.at, buttonSize)):
+  if mouseInsideClip(rect(sk.at, buttonSize)):
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -299,7 +305,7 @@ template iconButton*(image: string, body) =
   let
     m2 = vec2(8, 8)
     s2 = vec2(32, 32) + vec2(8, 8) * 2
-  if sk.layer == sk.topLayer and window.mousePos.vec2.overlaps(rect(sk.at - m2, s2)):
+  if mouseInsideClip(rect(sk.at - m2, s2)):
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -382,7 +388,7 @@ template scrubber*[T, U](id: string, p, s: Vec2, value: var float32, minVal: T, 
   if scrubState.dragging:
     let t = clamp((window.mousePos.vec2.x - trackStart - handleSize.x * 0.5) / travelSafe, 0f, 1f)
     value = minF + t * range
-  elif sk.layer == sk.topLayer and (window.mousePos.vec2.overlaps(handleRect) or window.mousePos.vec2.overlaps(rect(sk.pos, s))):
+  elif mouseInsideClip(handleRect) or mouseInsideClip(rect(sk.pos, s)):
     if window.buttonPressed[MouseLeft]:
       scrubState.dragging = true
       let t = clamp((window.mousePos.vec2.x - trackStart - handleSize.x * 0.5) / travelSafe, 0f, 1f)
@@ -410,7 +416,7 @@ template inputText*(id: int, t: var string) =
 
   # Handle focus
   if window.buttonPressed[MouseLeft]:
-    if window.mousePos.vec2.overlaps(rect(sk.pos, sk.size)):
+    if mouseInsideClip(rect(sk.pos, sk.size)):
       textInputState.focused = true
       # TODO: Set cursor position based on click
     else:

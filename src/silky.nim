@@ -374,7 +374,6 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
       ("SilkyVert", toGLSL(SilkyVert, "410", "")),
       ("SilkyFrag", toGLSL(SilkyFrag, "410", ""))
     )
-    echo toGLSL(SilkyFrag, "410", "")
 
   # Upload atlas image to GL texture.
   glGenTextures(1, result.atlasTexture.addr)
