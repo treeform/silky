@@ -139,6 +139,8 @@ template calcButton(label: string, body: untyped) =
   sk.textStyle = oldStyle
 
   sk.at.x += btnSize.x + 10
+  sk.stretchAt.x = max(sk.stretchAt.x, sk.at.x + 10)
+  sk.stretchAt.y = max(sk.stretchAt.y, sk.at.y + 50 + 10)
 
 window.onFrame = proc() =
 
@@ -274,6 +276,7 @@ window.onFrame = proc() =
 
     sk.at.x = rowX
     sk.at.y += 60
+
 
   if not showWindow:
     if window.buttonPressed[MouseLeft]:
