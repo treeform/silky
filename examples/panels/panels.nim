@@ -153,7 +153,7 @@ proc getTabInsertInfo(area: Area, mousePos: Vec2): (int, Rect) =
 
   # If no panels, insert at 0
   if area.panels.len == 0:
-    return (0, rect(x, area.rect.y + 2, 4, headerH - 4))
+    return (0, rect(x, area.rect.y + 4, 4, headerH - 4))
 
   var bestIndex = 0
   var minDist = float32.high
@@ -179,7 +179,7 @@ proc getTabInsertInfo(area: Area, mousePos: Vec2): (int, Rect) =
 
     x += tabW + 2
 
-  return (bestIndex, rect(bestX - 2, area.rect.y + 2, 4, headerH - 4))
+  return (bestIndex, rect(bestX - 2, area.rect.y + 4, 4, headerH - 4))
 
 proc movePanels*(area: Area, panels: seq[Panel]) =
   ## Move multiple panels to this area.
@@ -498,7 +498,7 @@ window.onFrame = proc() =
 
   let ms = sk.avgFrameTime * 1000
   sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+  text(&"frame time: {ms:>7.3f}ms {sk.instanceCount}")
 
   sk.endUi()
   window.swapBuffers()

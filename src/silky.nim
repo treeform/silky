@@ -7,7 +7,6 @@ import
 export atlas, widgets
 
 type
-
   StackDirection* = enum
     TopToBottom
     BottomToTop
@@ -131,6 +130,10 @@ proc pushLayer*(sk: Silky) =
 proc popLayer*(sk: Silky) =
   ## Pop the current layer.
   dec sk.layer
+
+proc instanceCount*(sk: Silky): int =
+  ## Get the current instance count.
+  sk.instanceCount
 
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advance the position.
