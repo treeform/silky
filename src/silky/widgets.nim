@@ -315,7 +315,7 @@ template iconButton*(image: string, body) =
   else:
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
   sk.drawImage(image, sk.at)
-  sk.at += vec2(32 + m, 0)
+  sk.at += vec2(32 + sk.padding, 0)
 
 template group*(p: Vec2, body) =
   ## Create a group.
