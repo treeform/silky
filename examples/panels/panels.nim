@@ -69,6 +69,9 @@ var
   maybeDragStartPos: Vec2
   maybeDragPanel: Panel
 
+  prevMem: int
+  prevNumAlloc: int
+
 # Forward declarations
 proc movePanels*(area: Area, panels: seq[Panel])
 
@@ -497,8 +500,20 @@ window.onFrame = proc() =
     regenerate()
 
   let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms {sk.instanceCount}")
+  sk.at = sk.pos + vec2(sk.size.x - 600, 2)
+  let mem = getOccupiedMem()
+  let memoryChange = mem - prevMem
+  prevMem = mem
+  let memCounters0 = getMemCounters()
+  type MemCounters = object
+    allocCounter: int
+    deallocCounter: int
+  let memCounters = cast[MemCounters](memCounters0)
+  let numAlloc = memCounters.allocCounter
+  let numAllocChange = numAlloc - prevNumAlloc
+  prevNumAlloc = numAlloc
+
+  text(&"frame time: {ms:>7.3}ms {sk.instanceCount} {memoryChange}bytes/frame {numAllocChange}allocs/frame")
 
   sk.endUi()
   window.swapBuffers()
