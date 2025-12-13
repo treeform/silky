@@ -317,6 +317,30 @@ template iconButton*(image: string, body) =
   sk.drawImage(image, sk.at)
   sk.at += vec2(32 + sk.padding, 0)
 
+template clickableIcon*(image: string, on: bool, body) =
+  ## Create an clickable icon with no background and no padding.
+  let
+    imageSize = sk.getImageSize(image)
+    s2 = imageSize
+  var color = rgbx(210, 210, 210, 210)
+  if mouseInsideClip(rect(sk.at, s2)):
+    if window.buttonReleased[MouseLeft]:
+      body
+    elif window.buttonDown[MouseLeft]:
+      color = rgbx(200, 200, 200, 200)
+    else:
+      if on:
+        color = rgbx(255, 255, 255, 255)
+      else:
+        color = rgbx(210, 210, 210, 210)
+  else:
+    if on:
+      color = rgbx(255, 255, 255, 255)
+    else:
+      color = rgbx(210, 210, 210, 210)
+  sk.drawImage(image, sk.at, color)
+  sk.at += vec2(imageSize.x, 0)
+
 template group*(p: Vec2, body) =
   ## Create a group.
   sk.pushFrame(sk.pos + p, sk.size - p)
