@@ -241,7 +241,7 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   glClearColor(color.r, color.g, color.b, color.a)
   glClear(GL_COLOR_BUFFER_BIT)
 
-proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGBX): Vec2 =
+proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGBX, maxWidth = float32.high, maxHeight = float32.high): Vec2 =
   ## Draw text using the specified font from the atlas.
   assert sk.inFrame
   if font notin sk.atlas.fonts:
@@ -250,6 +250,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
 
   let fontData = sk.atlas.fonts[font]
   var currentPos = pos + vec2(0, fontData.ascent)
+  var maxPos = pos + vec2(maxWidth, maxHeight);
   let runedText = text.toRunes
 
   for i in 0 ..< runedText.len:
@@ -269,6 +270,11 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
       entry = fontData.entries["?"]
     else:
       continue
+
+    if currentPos.x + entry.advance > maxPos.x:
+      break
+    if currentPos.y + fontData.lineHeight > maxPos.y:
+      break
 
     # Draw the glyph if it has dimensions.
     if entry.boundsWidth > 0 and entry.boundsHeight > 0:
