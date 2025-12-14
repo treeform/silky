@@ -560,31 +560,38 @@ template h1text*(t: string) =
   let textSize = sk.drawText("H1", t, sk.at, rgbx(255, 255, 255, 255))
   sk.advance(textSize)
 
-template scrubber*[T, U](id: string, p, s: Vec2, value: var float32, minVal: T, maxVal: U) =
-  ## Draggable scrubber with a handle that updates `value`.
-  let minF = minVal.float32
-  let maxF = maxVal.float32
-  let range = maxF - minF
+template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U) =
+  ## Draggable scrubber that spans available width and advances layout.
+  let
+    minF = minVal.float32
+    maxF = maxVal.float32
+    v = clamp(value.float32, minF, maxF)
+    range = maxF - minF
 
   if id notin scrubberStates:
     scrubberStates[id] = ScrubberState()
   let scrubState = scrubberStates[id]
 
-  sk.pushFrame(p, s)
-  sk.draw9Patch("scrubber.track.9patch", 16, sk.pos, sk.size)
-
-
   let
-    # Normalize current value.
-    norm = if range == 0: 0f else: clamp((value - minF) / range, 0f, 1f)
-
-    # Handle geometry.
-    handleSize = vec2(18, 18)
-    trackStart = sk.pos.x + 8
-    trackEnd = sk.pos.x + s.x + 6
+    handleSize = sk.getImageSize("scrubber.handle")
+    bodySize = sk.getImageSize("scrubber.body.9patch")
+    height = handleSize.y 
+    width = sk.size.x - theme.padding.float32 * 3
+    controlRect = rect(sk.at, vec2(width, height))
+    trackStart = controlRect.x + handleSize.x / 2
+    trackEnd = controlRect.x + width - handleSize.x / 2
     travel = max(0f, trackEnd - trackStart)
     travelSafe = if travel <= 0: 1f else: travel
-    handlePos = vec2(trackStart + norm * travel, sk.pos.y + (s.y - handleSize.y) * 0.5)
+
+  # Draw track.
+  sk.draw9Patch("scrubber.body.9patch", 4, controlRect.xy, controlRect.wh)
+
+  # Normalize current value.
+  let norm = if range == 0: 0f else: clamp((v - minF) / range, 0f, 1f)
+
+  # Handle geometry.
+  let
+    handlePos = vec2(trackStart + norm * travel - handleSize.x * 0.5, controlRect.y + (height - handleSize.y) * 0.5)
     handleRect = rect(handlePos, handleSize)
 
   # Dragging logic.
@@ -592,20 +599,20 @@ template scrubber*[T, U](id: string, p, s: Vec2, value: var float32, minVal: T, 
     scrubState.dragging = false
 
   if scrubState.dragging:
-    let t = clamp((window.mousePos.vec2.x - trackStart - handleSize.x * 0.5) / travelSafe, 0f, 1f)
-    value = minF + t * range
-  elif mouseInsideClip(handleRect) or mouseInsideClip(rect(sk.pos, s)):
+    let t = clamp((window.mousePos.vec2.x - trackStart) / travelSafe, 0f, 1f)
+    value = (minF + t * range).T
+  elif mouseInsideClip(handleRect) or mouseInsideClip(controlRect):
     if window.buttonPressed[MouseLeft]:
       scrubState.dragging = true
-      let t = clamp((window.mousePos.vec2.x - trackStart - handleSize.x * 0.5) / travelSafe, 0f, 1f)
-      value = minF + t * range
+      let t = clamp((window.mousePos.vec2.x - trackStart) / travelSafe, 0f, 1f)
+      value = (minF + t * range).T
 
   # Recompute normalized position after potential changes.
-  let norm2 = if range == 0: 0f else: clamp((value - minF) / range, 0f, 1f)
-  let handlePos2 = vec2(trackStart + norm2 * travel, sk.pos.y + 7)
+  let norm2 = if range == 0: 0f else: clamp((value.float32 - minF) / range, 0f, 1f)
+  let handlePos2 = vec2(trackStart + norm2 * travel - handleSize.x * 0.5, controlRect.y + (height - handleSize.y) * 0.5)
 
   sk.drawImage("scrubber.handle", handlePos2)
-  sk.popFrame()
+  sk.advance(vec2(width, height))
 
 template inputText*(id: int, t: var string) =
   ## Create an input text.
