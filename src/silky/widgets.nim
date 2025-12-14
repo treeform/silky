@@ -55,7 +55,6 @@ var
   )
   menuLayouts: seq[MenuLayout]
   menuPathStack: seq[string]
-  menuPopupWidth*: float32 = 300f
 
 proc menuPathKey(path: seq[string]): string =
   path.join(">")
@@ -524,19 +523,19 @@ template inputText*(id: int, t: var string) =
   sk.popFrame()
   sk.advance(vec2(width, height))
 
-template menuPopup(path: seq[string], popupAt: Vec2, body: untyped) =
-  ## Render a popup in a single pass with fixed width.
+template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: untyped) =
+  ## Render a popup in a single pass with caller-provided width.
   menuEnsureState()
   var layout = MenuLayout(
     origin: popupAt,
-    width: menuPopupWidth,
+    width: popupWidth.float32,
     cursorY: theme.menuPadding.float32
   )
   menuLayouts.add(layout)
   body
   # Record the popup area for outside-click detection.
   let popupHeight = layout.cursorY + theme.menuPadding.float32
-  menuAddActive(rect(popupAt, vec2(menuPopupWidth, popupHeight)))
+  menuAddActive(rect(popupAt, vec2(popupWidth, popupHeight)))
   menuLayouts.setLen(menuLayouts.len - 1)
 
 template menuBar*(body: untyped) =
@@ -566,7 +565,7 @@ template menuBar*(body: untyped) =
   if elevate:
     sk.popLayer()
 
-template subMenu*(label: string, body: untyped) =
+template subMenu*(label: string, menuWidth = 200, body: untyped) =
   ## Menu entry that can contain other menu items.
   menuEnsureState()
   let path = menuPathStack & @[label]
@@ -598,7 +597,7 @@ template subMenu*(label: string, body: untyped) =
     if open:
       menuPathStack.add(label)
       let popupPos = vec2(menuRect.x, menuRect.y + menuRect.h)
-      menuPopup(path, popupPos):
+      menuPopup(path, popupPos, menuWidth):
         body
       menuPathStack.setLen(menuPathStack.len - 1)
   else:
@@ -634,14 +633,13 @@ template subMenu*(label: string, body: untyped) =
     if open:
       menuPathStack.add(label)
       let popupPos = vec2(itemRect.x + itemRect.w, itemRect.y)
-      menuPopup(path, popupPos):
+      menuPopup(path, popupPos, menuWidth):
         body
       menuPathStack.setLen(menuPathStack.len - 1)
 
 template menuItem*(label: string, body: untyped) =
   ## Leaf menu entry that runs `body` on click.
   menuEnsureState()
-  doAssert menuLayouts.len > 0, "menuItem must be inside a subMenu body"
   var layout = menuLayouts[^1]
 
   let textSize = sk.getTextSize(sk.textStyle, label)

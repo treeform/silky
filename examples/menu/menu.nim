@@ -35,17 +35,17 @@ window.onFrame = proc() =
   sk.clearScreen(BackgroundColor)
 
   menuBar:
-    subMenu("File"):
+    subMenu("File", menuWidth = 200):
       menuItem("Open"):
         echo "Open"
-      subMenu("Open Recent"):
+      subMenu("Open Recent", menuWidth = 120):
         menuItem("File 1"):
           echo "File 1"
         menuItem("File 2"):
           echo "File 2"
         menuItem("File 3"):
           echo "File 3"
-        subMenu("Even More"):
+        subMenu("Even More", menuWidth = 100):
           menuItem("Config A"):
             echo "Config A"
           menuItem("Config B"):
@@ -54,21 +54,21 @@ window.onFrame = proc() =
         echo "Save"
       menuItem("Close"):
         echo "Close"
-    subMenu("Edit"):
+    subMenu("Edit", menuWidth = 150):
       menuItem("Cut"):
         echo "Cut"
       menuItem("Copy"):
         echo "Copy"
       menuItem("Paste"):
         echo "Paste"
-    subMenu("View"):
+    subMenu("View", menuWidth = 150):
       menuItem("Fullscreen"):
         echo "Fullscreen"
       menuItem("Windowed"):
         echo "Windowed"
       menuItem("Maximized"):
         echo "Maximized"
-    subMenu("Help"):
+    subMenu("Help", menuWidth = 100):
       menuItem("About"):
         echo "About"
 
