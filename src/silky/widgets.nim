@@ -334,11 +334,11 @@ template button*(label: string, body) =
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
-      sk.draw9Patch("button.down.9patch", 4, sk.at, buttonSize, rgbx(255, 255, 255, 255))
+      sk.draw9Patch("button.down.9patch", 8, sk.at, buttonSize, rgbx(255, 255, 255, 255))
     else:
-      sk.draw9Patch("button.hover.9patch", 4, sk.at, buttonSize, rgbx(255, 255, 255, 255))
+      sk.draw9Patch("button.hover.9patch", 8, sk.at, buttonSize, rgbx(255, 255, 255, 255))
   else:
-    sk.draw9Patch("button.9patch", 4, sk.at, buttonSize)
+    sk.draw9Patch("button.9patch", 8, sk.at, buttonSize)
   #sk.drawRect(sk.at + vec2(theme.padding), textSize, rgbx(255, 0, 0, 100))
   discard sk.drawText(sk.textStyle, label, sk.at + vec2(theme.padding), rgbx(255, 255, 255, 255))
   sk.advance(buttonSize + vec2(theme.padding))
