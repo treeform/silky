@@ -1,8 +1,17 @@
 import
   std/[os, strutils, tables, unicode, times],
   pixie, opengl, boxy/[shaders], jsony, shady, vmath, windy,
-  fluffy/measure,
   silky/[atlas, widgets]
+
+when defined(profile):
+  import fluffy/measure
+else:
+  macro measure*(fn: untyped) =
+    return fn
+  template measurePush*(what: string) =
+    discard
+  template measurePop*() =
+    discard
 
 export atlas, widgets
 
@@ -212,7 +221,7 @@ proc SilkyFrag*(
 
 proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   ## Begin the UI frame.
-  when not defined(emscripten):
+  when defined(profile):
     if window.buttonPressed[KeyF3]:
       if traceActive == false:
         traceActive = true
