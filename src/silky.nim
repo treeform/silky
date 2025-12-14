@@ -135,6 +135,7 @@ proc clipRect*(sk: Silky): Rect =
 proc pushLayer*(sk: Silky) =
   ## Push a new layer.
   inc sk.layer
+  sk.topLayer = max(sk.topLayer, sk.layer)
 
 proc popLayer*(sk: Silky) =
   ## Pop the current layer.
@@ -231,6 +232,10 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
         endTrace()
         createDir("tmp")
         dumpMeasures(0, "tmp/trace.json")
+
+  # Reset layers at the start of each frame so popups can rebuild them.
+  sk.layer = 0
+  sk.topLayer = 0
 
   sk.pushFrame(vec2(0, 0), size.vec2)
   sk.inFrame = true

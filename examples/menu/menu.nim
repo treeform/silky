@@ -45,6 +45,11 @@ window.onFrame = proc() =
           echo "File 2"
         menuItem("File 3"):
           echo "File 3"
+        subMenu("Even More"):
+          menuItem("Config A"):
+            echo "Config A"
+          menuItem("Config B"):
+            echo "Config B"
       menuItem("Save"):
         echo "Save"
       menuItem("Close"):
@@ -66,9 +71,6 @@ window.onFrame = proc() =
     subMenu("Help"):
       menuItem("About"):
         echo "About"
-
-  sk.popFrame()
-  sk.popLayer()
 
   sk.endUi()
   window.swapBuffers()
