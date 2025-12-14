@@ -32,6 +32,7 @@ var
   inputText = "Type here!"
   option = 1
   cumulative = false
+  element = "Fire"
 
 window.onFrame = proc() =
 
@@ -54,6 +55,9 @@ window.onFrame = proc() =
     radioButton("Min", option, 3)
 
     checkBox("Cumulative", cumulative)
+
+    text("Select an option:")
+    dropDown(element, ["Fire", "Water", "Earth", "Air"])
 
     text("A bunch of text to test the scrolling, in any direction.")
     text("Does it work?")

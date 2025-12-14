@@ -67,6 +67,8 @@ type
 
     clipStack: seq[Rect]
 
+    callsbacks*: seq[proc()]
+
     # Timing information.
     frameStartTime*: float64
     frameTime*: float64
@@ -638,6 +640,10 @@ proc endUi*(
   ## Draw all queued instances for the current sprite.
   # sk.size = Vec2(0, 0)
   # sk.inFrame = false
+
+  for callback in sk.callsbacks:
+    callback()
+  sk.callsbacks.setLen(0)
 
   if sk.instanceCount == 0:
     return

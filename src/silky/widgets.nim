@@ -32,6 +32,8 @@ type
 
   ScrubberState* = ref object
     dragging*: bool
+  DropDownState* = ref object
+    open*: bool
 
   MenuState* = ref object
     ## Tracks which menus are open and their active hit areas.
@@ -49,6 +51,7 @@ var
   frameStates*: Table[string, FrameState]
   scrubberStates*: Table[string, ScrubberState]
   textInputStates*: Table[int, InputTextState]
+  dropDownStates*: Table[string, DropDownState]
   menuState*: MenuState = MenuState(
     openPath: @[],
     activeRects: @[]
@@ -425,6 +428,79 @@ template checkBox*(label: string, value: var bool) =
   sk.drawImage(if value: "check.on" else: "check.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, theme.defaultTextColor)
   sk.advance(vec2(width, height))
+
+template dropDown*[T](selected: var T, options: openArray[T]) =
+  ## Dropdown styled like input text; options render in a new layer.
+  let id = "dropdown_" & $cast[uint](addr selected)
+  if id notin dropDownStates:
+    dropDownStates[id] = DropDownState()
+  let state = dropDownStates[id]
+
+  let
+    font = sk.atlas.fonts[sk.textStyle]
+    height = font.lineHeight + theme.padding.float32 * 2
+    width = sk.size.x - theme.padding.float32 * 3
+    arrowSize = sk.getImageSize("droparrow")
+    dropRect = rect(sk.at, vec2(width, height))
+
+  let displayText = $selected
+
+  # Toggle open/close on click.
+  let hover = mouseInsideClip(dropRect)
+  if hover and window.buttonReleased[MouseLeft]:
+    state.open = not state.open
+
+  # Draw control body.
+  sk.pushFrame(sk.at, vec2(width, height))
+  let bgColor = if state.open or hover: rgbx(220, 220, 240, 255) else: rgbx(255, 255, 255, 255)
+  sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, bgColor)
+  discard sk.drawText(sk.textStyle, displayText, sk.at + vec2(theme.padding), theme.defaultTextColor)
+  let arrowPos = vec2(
+    sk.pos.x + sk.size.x - arrowSize.x.float32 - theme.padding.float32,
+    sk.pos.y + (height - arrowSize.y.float32) * 0.5
+  )
+  sk.drawImage("droparrow", arrowPos)
+  sk.popFrame()
+  sk.advance(vec2(width, height))
+
+  if state.open and options.len > 0:
+    sk.callsbacks.add proc() =
+      sk.pushLayer()
+
+      let
+        rowHeight = height
+        popupPos = vec2(dropRect.x, dropRect.y + dropRect.h)
+        popupSize = vec2(width, rowHeight * options.len.float32)
+        popupRect = rect(popupPos, popupSize)
+
+      sk.pushFrame(popupPos, popupSize)
+      sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, rgbx(245, 245, 255, 255))
+
+      for i, opt in options:
+        let
+          rowPos = vec2(sk.pos.x, sk.pos.y + i.float32 * rowHeight)
+          rowRect = rect(rowPos, vec2(width, rowHeight))
+          textPos = rowPos + vec2(theme.padding)
+        let
+          isSelected = selected == opt
+          rowHover = mouseInsideClip(rowRect)
+        if rowHover or isSelected:
+          let tint = if rowHover: rgbx(80, 80, 100, 180) else: rgbx(60, 60, 80, 120)
+          sk.drawRect(rowRect.xy, rowRect.wh, tint)
+          if rowHover and window.buttonReleased[MouseLeft]:
+            selected = opt
+            state.open = false
+        discard sk.drawText(sk.textStyle, $opt, textPos, theme.defaultTextColor)
+
+      sk.popFrame()
+
+      # Close when clicking outside.
+      if window.buttonPressed[MouseLeft] and
+        not mouseInsideClip(dropRect) and
+        not mouseInsideClip(popupRect):
+        state.open = false
+
+      sk.popLayer()
 
 template group*(p: Vec2, body) =
   ## Create a group.
