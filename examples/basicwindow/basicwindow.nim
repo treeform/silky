@@ -33,6 +33,7 @@ var
   option = 1
   cumulative = false
   element = "Fire"
+  progress = 0.0
 
 window.onFrame = proc() =
 
@@ -58,6 +59,11 @@ window.onFrame = proc() =
 
     text("Select an option:")
     dropDown(element, ["Fire", "Water", "Earth", "Air"])
+
+    progressBar(progress, 0, 100)
+    progress += 0.01
+    if progress > 100.0:
+      progress = 0.0
 
     text("A bunch of text to test the scrolling, in any direction.")
     text("Does it work?")

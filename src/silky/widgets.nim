@@ -502,6 +502,27 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
       sk.popLayer()
 
+template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
+  ## Non-interactive progress bar.
+  let
+    minF = minVal.float32
+    maxF = maxVal.float32
+    v = clamp(value.float32, minF, maxF)
+    range = maxF - minF
+    t = if range == 0: 0f else: clamp((v - minF) / range, 0f, 1f)
+    bodySize = sk.getImageSize("progressBar.body.9patch")
+    height = bodySize.y.float32
+    width = max(bodySize.x.float32, sk.size.x - theme.padding.float32 * 3)
+    barRect = rect(sk.at, vec2(width, height))
+
+  sk.draw9Patch("progressBar.body.9patch", 6, barRect.xy, barRect.wh)
+
+  let fillWidth = width * t
+  if fillWidth > 0:
+    sk.draw9Patch("progressBar.progress.9patch", 6, barRect.xy, vec2(fillWidth, height))
+
+  sk.advance(vec2(width, height))
+
 template group*(p: Vec2, body) =
   ## Create a group.
   sk.pushFrame(sk.pos + p, sk.size - p)
