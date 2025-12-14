@@ -1,0 +1,15 @@
+version       = "2.0.1"
+author        = "Andre von Houck"
+description   = "Silky immediate mode UI graphics."
+license       = "MIT"
+
+srcDir        = "src"
+
+requires "nim >= 2.2.4"
+requires "pixie"
+requires "shady"
+requires "vmath"
+requires "windy"
+requires "chroma"
+requires "bumpy"
+requires "jsony"

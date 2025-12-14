@@ -1,7 +1,7 @@
 import
   std/[os, strutils, tables, unicode, times],
   pixie, opengl, boxy/[shaders], jsony, shady, vmath, windy,
-  fidget2/measure,
+  fluffy/measure,
   silky/[atlas, widgets]
 
 export atlas, widgets
@@ -630,7 +630,8 @@ proc endUi*(
 
   # Enable blending.
   glEnable(GL_BLEND)
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+  # Premultiplied alpha blending.
+  glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
 
   # Upload position buffer.
   glBindBuffer(GL_ARRAY_BUFFER, sk.posVbo)

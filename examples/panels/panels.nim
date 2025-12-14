@@ -504,14 +504,19 @@ window.onFrame = proc() =
   let mem = getOccupiedMem()
   let memoryChange = mem - prevMem
   prevMem = mem
-  let memCounters0 = getMemCounters()
-  type MemCounters = object
-    allocCounter: int
-    deallocCounter: int
-  let memCounters = cast[MemCounters](memCounters0)
-  let numAlloc = memCounters.allocCounter
-  let numAllocChange = numAlloc - prevNumAlloc
-  prevNumAlloc = numAlloc
+  when defined(nimTypeNames):
+    let memCounters0 = getMemCounters()
+    type MemCounters = object
+      allocCounter: int
+      deallocCounter: int
+    let memCounters = cast[MemCounters](memCounters0)
+    let numAlloc = memCounters.allocCounter
+    let numAllocChange = numAlloc - prevNumAlloc
+    prevNumAlloc = numAlloc
+  else:
+    let numAllocChange = 0
+    let numAlloc = 0
+    let prevNumAlloc = 0
 
   text(&"frame time: {ms:>7.3}ms {sk.instanceCount} {memoryChange}bytes/frame {numAllocChange}allocs/frame")
 
