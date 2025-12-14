@@ -30,6 +30,8 @@ window.onRune = proc(rune: Rune) =
 var
   showWindow = true
   inputText = "Type here!"
+  option = 1
+  cumulative = false
 
 window.onFrame = proc() =
 
@@ -46,6 +48,13 @@ window.onFrame = proc() =
     button("Close Me"):
       showWindow = false
     inputText(10, inputText)
+
+    radioButton("Avg", option, 1)
+    radioButton("Max", option, 2)
+    radioButton("Min", option, 3)
+
+    checkBox("Cumulative", cumulative)
+
     text("A bunch of text to test the scrolling, in any direction.")
     text("Does it work?")
 

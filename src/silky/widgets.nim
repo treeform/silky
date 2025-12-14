@@ -381,6 +381,51 @@ template clickableIcon*(image: string, on: bool, body) =
   sk.drawImage(image, sk.at, color)
   sk.at += vec2(imageSize.x, 0)
 
+template radioButton*[T](label: string, variable: var T, value: T) =
+  ## Radio button.
+  let
+    iconSize = sk.getImageSize("radio.on")
+    textSize = sk.getTextSize(sk.textStyle, label)
+    height = max(iconSize.y.float32, textSize.y)
+    width = iconSize.x.float32 + theme.spacing.float32 + textSize.x
+    hitRect = rect(sk.at, vec2(width, height))
+
+  if mouseInsideClip(hitRect) and window.buttonReleased[MouseLeft]:
+    variable = value
+
+  let
+    on = variable == value
+    iconPos = vec2(sk.at.x, sk.at.y + (height - iconSize.y.float32) * 0.5)
+    textPos = vec2(
+      iconPos.x + iconSize.x.float32 + theme.spacing.float32,        
+      sk.at.y + (height - textSize.y) * 0.5
+    )
+  sk.drawImage(if on: "radio.on" else: "radio.off", iconPos)
+  discard sk.drawText(sk.textStyle, label, textPos, theme.defaultTextColor)
+  sk.advance(vec2(width, height))
+
+template checkBox*(label: string, value: var bool) =
+  ## Checkbox.
+  let
+    iconSize = sk.getImageSize("check.on")
+    textSize = sk.getTextSize(sk.textStyle, label)
+    height = max(iconSize.y.float32, textSize.y)
+    width = iconSize.x.float32 + theme.spacing.float32 + textSize.x
+    hitRect = rect(sk.at, vec2(width, height))
+
+  if mouseInsideClip(hitRect) and window.buttonReleased[MouseLeft]:
+    value = not value
+
+  let
+    iconPos = vec2(sk.at.x, sk.at.y + (height - iconSize.y.float32) * 0.5)
+    textPos = vec2(
+      iconPos.x + iconSize.x.float32 + theme.spacing.float32,
+      sk.at.y + (height - textSize.y) * 0.5
+    )
+  sk.drawImage(if value: "check.on" else: "check.off", iconPos)
+  discard sk.drawText(sk.textStyle, label, textPos, theme.defaultTextColor)
+  sk.advance(vec2(width, height))
+
 template group*(p: Vec2, body) =
   ## Create a group.
   sk.pushFrame(sk.pos + p, sk.size - p)
