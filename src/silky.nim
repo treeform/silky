@@ -37,12 +37,12 @@ type
     layer*: int = 0
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputRunes*: seq[Rune]
-    
+
     # Tooltip tracking.
     showTooltip*: bool = false
     lastMousePos*: Vec2
     mouseIdleTime*: float64
-    lastHoverRect*: Rect
+    hover*: bool = false
     tooltipThreshold*: float64 = 0.5
 
     atlas*: SilkyAtlas
@@ -154,19 +154,6 @@ proc instanceCount*(sk: Silky): int =
   ## Get the current instance count.
   sk.instanceCount
 
-proc markHover*(sk: Silky, hoverRect: Rect) =
-  ## Mark that a widget at the given rect is being hovered.
-  ## If the mouse has been idle over this rect long enough, set showTooltip.
-  if sk.lastHoverRect == hoverRect:
-    # Still hovering the same widget.
-    if sk.mouseIdleTime >= sk.tooltipThreshold:
-      sk.showTooltip = true
-  else:
-    # Different widget or first time.
-    sk.lastHoverRect = hoverRect
-    sk.mouseIdleTime = 0
-    sk.showTooltip = false
-
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advance the position.
   sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(theme.spacing.float32))
@@ -187,6 +174,10 @@ proc getImageSize*(sk: Silky, image: string): Vec2 =
     return vec2(0, 0)
   let uv = sk.atlas.entries[image]
   return vec2(uv.width.float32, uv.height.float32)
+
+proc shouldShowTooltip*(sk: Silky): bool =
+  ## Check if the tooltip should be shown.
+  sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc SilkyVert*(
   pos: Vec2,
@@ -265,7 +256,7 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   let currentTime = epochTime()
   let deltaTime = currentTime - sk.frameStartTime
   sk.frameStartTime = currentTime
-  
+
   # Track mouse movement for tooltip idle detection.
   let currentMousePos = window.mousePos.vec2
   if currentMousePos != sk.lastMousePos:
@@ -273,7 +264,7 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
     sk.lastMousePos = currentMousePos
   else:
     sk.mouseIdleTime += deltaTime
-  
+
   # Reset showTooltip at the start of each frame.
   sk.showTooltip = false
 
