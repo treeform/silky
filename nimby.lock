@@ -10,3 +10,5 @@ crunchy 0.1.11 https://github.com/guzba/crunchy 98eb6526982bb8aae8eec6e8781f4539
 bitty 0.1.4 https://github.com/treeform/bitty/ c40e81277c04befa37234cba5052f58648bef895
 windy 0.4.4 https://github.com/treeform/windy 14f766c9b21fe6ceed2aa830b5f24c6cfdfe406a
 opengl 1.2.9 https://github.com/nim-lang/opengl 8e2e098f82dc5eefd874488c37b5830233cd18f4
+urlly 1.1.1 https://github.com/treeform/urlly 99784779f05649df25fd9c33003d8ef6de027345
+ws 0.5.0 https://github.com/treeform/ws cbb8f763b436669392d10baec2a45778395395cc
