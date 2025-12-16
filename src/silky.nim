@@ -16,12 +16,6 @@ else:
 export atlas, widgets
 
 type
-  StackDirection* = enum
-    TopToBottom
-    BottomToTop
-    LeftToRight
-    RightToLeft
-
   Silky* = ref object
     ## The Silky that draws the AA pixel art sprites.
     inFrame: bool = false
@@ -107,15 +101,16 @@ proc pushFrame*(
     of BottomToTop:
       sk.at = pos + vec2(0, size.y)
     of LeftToRight:
-      sk.at = pos + vec2(size.x, 0)
+      sk.at = pos
     of RightToLeft:
-      sk.at = pos - vec2(size.x, 0)
+      sk.at = pos + vec2(size.x, 0)
 
 proc popFrame*(sk: Silky) =
   ## Pop the current frame from the stack.
   sk.at = sk.atStack.pop()
   discard sk.posStack.pop()
   discard sk.sizeStack.pop()
+  discard sk.directionStack.pop()
 
 proc pos*(sk: Silky): Vec2 =
   ## Get the current frame position.

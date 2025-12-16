@@ -48,28 +48,34 @@ window.onFrame = proc() =
 
   subWindow("A SubWindow", showWindow):
     text("Hello world!")
-    button("Close Me"):
-      showWindow = false
-    inputText(10, inputText)
+    # button("Close Me"):
+    #   showWindow = false
+    # inputText(10, inputText)
 
-    radioButton("Avg", option, 1)
-    radioButton("Max", option, 2)
-    radioButton("Min", option, 3)
+    # radioButton("Avg", option, 1)
+    # radioButton("Max", option, 2)
+    # radioButton("Min", option, 3)
 
-    checkBox("Cumulative", cumulative)
+    # checkBox("Cumulative", cumulative)
 
-    text("Select an option:")
-    dropDown(element, ["Fire", "Water", "Earth", "Air"])
+    # text("Select an option:")
+    # dropDown(element, ["Fire", "Water", "Earth", "Air"])
 
 
-    text("Progress Bar:")
-    progressBar(progress, 0, 100)
-    progress += 0.01
-    if progress > 100.0:
-      progress = 0.0
+    # text("Progress Bar:")
+    # progressBar(progress, 0, 100)
+    # progress += 0.01
+    # if progress > 100.0:
+    #   progress = 0.0
 
-    text("How much?")
-    scrubber("howMuch", howMuch, 0.0, 100.0)
+    # text("How much?")
+    # scrubber("howMuch", howMuch, 0.0, 100.0)
+
+    group(vec2(8, 8), LeftToRight):
+      icon("heart")
+      text("Heart")
+      icon("cloud")
+      text("Cloud")
 
     text("A bunch of text to test the scrolling, in any direction.")
     text("Does it work?")

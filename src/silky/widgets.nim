@@ -6,6 +6,12 @@ import
 export tables, textinput
 
 type
+  StackDirection* = enum
+    TopToBottom
+    BottomToTop
+    LeftToRight
+    RightToLeft
+
   Theme* = object
     padding*: int = 8
     menuPadding*: int = 2
@@ -98,7 +104,12 @@ template mouseInsideClip*(r: Rect): bool =
 
 template children*(body) =
   ## Wrap children in a function call.
-  (proc () = body)()
+  proc wrapper() {.gensym.} =
+
+    body
+
+    return
+  wrapper()
 
 template subWindow*(title: string, show: bool, body) =
   ## Create a window frame.
@@ -347,6 +358,12 @@ template button*(label: string, body) =
   discard sk.drawText(sk.textStyle, label, sk.at + vec2(theme.padding), rgbx(255, 255, 255, 255))
   sk.advance(buttonSize + vec2(theme.padding))
 
+template icon*(image: string) =
+  ## Draw an icon.
+  let imageSize = sk.getImageSize(image)
+  sk.drawImage(image, sk.at)
+  sk.advance(vec2(imageSize.x, imageSize.y))
+
 template iconButton*(image: string, body) =
   ## Create an icon button.
   let
@@ -530,11 +547,14 @@ template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber)
 
   sk.advance(vec2(width, height))
 
-template group*(p: Vec2, body) =
+template group*(p: Vec2, direction = TopToBottom, body) =
   ## Create a group.
-  sk.pushFrame(sk.pos + p, sk.size - p)
+  sk.pushFrame(sk.at + p, sk.size - p, direction)
   children(body)
+  let endAt = sk.stretchAt
   sk.popFrame()
+  sk.advance(endAt - sk.at)
+
 
 template frame*(p, s: Vec2, body) =
   ## Create a frame.
