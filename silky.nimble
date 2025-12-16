@@ -1,4 +1,4 @@
-version       = "2.0.1"
+version       = "0.0.1"
 author        = "Andre von Houck"
 description   = "Silky immediate mode UI graphics."
 license       = "MIT"
