@@ -389,22 +389,27 @@ template clickableIcon*(image: string, on: bool, body) =
   let
     imageSize = sk.getImageSize(image)
     s2 = imageSize
-  var color = rgbx(150, 150, 150, 210)
+    upColor = rgbx(200, 200, 200, 200)
+    onColor = rgbx(255, 255, 255, 255)
+    hoverColor = rgbx(255, 255, 255, 255)
+    offColor = rgbx(110, 110, 110, 110)
+  var color = upColor
   if mouseInsideClip(rect(sk.at, s2)):
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
-      color = rgbx(200, 200, 200, 200)
+      color = upColor
     else:
       if on:
-        color = rgbx(255, 255, 255, 255)
+        color = onColor
       else:
-        color = rgbx(150, 150, 150, 210)
+        color = upColor
   else:
     if on:
-      color = rgbx(255, 255, 255, 255)
+      color = onColor
     else:
-      color = rgbx(150, 150, 150, 210)
+      color = offColor
+
   sk.drawImage(image, sk.at, color)
   sk.at += vec2(imageSize.x, 0)
 
