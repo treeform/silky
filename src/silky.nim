@@ -1,7 +1,7 @@
 import
   std/[os, strutils, tables, unicode, times],
-  pixie, opengl, boxy/[shaders], jsony, shady, vmath, windy,
-  silky/[atlas, widgets]
+  pixie, opengl, jsony, shady, vmath, windy,
+  silky/[atlas, widgets, shaders]
 
 when defined(profile):
   import fluffy/measure
