@@ -37,6 +37,13 @@ type
     layer*: int = 0
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputRunes*: seq[Rune]
+    
+    # Tooltip tracking.
+    showTooltip*: bool = false
+    lastMousePos*: Vec2
+    mouseIdleTime*: float64
+    lastHoverRect*: Rect
+    tooltipThreshold*: float64 = 0.5
 
     atlas*: SilkyAtlas
     image*: Image
@@ -147,6 +154,19 @@ proc instanceCount*(sk: Silky): int =
   ## Get the current instance count.
   sk.instanceCount
 
+proc markHover*(sk: Silky, hoverRect: Rect) =
+  ## Mark that a widget at the given rect is being hovered.
+  ## If the mouse has been idle over this rect long enough, set showTooltip.
+  if sk.lastHoverRect == hoverRect:
+    # Still hovering the same widget.
+    if sk.mouseIdleTime >= sk.tooltipThreshold:
+      sk.showTooltip = true
+  else:
+    # Different widget or first time.
+    sk.lastHoverRect = hoverRect
+    sk.mouseIdleTime = 0
+    sk.showTooltip = false
+
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advance the position.
   sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(theme.spacing.float32))
@@ -241,7 +261,20 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
 
   sk.pushFrame(vec2(0, 0), size.vec2)
   sk.inFrame = true
-  sk.frameStartTime = epochTime()
+  let currentTime = epochTime()
+  let deltaTime = currentTime - sk.frameStartTime
+  sk.frameStartTime = currentTime
+  
+  # Track mouse movement for tooltip idle detection.
+  let currentMousePos = window.mousePos.vec2
+  if currentMousePos != sk.lastMousePos:
+    sk.mouseIdleTime = 0
+    sk.lastMousePos = currentMousePos
+  else:
+    sk.mouseIdleTime += deltaTime
+  
+  # Reset showTooltip at the start of each frame.
+  sk.showTooltip = false
 
   measurePush("glViewport")
   glViewport(0, 0, sk.size.x.int32, sk.size.y.int32)

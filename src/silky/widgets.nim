@@ -348,7 +348,9 @@ template iconButton*(image: string, body) =
   let
     m2 = vec2(8, 8)
     s2 = vec2(32, 32) + vec2(8, 8) * 2
-  if mouseInsideClip(rect(sk.at - m2, s2)):
+    buttonRect = rect(sk.at - m2, s2)
+  if mouseInsideClip(buttonRect):
+    sk.markHover(buttonRect)
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -813,3 +815,33 @@ template menuItem*(label: string, body: untyped) =
     body
 
   layout.cursorY += rowH
+
+template tooltip*(text: string) =
+  ## Display a tooltip at the mouse cursor.
+  ## This should be called after a widget when sk.showTooltip is true.
+  sk.callsbacks.add proc() =
+    sk.pushLayer()
+    
+    let textSize = sk.getTextSize(sk.textStyle, text)
+    let tooltipSize = textSize + vec2(theme.padding.float32 * 2, theme.padding.float32 * 2)
+    let mousePos = window.mousePos.vec2
+    
+    # Position tooltip near mouse, offset slightly to avoid cursor.
+    var tooltipPos = mousePos + vec2(16, 16)
+    
+    # Keep tooltip on screen.
+    if tooltipPos.x + tooltipSize.x > sk.size.x:
+      tooltipPos.x = sk.size.x - tooltipSize.x - theme.padding.float32
+    if tooltipPos.y + tooltipSize.y > sk.size.y:
+      tooltipPos.y = mousePos.y - tooltipSize.y - 4
+    
+    # Ensure tooltip doesn't go off-screen left or top.
+    tooltipPos.x = max(tooltipPos.x, theme.padding.float32)
+    tooltipPos.y = max(tooltipPos.y, theme.padding.float32)
+    
+    sk.pushFrame(tooltipPos, tooltipSize)
+    sk.draw9Patch("tooltip.9patch", 6, sk.pos, sk.size)
+    discard sk.drawText(sk.textStyle, text, sk.pos + vec2(theme.padding), theme.defaultTextColor)
+    sk.popFrame()
+    
+    sk.popLayer()
