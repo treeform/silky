@@ -218,7 +218,7 @@ window.onFrame = proc() =
 
   # Scrubber
   ribbon(vec2(0, sk.size.y - 64*2), vec2(sk.size.x, 66), ScrubberColor):
-    scrubber("timeline", sk.pos + vec2(16, 32), vec2(sk.size.x - 32, 32), scrubValue, 0, 1000)
+    scrubber("timeline", scrubValue, 0, 1000)
 
   # Footer
   ribbon(vec2(0, sk.size.y - 64), vec2(sk.size.x, 64), RibbonColor):

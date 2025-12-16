@@ -1,0 +1,27 @@
+name: Github Actions
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v5
+    - uses: treeform/setup-nim-action@v3
+    - uses: mymindstorm/setup-emsdk@v14
+
+    - run: nimby sync -g nimby.lock
+
+    # Build the examples
+    - run: nim c examples/basicwindow/basicwindow.nim
+    - run: nim c examples/calculator/calculator.nim
+    - run: nim c examples/gameplayer/gameplayer.nim
+    - run: nim c examples/menu/menu.nim
+    - run: nim c examples/panels/panels.nim
+    - run: nim c examples/the7gui/the7gui.nim
