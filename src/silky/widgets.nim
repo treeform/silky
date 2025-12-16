@@ -96,6 +96,10 @@ template mouseInsideClip*(r: Rect): bool =
   window.mousePos.vec2.overlaps(r) and
   window.mousePos.vec2.overlaps(sk.clipRect)
 
+template children*(body) =
+  ## Wrap children in a function call.
+  (proc () = body)()
+
 template subWindow*(title: string, show: bool, body) =
   ## Create a window frame.
   if title notin subWindowStates:
@@ -177,7 +181,7 @@ template subWindow*(title: string, show: bool, body) =
       let bodySize = subWindowState.size - vec2(theme.border * 2, theme.border * 2 + theme.headerHeight)
 
       frame(title, bodyPos, bodySize):
-        body
+        children(body)
 
       # Draw the resize handle.
       let resizeHandleSize = sk.getImageSize("resize")
@@ -221,7 +225,7 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
   let originPos = sk.at
   sk.at -= frameState.scrollPos
 
-  body
+  children(body)
 
   # Handle scrollbar drag release
   if frameState.scrollingY and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
@@ -402,7 +406,7 @@ template radioButton*[T](label: string, variable: var T, value: T) =
     on = variable == value
     iconPos = vec2(sk.at.x, sk.at.y + (height - iconSize.y.float32) * 0.5)
     textPos = vec2(
-      iconPos.x + iconSize.x.float32 + theme.spacing.float32,        
+      iconPos.x + iconSize.x.float32 + theme.spacing.float32,
       sk.at.y + (height - textSize.y) * 0.5
     )
   sk.drawImage(if on: "radio.on" else: "radio.off", iconPos)
@@ -528,14 +532,14 @@ template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber)
 template group*(p: Vec2, body) =
   ## Create a group.
   sk.pushFrame(sk.pos + p, sk.size - p)
-  body
+  children(body)
   sk.popFrame()
 
 template frame*(p, s: Vec2, body) =
   ## Create a frame.
   sk.pushFrame(p, s)
   sk.draw9Patch("window.9patch", 14, sk.pos, sk.size)
-  body
+  children(body)
   sk.popFrame()
 
 template ribbon*(p, s: Vec2, tint: ColorRGBX, body) =
@@ -543,7 +547,7 @@ template ribbon*(p, s: Vec2, tint: ColorRGBX, body) =
   sk.pushFrame(p, s)
   sk.drawRect(sk.pos, sk.size, tint)
   sk.at = sk.pos
-  body
+  children(body)
   sk.popFrame()
 
 template image*(image: string, tint = rgbx(255, 255, 255, 255)) =
@@ -577,7 +581,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U) =
   let
     handleSize = sk.getImageSize("scrubber.handle")
     bodySize = sk.getImageSize("scrubber.body.9patch")
-    height = handleSize.y 
+    height = handleSize.y
     width = sk.size.x - theme.padding.float32 * 3
     controlRect = rect(sk.at, vec2(width, height))
     trackStart = controlRect.x + handleSize.x / 2
@@ -683,7 +687,7 @@ template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: unt
     cursorY: theme.menuPadding.float32
   )
   menuLayouts.add(layout)
-  body
+  children(body)
   # Record the popup area for outside-click detection.
   let popupHeight = layout.cursorY + theme.menuPadding.float32
   menuAddActive(rect(popupAt, vec2(popupWidth, popupHeight)))
@@ -703,9 +707,7 @@ template menuBar*(body: untyped) =
   # Use a 9-patch so the bar has a visible background.
   sk.draw9Patch("header.9patch", 6, sk.pos, sk.size, rgbx(30, 30, 40, 255))
   sk.at = sk.pos + vec2(theme.menuPadding)
-
-  body
-
+  children(body)
   sk.popFrame()
 
   # Close menus if the user clicks outside of any active menu rect.
@@ -749,7 +751,7 @@ template subMenu*(label: string, menuWidth = 200, body: untyped) =
       menuPathStack.add(label)
       let popupPos = vec2(menuRect.x, menuRect.y + menuRect.h)
       menuPopup(path, popupPos, menuWidth):
-        body
+        children(body)
       menuPathStack.setLen(menuPathStack.len - 1)
   else:
     var layout = menuLayouts[^1]
@@ -785,7 +787,7 @@ template subMenu*(label: string, menuWidth = 200, body: untyped) =
       menuPathStack.add(label)
       let popupPos = vec2(itemRect.x + itemRect.w, itemRect.y)
       menuPopup(path, popupPos, menuWidth):
-        body
+        children(body)
       menuPathStack.setLen(menuPathStack.len - 1)
 
 template menuItem*(label: string, body: untyped) =
@@ -812,7 +814,7 @@ template menuItem*(label: string, body: untyped) =
 
   if hover and window.buttonReleased[MouseLeft]:
     menuState.openPath.setLen(0)
-    body
+    children(body)
 
   layout.cursorY += rowH
 
