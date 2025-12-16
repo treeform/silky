@@ -1,5 +1,5 @@
 import
-  std/[strformat],
+  std/[strformat, strutils],
   opengl, windy, bumpy, vmath, chroma,
   silky
 
@@ -255,8 +255,10 @@ window.onFrame = proc() =
         sk.at.y += 32 + m
       iconButton(vibe):
         echo vibe
-      if sk.showTooltip:
-        tooltip(vibe)
+      if sk.showTooltip: 
+        let vibeName = vibe.split("/")[1]
+        echo "show tooltip: " & vibeName
+        tooltip(vibeName)
 
   group vec2(10, 200):
     text("Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10")

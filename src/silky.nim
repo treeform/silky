@@ -258,6 +258,7 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   # Reset layers at the start of each frame so popups can rebuild them.
   sk.layer = 0
   sk.topLayer = 0
+  sk.showTooltip = false
 
   sk.pushFrame(vec2(0, 0), size.vec2)
   sk.inFrame = true
@@ -540,7 +541,7 @@ proc drawQuad*(
   uvPos: Vec2,
   uvSize: Vec2,
   color: ColorRGBX
-) {.measure.} =
+) =
   ## Draw a quad.
   sk.posData.add(pos.x)
   sk.posData.add(pos.y)
@@ -569,7 +570,7 @@ proc drawImage*(
   name: string,
   pos: Vec2,
   color = rgbx(255, 255, 255, 255)
-) {.measure.} =
+) =
   ## Draw a sprite at the given position.
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name
@@ -588,7 +589,7 @@ proc drawRect*(
   pos: Vec2,
   size: Vec2,
   color: ColorRGBX
-) {.measure.} =
+) =
   ## Draw a colored rectangle.
   let uv = sk.atlas.entries[WhiteTileKey]
   let center = vec2(uv.x.float32, uv.y.float32) + vec2(uv.width.float32, uv.height.float32) / 2
@@ -674,9 +675,13 @@ proc endUi*(
   # sk.size = Vec2(0, 0)
   # sk.inFrame = false
 
+  measurePush("callbacks")
   for callback in sk.callsbacks:
+    measurePush("callback")
     callback()
+    measurePop()
   sk.callsbacks.setLen(0)
+  measurePop()
 
   if sk.instanceCount == 0:
     return
