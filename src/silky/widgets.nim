@@ -244,32 +244,34 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
   if frameState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
     frameState.scrollingX = false
 
-  # Scroll wheel handling (only when mouse over frame)
-  if mouseInsideClip(rect(sk.pos, sk.size)):
-    if not frameState.scrollingY and window.scrollDelta.y != 0:
-      frameState.scrollPos.y -= window.scrollDelta.y * 10
-    if not frameState.scrollingX and window.scrollDelta.x != 0:
-      frameState.scrollPos.x -= window.scrollDelta.x * 10
-  frameState.scrollPos = max(frameState.scrollPos, vec2(0, 0))
-
-  # Stretch and clamp scroll positions
+  # Calculate content size from stretchAt (add padding for last element).
+  # Add scrollPos back because stretchAt is in scrolled coordinates but we need unscrolled.
   sk.stretchAt += vec2(16)
-  let stretch = sk.stretchAt + frameState.scrollPos - originPos
-  let scrollMax = stretch - sk.size
+  let contentSize = (sk.stretchAt + frameState.scrollPos) - originPos
+  let scrollMax = max(contentSize - sk.size, vec2(0, 0))
 
+  # Clamp scroll position to valid range (handles resize making content smaller).
   if scrollMax.y > 0:
-    frameState.scrollPos.y = min(frameState.scrollPos.y, scrollMax.y)
+    frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
   else:
     frameState.scrollPos.y = 0
-
   if scrollMax.x > 0:
-    frameState.scrollPos.x = min(frameState.scrollPos.x, scrollMax.x)
+    frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
   else:
     frameState.scrollPos.x = 0
 
-  # Draw Y scrollbar
-  if stretch.y > sk.size.y:
-    let scrollSize = stretch.y
+  # Scroll wheel handling (only when mouse over frame).
+  if mouseInsideClip(rect(sk.pos, sk.size)):
+    if not frameState.scrollingY and window.scrollDelta.y != 0:
+      frameState.scrollPos.y += window.scrollDelta.y * 10
+      frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
+    if not frameState.scrollingX and window.scrollDelta.x != 0:
+      frameState.scrollPos.x += window.scrollDelta.x * 10
+      frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
+
+  # Draw Y scrollbar.
+  if contentSize.y > sk.size.y:
+    let scrollSize = contentSize.y
     let scrollbarTrackRect = rect(
       sk.pos.x + sk.size.x - 10,
       sk.pos.y + 2,
@@ -302,9 +304,9 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
 
     sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
-  # Draw X scrollbar
-  if stretch.x > sk.size.x:
-    let scrollSize = stretch.x
+  # Draw X scrollbar.
+  if contentSize.x > sk.size.x:
+    let scrollSize = contentSize.x
     let scrollbarTrackRect = rect(
       sk.pos.x + 2,
       sk.pos.y + sk.size.y - 10,
@@ -382,6 +384,7 @@ template iconButton*(image: string, body) =
     sk.hover = false
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
   sk.drawImage(image, sk.at)
+  sk.stretchAt = max(sk.stretchAt, sk.at + s2)
   sk.at += vec2(32 + sk.padding, 0)
 
 template clickableIcon*(image: string, on: bool, body) =
