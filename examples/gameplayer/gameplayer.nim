@@ -223,7 +223,7 @@ window.onFrame = proc() =
   # Footer
   ribbon(vec2(0, sk.size.y - 64), vec2(sk.size.x, 64), RibbonColor):
 
-    group(vec2(16, 16)):
+    group(vec2(16, 16), TopToBottom):
       iconButton("ui/rewindToStart"):
         echo "rewindToStart"
       iconButton("ui/stepBack"):
@@ -235,7 +235,7 @@ window.onFrame = proc() =
       iconButton("ui/rewindToEnd"):
         echo "rewindToEnd"
 
-    group(vec2(sk.size.x - 240, 16)):
+    group(vec2(sk.size.x - 240, 16), TopToBottom):
       iconButton("ui/heart"):
         echo "heart"
       iconButton("ui/cloud"):
@@ -247,7 +247,7 @@ window.onFrame = proc() =
       iconButton("ui/tack"):
         echo "tack"
 
-  frame(vec2(sk.size.x - (11 * (32 + m)), 100) - vec2(14, 14), vec2(500, 800) + vec2(14, 14)):
+  frame("vibe-frame", vec2(sk.size.x - (11 * (32 + m)), 100) - vec2(14, 14), vec2(500, 800) + vec2(14, 14)):
     sk.at = sk.pos + vec2(m, m) * 2
     for i, vibe in vibes:
       if i > 0 and i mod 10 == 0:
@@ -258,7 +258,7 @@ window.onFrame = proc() =
       if sk.shouldShowTooltip:
         tooltip(vibe)
 
-  group vec2(10, 200):
+  group vec2(10, 200), TopToBottom:
     text("Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10")
 
   let ms = sk.avgFrameTime * 1000
