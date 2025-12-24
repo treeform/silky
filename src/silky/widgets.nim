@@ -860,9 +860,10 @@ template tooltip*(text: string) =
   var tooltipPos = mousePos + vec2(16, 16)
 
   # Keep tooltip on screen.
-  if tooltipPos.x + tooltipSize.x > sk.size.x:
-    tooltipPos.x = sk.size.x - tooltipSize.x - theme.padding.float32
-  if tooltipPos.y + tooltipSize.y > sk.size.y:
+  let root = sk.rootSize
+  if tooltipPos.x + tooltipSize.x > root.x:
+    tooltipPos.x = root.x - tooltipSize.x - theme.padding.float32
+  if tooltipPos.y + tooltipSize.y > root.y:
     tooltipPos.y = mousePos.y - tooltipSize.y - 4
 
   # Ensure tooltip doesn't go off-screen left or top.
