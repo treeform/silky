@@ -54,6 +54,7 @@ var
   crudSurname = ""
   crudDatabase = @["Emil, Hans", "Mustermann, Max", "Tisch, Roman"]
   crudSelected = -1
+  oldCrudSelected = -1
 
 proc isValidDate(s: string): bool =
   try:
@@ -195,7 +196,6 @@ window.onFrame = proc() =
     listBox("crud_list", filteredItems, crudSelected)
 
     # If selection changed, sync fields
-    var oldCrudSelected {.global.} = -1
     if crudSelected != oldCrudSelected:
       if crudSelected != -1 and crudSelected < filteredItems.len:
         let person = filteredItems[crudSelected]
