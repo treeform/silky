@@ -16,8 +16,8 @@ else:
 export atlas, widgets
 
 const
-  NormalBuffer* = 0
-  PopupsBuffer* = 1
+  NormalLayer* = 0
+  PopupsLayer* = 1
 
 type
   SilkyVertex* {.packed.} = object 
@@ -61,9 +61,9 @@ type
     atlasTexture: GLuint     ## GL texture for the atlas image.
 
     # Instance Data.
-    buffers*: array[2, seq[SilkyVertex]]
-    currentBuffer*: int
-    bufferStack: seq[int]
+    layers*: array[2, seq[SilkyVertex]]
+    currentLayer*: int
+    layerStack: seq[int]
 
     clipStack: seq[Rect]
 
@@ -79,14 +79,14 @@ var
 
   traceActive: bool = false
 
-proc pushBuffer*(sk: Silky, buffer: int) =
-  ## Push a new buffer onto the stack.
-  sk.bufferStack.add(sk.currentBuffer)
-  sk.currentBuffer = buffer
+proc pushLayer*(sk: Silky, layer: int) =
+  ## Push a new layer onto the stack.
+  sk.layerStack.add(sk.currentLayer)
+  sk.currentLayer = layer
 
-proc popBuffer*(sk: Silky) =
-  ## Pop the current buffer from the stack.
-  sk.currentBuffer = sk.bufferStack.pop()
+proc popLayer*(sk: Silky) =
+  ## Pop the current layer from the stack.
+  sk.currentLayer = sk.layerStack.pop()
 
 proc pushFrame*(
   sk: Silky,
@@ -149,8 +149,8 @@ proc clipRect*(sk: Silky): Rect =
 proc instanceCount*(sk: Silky): int =
   ## Get the current instance count.
   var count = 0
-  for i in 0 ..< sk.buffers.len:
-    count += sk.buffers[i].len
+  for i in 0 ..< sk.layers.len:
+    count += sk.layers[i].len
   return count
 
 proc advance*(sk: Silky, amount: Vec2) =
@@ -315,7 +315,7 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
         round(currentPos.y + entry.boundsY)
       )
 
-      sk.buffers[sk.currentBuffer].add(SilkyVertex(
+      sk.layers[sk.currentLayer].add(SilkyVertex(
         pos: pos,
         size: vec2(entry.boundsWidth, entry.boundsHeight),
         uvPos: [entry.x.uint16, entry.y.uint16],
@@ -376,10 +376,10 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   result = Silky()
   result.image = readImage(imagePath)
   result.atlas = readFile(jsonPath).fromJson(SilkyAtlas)
-  result.buffers[NormalBuffer] = @[]
-  result.buffers[PopupsBuffer] = @[]
-  result.currentBuffer = NormalBuffer
-  result.bufferStack = @[]
+  result.layers[NormalLayer] = @[]
+  result.layers[PopupsLayer] = @[]
+  result.currentLayer = NormalLayer
+  result.layerStack = @[]
 
   when defined(emscripten):
     result.shader = newShader(
@@ -395,12 +395,6 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
       )
     )
   else:
-    echo "--------------------------------"
-    echo "SilkyVert:"
-    echo toGLSL(SilkyVert, "410", "")
-    echo "SilkyFrag:"
-    echo toGLSL(SilkyFrag, "410", "")
-    echo "--------------------------------"
     result.shader = newShader(
       ("SilkyVert", toGLSL(SilkyVert, "410", "")),
       ("SilkyFrag", toGLSL(SilkyFrag, "410", ""))
@@ -427,7 +421,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE.GLint)
   glGenerateMipmap(GL_TEXTURE_2D)
 
-  # Set up VAO and instance buffers.
+  # Set up VAO and instance layers.
   glGenVertexArrays(1, result.vao.addr)
   glBindVertexArray(result.vao)
   let program = result.shader.programId
@@ -442,7 +436,6 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   # Helper to set up attributes for the SilkyVertex struct.
   template setAttr(name: string, size: GLint, xtype: GLenum, normalized: GLboolean, offset: int) =
     let loc = glGetAttribLocation(program, name)
-    echo "Attribute: ", name, " loc: ", loc
     if loc != -1:
       glEnableVertexAttribArray(loc.GLuint)
       glVertexAttribPointer(loc.GLuint, size, xtype, normalized, stride, cast[pointer](offset))
@@ -458,7 +451,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   setAttr("v.clipPos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipPos))
   setAttr("v.clipSize", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipSize))
 
-  # Unbind the buffers.
+  # Unbind the layers.
   glBindBuffer(GL_ARRAY_BUFFER, 0)
   glBindVertexArray(0)
 
@@ -471,7 +464,7 @@ proc drawQuad*(
   color: ColorRGBX
 ) =
   ## Draw a quad.
-  sk.buffers[sk.currentBuffer].add(SilkyVertex(
+  sk.layers[sk.currentLayer].add(SilkyVertex(
     pos: pos,
     size: size,
     uvPos: [uvPos.x.uint16, uvPos.y.uint16],
@@ -575,10 +568,10 @@ proc contains*(sk: Silky, name: string): bool =
 
 proc clear*(sk: Silky) =
   ## Clear the current instance queue.
-  sk.buffers[NormalBuffer].setLen(0)
-  sk.buffers[PopupsBuffer].setLen(0)
-  sk.currentBuffer = NormalBuffer
-  sk.bufferStack.setLen(0)
+  sk.layers[NormalLayer].setLen(0)
+  sk.layers[PopupsLayer].setLen(0)
+  sk.currentLayer = NormalLayer
+  sk.layerStack.setLen(0)
 
 proc endUi*(
   sk: Silky,
@@ -587,11 +580,11 @@ proc endUi*(
   # sk.size = Vec2(0, 0)
   # sk.inFrame = false
 
-  # Merge all buffers into the normal buffer.
-  for i in 1 ..< sk.buffers.len:
-    sk.buffers[NormalBuffer].add(sk.buffers[i])
+  # Merge all layers into the normal layer.
+  for i in 1 ..< sk.layers.len:
+    sk.layers[NormalLayer].add(sk.layers[i])
 
-  let instanceCount = sk.buffers[NormalBuffer].len
+  let instanceCount = sk.layers[NormalLayer].len
   if instanceCount == 0:
     sk.clear()
     sk.popFrame()
@@ -605,7 +598,7 @@ proc endUi*(
 
   # Upload instance buffer.
   glBindBuffer(GL_ARRAY_BUFFER, sk.instanceVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.buffers[NormalBuffer].len * sizeof(SilkyVertex), sk.buffers[NormalBuffer][0].addr, GL_STREAM_DRAW)
+  glBufferData(GL_ARRAY_BUFFER, sk.layers[NormalLayer].len * sizeof(SilkyVertex), sk.layers[NormalLayer][0].addr, GL_STREAM_DRAW)
 
   # Bind the shader and the atlas texture.
   glUseProgram(sk.shader.programId)

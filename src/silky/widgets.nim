@@ -494,7 +494,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   sk.advance(vec2(width, height))
 
   if state.open and options.len > 0:
-    sk.pushBuffer(PopupsBuffer)
+    sk.pushLayer(PopupsLayer)
     sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
     let
@@ -531,7 +531,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
       state.open = false
 
     sk.popClipRect()
-    sk.popBuffer()
+    sk.popLayer()
 
 template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
   ## Non-interactive progress bar.
@@ -709,7 +709,7 @@ template inputText*(id: int, t: var string) =
 template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: untyped) =
   ## Render a popup in a single pass with caller-provided width.
   menuEnsureState()
-  sk.pushBuffer(PopupsBuffer)
+  sk.pushLayer(PopupsLayer)
   sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
   var layout = MenuLayout(
     origin: popupAt,
@@ -723,7 +723,7 @@ template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: unt
   menuAddActive(rect(popupAt, vec2(popupWidth, popupHeight)))
   menuLayouts.setLen(menuLayouts.len - 1)
   sk.popClipRect()
-  sk.popBuffer()
+  sk.popLayer()
 
 template menuBar*(body: untyped) =
   ## Horizontal application menu bar (File, Edit, ...).
@@ -849,7 +849,7 @@ template tooltip*(text: string) =
   ## Display a tooltip at the mouse cursor.
   ## This should be called after a widget when sk.showTooltip is true.
   let tooltipText = text
-  sk.pushBuffer(PopupsBuffer)
+  sk.pushLayer(PopupsLayer)
   sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
   let textSize = sk.getTextSize(sk.textStyle, tooltipText)
@@ -875,4 +875,4 @@ template tooltip*(text: string) =
   sk.popFrame()
 
   sk.popClipRect()
-  sk.popBuffer()
+  sk.popLayer()
