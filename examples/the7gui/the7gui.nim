@@ -1,6 +1,6 @@
 
 import
-  std/[strformat, strutils],
+  std/[strformat, strutils, times],
   opengl, windy, bumpy, vmath, chroma,
   silky
 
@@ -30,9 +30,35 @@ window.onRune = proc(rune: Rune) =
 var
   showCounter = true
   showTemperature = true
+  showFlightBooker = true
   counter = 0
   celsius = "0"
   fahrenheit = "32"
+  flightType = "one-way flight"
+  startDateStr = "24.12.2025"
+  returnDateStr = "24.12.2025"
+  bookedMessage = ""
+
+proc isValidDate(s: string): bool =
+  try:
+    discard parse(s, "dd.MM.yyyy")
+    return true
+  except:
+    return false
+
+proc parseDate(s: string): DateTime =
+  try:
+    return parse(s, "dd.MM.yyyy")
+  except:
+    # Return a safe default instead of an uninitialized DateTime to avoid crashes
+    return initDateTime(1, Month(1), 2000, 0, 0, 0, utc())
+
+proc isValidFloat(s: string): bool =
+  try:
+    discard parseFloat(s)
+    return true
+  except ValueError:
+    return false
 
 window.onFrame = proc() =
 
@@ -50,9 +76,10 @@ window.onFrame = proc() =
       inc counter
 
   subWindow("Temperature Converter", showTemperature):
+    let cValid = isValidFloat(celsius)
     let oldCelsius = celsius
     text("Celsius")
-    inputText(1, celsius)
+    inputText(1, celsius, true, not cValid)
     if celsius != oldCelsius:
       try:
         let c = parseFloat(celsius)
@@ -63,9 +90,10 @@ window.onFrame = proc() =
       except ValueError:
         discard
 
+    let fValid = isValidFloat(fahrenheit)
     let oldFahrenheit = fahrenheit
     text("Fahrenheit")
-    inputText(2, fahrenheit)
+    inputText(2, fahrenheit, true, not fValid)
     if fahrenheit != oldFahrenheit:
       try:
         let f = parseFloat(fahrenheit)
@@ -76,10 +104,43 @@ window.onFrame = proc() =
       except ValueError:
         discard
 
-  if not showCounter and not showTemperature:
+  subWindow("Flight Booker", showFlightBooker):
+    dropDown(flightType, ["one-way flight", "return flight"])
+
+    let startValid = isValidDate(startDateStr)
+    text("Start Date")
+    inputText(3, startDateStr, true, not startValid)
+
+    let isReturn = flightType == "return flight"
+    let returnValid = isValidDate(returnDateStr)
+    text("Return Date")
+    inputText(4, returnDateStr, isReturn, isReturn and not returnValid)
+
+    var dateOrderError = false
+    if isReturn and startValid and returnValid:
+      let start = parseDate(startDateStr)
+      let ret = parseDate(returnDateStr)
+      if ret < start:
+        dateOrderError = true
+
+    var canBook = startValid and (not isReturn or (returnValid and not dateOrderError))
+
+    button("Book", canBook, dateOrderError):
+      if flightType == "one-way flight":
+        bookedMessage = &"You have booked a one-way flight on {startDateStr}."
+      else:
+        bookedMessage = &"You have booked a return flight departing on {startDateStr} and returning on {returnDateStr}."
+
+    if dateOrderError:
+      text("Return date cannot be before start date.")
+    elif bookedMessage != "":
+      text(bookedMessage)
+
+  if not showCounter and not showTemperature and not showFlightBooker:
     if window.buttonPressed[MouseLeft]:
       showCounter = true
       showTemperature = true
+      showFlightBooker = true
     sk.at = vec2(100, 100)
     text("Click anywhere to show the windows")
 
