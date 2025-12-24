@@ -5,6 +5,11 @@ import
 
 export tables, textinput
 
+when defined(macos):
+  const ScrollSpeed* = 10.0
+else:
+  const ScrollSpeed* = -10.0
+
 type
   StackDirection* = enum
     TopToBottom
@@ -262,10 +267,10 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
   # Scroll wheel handling (only when mouse over frame).
   if mouseInsideClip(rect(sk.pos, sk.size)):
     if not frameState.scrollingY and window.scrollDelta.y != 0:
-      frameState.scrollPos.y += window.scrollDelta.y * 10
+      frameState.scrollPos.y += window.scrollDelta.y * ScrollSpeed
       frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
     if not frameState.scrollingX and window.scrollDelta.x != 0:
-      frameState.scrollPos.x += window.scrollDelta.x * 10
+      frameState.scrollPos.x += window.scrollDelta.x * ScrollSpeed
       frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
 
   # Draw Y scrollbar.
