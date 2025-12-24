@@ -28,9 +28,15 @@ window.onRune = proc(rune: Rune) =
   sk.inputRunes.add(rune)
 
 var
-  showCounter = true
-  showTemperature = true
-  showFlightBooker = true
+  showChallenges = true
+  showCounter = false
+  showTemperature = false
+  showFlightBooker = false
+  showTimer = false
+  showCRUD = false
+  showCircleDrawer = false
+  showCells = false
+
   counter = 0
   celsius = "0"
   fahrenheit = "32"
@@ -38,6 +44,10 @@ var
   startDateStr = "24.12.2025"
   returnDateStr = "24.12.2025"
   bookedMessage = ""
+
+  timerDuration = 10.0
+  timerElapsed = 0.0
+  lastFrameTime = epochTime()
 
 proc isValidDate(s: string): bool =
   try:
@@ -51,7 +61,7 @@ proc parseDate(s: string): DateTime =
     return parse(s, "dd.MM.yyyy")
   except:
     # Return a safe default instead of an uninitialized DateTime to avoid crashes
-    return initDateTime(1, Month(1), 2000, 0, 0, 0, utc())
+    return dateTime(2000, Month(1), 1, 0, 0, 0, zone = utc())
 
 proc isValidFloat(s: string): bool =
   try:
@@ -64,18 +74,33 @@ window.onFrame = proc() =
 
   sk.beginUI(window, window.size)
 
+  # Update timer
+  let now = epochTime()
+  let dt = now - lastFrameTime
+  lastFrameTime = now
+  timerElapsed = min(timerElapsed + dt, timerDuration)
+
   # Draw tiled test texture as the background.
   for x in 0 ..< 16:
     for y in 0 ..< 10:
       sk.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
-  subWindow("Counter", showCounter):
+  subWindow("Challenges", showChallenges, vec2(10, 10), vec2(300, 450)):
+    button("Counter"): showCounter = not showCounter
+    button("Temperature Converter"): showTemperature = not showTemperature
+    button("Flight Booker"): showFlightBooker = not showFlightBooker
+    button("Timer"): showTimer = not showTimer
+    button("CRUD", false): showCRUD = not showCRUD
+    button("Circle Drawer", false): showCircleDrawer = not showCircleDrawer
+    button("Cells", false): showCells = not showCells
+
+  subWindow("Counter", showCounter, vec2(320, 50), vec2(320, 200)):
     text(&"{counter}")
     button("Count"):
       inc counter
 
-  subWindow("Temperature Converter", showTemperature):
+  subWindow("Temperature Converter", showTemperature, vec2(320, 60), vec2(320, 250)):
     let cValid = isValidFloat(celsius)
     let oldCelsius = celsius
     text("Celsius")
@@ -104,7 +129,7 @@ window.onFrame = proc() =
       except ValueError:
         discard
 
-  subWindow("Flight Booker", showFlightBooker):
+  subWindow("Flight Booker", showFlightBooker, vec2(320, 70), vec2(350, 400)):
     dropDown(flightType, ["one-way flight", "return flight"])
 
     let startValid = isValidDate(startDateStr)
@@ -136,13 +161,28 @@ window.onFrame = proc() =
     elif bookedMessage != "":
       text(bookedMessage)
 
-  if not showCounter and not showTemperature and not showFlightBooker:
+  subWindow("Timer", showTimer, vec2(320, 80), vec2(300, 250)):
+    text(&"Elapsed Time: {timerElapsed:.1f}s")
+    progressBar(timerElapsed, 0, timerDuration)
+    text("Duration:")
+    scrubber("timer_scrubber", timerDuration, 0.1, 60.0)
+    button("Reset"):
+      timerElapsed = 0.0
+
+  subWindow("CRUD", showCRUD, vec2(150, 150), vec2(400, 300)):
+    text("Coming soon...")
+
+  subWindow("Circle Drawer", showCircleDrawer, vec2(160, 160), vec2(400, 400)):
+    text("Coming soon...")
+
+  subWindow("Cells", showCells, vec2(170, 170), vec2(500, 400)):
+    text("Coming soon...")
+
+  if not showChallenges and not showCounter and not showTemperature and not showFlightBooker and not showTimer and not showCRUD and not showCircleDrawer and not showCells:
     if window.buttonPressed[MouseLeft]:
-      showCounter = true
-      showTemperature = true
-      showFlightBooker = true
+      showChallenges = true
     sk.at = vec2(100, 100)
-    text("Click anywhere to show the windows")
+    text("Click anywhere to show the Challenges window")
 
   let ms = sk.avgFrameTime * 1000
   sk.at = sk.pos + vec2(sk.size.x - 250, 20)

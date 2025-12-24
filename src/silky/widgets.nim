@@ -117,12 +117,12 @@ template children*(body) =
     return
   wrapper()
 
-template subWindow*(title: string, show: bool, body) =
+template subWindow*(title: string, show: var bool, startingPos: Vec2, startingSize: Vec2, body: untyped) =
   ## Create a window frame.
   if title notin subWindowStates:
     subWindowStates[title] = SubWindowState(
-      pos: vec2(10 + subWindowStates.len * (300 + theme.spacing), 10),
-      size: vec2(300, 400),
+      pos: startingPos,
+      size: startingSize,
       minimized: false
     )
   let subWindowState = subWindowStates[title]
@@ -222,6 +222,16 @@ template subWindow*(title: string, show: bool, body) =
       sk.drawImage("resize", resizeHandleRect.xy)
 
     sk.popFrame()
+
+template subWindow*(title: string, show: var bool, body: untyped) =
+  ## Create a window frame with default position and size.
+  subWindow(
+    title,
+    show,
+    vec2(10 + subWindowStates.len * (300 + theme.spacing), 10),
+    vec2(300, 400),
+    body
+  )
 
 template frame*(id: string, framePos, frameSize: Vec2, body) =
   ## Frame with scrollbars similar to a window body.
@@ -348,16 +358,7 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
   sk.popFrame()
   sk.popClipRect()
 
-template button*(label: string, body: untyped) =
-  ## Create a button.
-  button(label, true, false, body)
-
-template button*(label: string, enabled: bool, body: untyped) =
-  ## Create a button.
-  button(label, enabled, false, body)
-
-template button*(label: string, enabled: bool, error: bool, body: untyped) =
-  ## Create a button.
+template buttonImpl(label: string, enabled: bool, error: bool, body: untyped) =
   let
     textSize = sk.getTextSize(sk.textStyle, label)
     buttonSize = textSize + vec2(theme.padding) * 2
@@ -388,6 +389,18 @@ template button*(label: string, enabled: bool, error: bool, body: untyped) =
 
   discard sk.drawText(sk.textStyle, label, sk.at + vec2(theme.padding), textColor)
   sk.advance(buttonSize + vec2(theme.padding))
+
+template button*(label: string, body: untyped) =
+  ## Create a button.
+  buttonImpl(label, true, false, body)
+
+template button*(label: string, enabled: bool, body: untyped) =
+  ## Create a button.
+  buttonImpl(label, enabled, false, body)
+
+template button*(label: string, enabled: bool, error: bool, body: untyped) =
+  ## Create a button.
+  buttonImpl(label, enabled, error, body)
 
 template icon*(image: string) =
   ## Draw an icon.
