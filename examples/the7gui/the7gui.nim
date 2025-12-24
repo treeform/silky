@@ -49,6 +49,12 @@ var
   timerElapsed = 0.0
   lastFrameTime = epochTime()
 
+  crudPrefix = ""
+  crudName = ""
+  crudSurname = ""
+  crudDatabase = @["Emil, Hans", "Mustermann, Max", "Tisch, Roman"]
+  crudSelected = -1
+
 proc isValidDate(s: string): bool =
   try:
     discard parse(s, "dd.MM.yyyy")
@@ -91,7 +97,7 @@ window.onFrame = proc() =
     button("Temperature Converter"): showTemperature = not showTemperature
     button("Flight Booker"): showFlightBooker = not showFlightBooker
     button("Timer"): showTimer = not showTimer
-    button("CRUD", false): showCRUD = not showCRUD
+    button("CRUD"): showCRUD = not showCRUD
     button("Circle Drawer", false): showCircleDrawer = not showCircleDrawer
     button("Cells", false): showCells = not showCells
 
@@ -169,8 +175,70 @@ window.onFrame = proc() =
     button("Reset"):
       timerElapsed = 0.0
 
-  subWindow("CRUD", showCRUD, vec2(150, 150), vec2(400, 300)):
-    text("Coming soon...")
+  subWindow("CRUD", showCRUD, vec2(150, 150), vec2(400, 450)):
+    text("Filter prefix:")
+    inputText(5, crudPrefix)
+
+    # Filter database based on prefix (case insensitive, surname starts with prefix)
+    # Database stores "Surname, Name"
+    var filteredItems: seq[string]
+    var originalIndices: seq[int]
+    for i, person in crudDatabase:
+      if crudPrefix == "" or person.toLowerAscii().startsWith(crudPrefix.toLowerAscii()):
+        filteredItems.add(person)
+        originalIndices.add(i)
+
+    # If selection is out of bounds for the filtered list, reset it
+    if crudSelected >= filteredItems.len:
+      crudSelected = -1
+
+    listBox("crud_list", filteredItems, crudSelected)
+
+    # If selection changed, sync fields
+    var oldCrudSelected {.global.} = -1
+    if crudSelected != oldCrudSelected:
+      if crudSelected != -1 and crudSelected < filteredItems.len:
+        let person = filteredItems[crudSelected]
+        let parts = person.split(", ")
+        if parts.len == 2:
+          crudSurname = parts[0]
+          crudName = parts[1]
+      else:
+        # Clear fields when selection is lost
+        crudName = ""
+        crudSurname = ""
+
+      # Sync back to input text states to update display immediately
+      if 6 in textInputStates: textInputStates[6].setText(crudName)
+      if 7 in textInputStates: textInputStates[7].setText(crudSurname)
+      oldCrudSelected = crudSelected
+
+    text("Name:")
+    inputText(6, crudName)
+    text("Surname:")
+    inputText(7, crudSurname)
+
+    let canUpdateDelete = crudSelected != -1
+    let originalIdx = if canUpdateDelete: originalIndices[crudSelected] else: -1
+
+    group(vec2(0, 0), LeftToRight):
+      button("Create"):
+        if crudName != "" and crudSurname != "":
+          crudDatabase.add(crudSurname & ", " & crudName)
+          crudName = ""
+          crudSurname = ""
+
+      button("Update", canUpdateDelete):
+        if crudName != "" and crudSurname != "":
+          crudDatabase[originalIdx] = crudSurname & ", " & crudName
+
+      button("Delete", canUpdateDelete):
+        crudDatabase.delete(originalIdx)
+        crudSelected = -1
+        crudName = ""
+        crudSurname = ""
+        if 6 in textInputStates: textInputStates[6].setText("")
+        if 7 in textInputStates: textInputStates[7].setText("")
 
   subWindow("Circle Drawer", showCircleDrawer, vec2(160, 160), vec2(400, 400)):
     text("Coming soon...")

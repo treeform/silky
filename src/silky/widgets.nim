@@ -577,6 +577,34 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     sk.popClipRect()
     sk.popLayer()
 
+template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
+  ## Listbox with scrolling and selection.
+  let font = sk.atlas.fonts[sk.textStyle]
+  let rowHeight = font.lineHeight + theme.padding.float32
+  let outerWidth = sk.size.x - theme.padding.float32 * 3
+  # Use a fixed height or calculate based on items, but capped at 4 items.
+  let listHeight = min(rowHeight * 4.float32, rowHeight * max(1, items.len).float32) + theme.padding.float32 * 2
+
+  frame(id, sk.at, vec2(outerWidth, listHeight)):
+    let itemWidth = sk.size.x - theme.padding.float32 * 3
+    for i, item in items:
+      let
+        rowRect = rect(sk.at, vec2(itemWidth, rowHeight))
+        textPos = sk.at + vec2(theme.padding.float32, theme.padding.float32 * 0.5)
+
+      let isSelected = selectedIndex == i
+      let rowHover = mouseInsideClip(rowRect)
+
+      if rowHover or isSelected:
+        let tint = if rowHover: rgbx(80, 80, 100, 180) else: rgbx(60, 60, 80, 120)
+        sk.drawRect(rowRect.xy, rowRect.wh, tint)
+        if rowHover and window.buttonReleased[MouseLeft]:
+          selectedIndex = i
+
+      discard sk.drawText(sk.textStyle, $item, textPos, theme.defaultTextColor)
+      sk.advance(vec2(itemWidth, rowHeight - theme.spacing.float32))
+  sk.advance(vec2(outerWidth, listHeight))
+
 template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
   ## Non-interactive progress bar.
   let
@@ -705,6 +733,10 @@ template inputText*(id: int, t: var string, enabled: bool = true, error: bool = 
     textInputStates[id].setText(t)
 
   let textInputState = textInputStates[id]
+
+  # If t changed externally, update the internal state
+  if not textInputState.focused and textInputState.getText() != t:
+    textInputState.setText(t)
 
   # Handle focus
   if enabled and window.buttonPressed[MouseLeft]:
