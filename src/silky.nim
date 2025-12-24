@@ -118,6 +118,10 @@ proc size*(sk: Silky): Vec2 =
   ## Get the current frame size.
   sk.sizeStack[^1]
 
+proc rootSize*(sk: Silky): Vec2 =
+  ## Get the root frame size.
+  sk.sizeStack[0]
+
 proc stackDirection*(sk: Silky): StackDirection =
   ## Get the current stack direction.
   sk.directionStack[^1]

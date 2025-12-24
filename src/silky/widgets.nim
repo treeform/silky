@@ -498,6 +498,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     let oldBuffer = sk.currentBuffer
     sk.currentBuffer = PopupsBuffer
     sk.pushLayer()
+    sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
     let
       rowHeight = height
@@ -532,6 +533,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
       not mouseInsideClip(popupRect):
       state.open = false
 
+    sk.popClipRect()
     sk.popLayer()
     sk.currentBuffer = oldBuffer
 
@@ -713,6 +715,7 @@ template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: unt
   menuEnsureState()
   let oldBuffer = sk.currentBuffer
   sk.currentBuffer = PopupsBuffer
+  sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
   var layout = MenuLayout(
     origin: popupAt,
     width: popupWidth.float32,
@@ -724,6 +727,7 @@ template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: unt
   let popupHeight = layout.cursorY + theme.menuPadding.float32
   menuAddActive(rect(popupAt, vec2(popupWidth, popupHeight)))
   menuLayouts.setLen(menuLayouts.len - 1)
+  sk.popClipRect()
   sk.currentBuffer = oldBuffer
 
 template menuBar*(body: untyped) =
@@ -858,6 +862,7 @@ template tooltip*(text: string) =
   let oldBuffer = sk.currentBuffer
   sk.currentBuffer = PopupsBuffer
   sk.pushLayer()
+  sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
   let textSize = sk.getTextSize(sk.textStyle, tooltipText)
   let tooltipSize = textSize + vec2(theme.padding.float32 * 2, theme.padding.float32 * 2)
@@ -881,5 +886,6 @@ template tooltip*(text: string) =
   discard sk.drawText(sk.textStyle, tooltipText, sk.pos + vec2(theme.padding), theme.defaultTextColor)
   sk.popFrame()
 
+  sk.popClipRect()
   sk.popLayer()
   sk.currentBuffer = oldBuffer
