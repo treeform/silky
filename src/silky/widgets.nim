@@ -592,9 +592,10 @@ template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber)
 
   sk.draw9Patch("progressBar.body.9patch", 6, barRect.xy, barRect.wh)
 
-  let fillWidth = width * t
+  let scrubberPadding = 4
+  let fillWidth = scrubberPadding.float32 * 2 + (width - scrubberPadding.float32 * 2) * t
   if fillWidth > 0:
-    sk.draw9Patch("progressBar.progress.9patch", 6, barRect.xy, vec2(fillWidth, height))
+    sk.draw9Patch("progressBar.progress.9patch", scrubberPadding, barRect.xy, vec2(fillWidth, height))
 
   sk.advance(vec2(width, height))
 
