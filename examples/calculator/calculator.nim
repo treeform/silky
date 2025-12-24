@@ -95,7 +95,7 @@ proc compute() =
 
 let builder = newAtlasBuilder(1024, 4)
 builder.addDir("data/", "data/")
-const calculatorChars = @["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "-", "×", "÷", "±", "%", ".", "=", "C"]
+const calculatorChars = @["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "-", "×", "÷", "±", "%", ".", "=", "C", "a", "l", "c", "u", "l", "a", "t", "o", "r"]
 builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0, chars = calculatorChars)
 builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0, chars = calculatorChars)
 builder.write("dist/atlas.png", "dist/atlas.json")
@@ -277,12 +277,10 @@ window.onFrame = proc() =
     sk.at.x = rowX
     sk.at.y += 60
 
-
   if not showWindow:
     if window.buttonPressed[MouseLeft]:
       showWindow = true
     sk.at = vec2(100, 100)
-    text("Click anywhere to show the calculator")
 
   let ms = sk.avgFrameTime * 1000
   sk.at = sk.pos + vec2(sk.size.x - 250, 20)
