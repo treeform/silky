@@ -69,7 +69,7 @@ window.onFrame = proc() =
     if progress > 100.0:
       progress = 0.0
 
-    text("How much?")
+    text(&"How much: {howMuch:.2f}")
     scrubber("howMuch", howMuch, 0.0, 100.0)
 
     group(vec2(8, 8), LeftToRight):

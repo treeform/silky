@@ -5,6 +5,11 @@ import
 
 export tables, textinput
 
+when defined(macos):
+  const ScrollSpeed* = 10.0
+else:
+  const ScrollSpeed* = -10.0
+
 type
   StackDirection* = enum
     TopToBottom
@@ -97,8 +102,7 @@ proc vec2[A, B](x: A, y: B): Vec2 =
   vec2(x.float32, y.float32)
 
 template mouseInsideClip*(r: Rect): bool =
-  ## Check mouse inside rect, current clip, and top layer.
-  sk.layer == sk.topLayer and
+  ## Check mouse inside rect and current clip.
   window.mousePos.vec2.overlaps(r) and
   window.mousePos.vec2.overlaps(sk.clipRect)
 
@@ -263,10 +267,10 @@ template frame*(id: string, framePos, frameSize: Vec2, body) =
   # Scroll wheel handling (only when mouse over frame).
   if mouseInsideClip(rect(sk.pos, sk.size)):
     if not frameState.scrollingY and window.scrollDelta.y != 0:
-      frameState.scrollPos.y += window.scrollDelta.y * 10
+      frameState.scrollPos.y += window.scrollDelta.y * ScrollSpeed
       frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
     if not frameState.scrollingX and window.scrollDelta.x != 0:
-      frameState.scrollPos.x += window.scrollDelta.x * 10
+      frameState.scrollPos.x += window.scrollDelta.x * ScrollSpeed
       frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
 
   # Draw Y scrollbar.
@@ -495,43 +499,44 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   sk.advance(vec2(width, height))
 
   if state.open and options.len > 0:
-    sk.callsbacks.add proc() =
-      sk.pushLayer()
+    sk.pushLayer(PopupsLayer)
+    sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
+    let
+      rowHeight = height
+      popupPos = vec2(dropRect.x, dropRect.y + dropRect.h)
+      popupSize = vec2(width, rowHeight * options.len.float32)
+      popupRect = rect(popupPos, popupSize)
+
+    sk.pushFrame(popupPos, popupSize)
+    sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, rgbx(245, 245, 255, 255))
+
+    for i, opt in options:
       let
-        rowHeight = height
-        popupPos = vec2(dropRect.x, dropRect.y + dropRect.h)
-        popupSize = vec2(width, rowHeight * options.len.float32)
-        popupRect = rect(popupPos, popupSize)
+        rowPos = vec2(sk.pos.x, sk.pos.y + i.float32 * rowHeight)
+        rowRect = rect(rowPos, vec2(width, rowHeight))
+        textPos = rowPos + vec2(theme.padding)
+      let
+        isSelected = selected == opt
+        rowHover = mouseInsideClip(rowRect)
+      if rowHover or isSelected:
+        let tint = if rowHover: rgbx(80, 80, 100, 180) else: rgbx(60, 60, 80, 120)
+        sk.drawRect(rowRect.xy, rowRect.wh, tint)
+        if rowHover and window.buttonReleased[MouseLeft]:
+          selected = opt
+          state.open = false
+      discard sk.drawText(sk.textStyle, $opt, textPos, theme.defaultTextColor)
 
-      sk.pushFrame(popupPos, popupSize)
-      sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, rgbx(245, 245, 255, 255))
+    sk.popFrame()
 
-      for i, opt in options:
-        let
-          rowPos = vec2(sk.pos.x, sk.pos.y + i.float32 * rowHeight)
-          rowRect = rect(rowPos, vec2(width, rowHeight))
-          textPos = rowPos + vec2(theme.padding)
-        let
-          isSelected = selected == opt
-          rowHover = mouseInsideClip(rowRect)
-        if rowHover or isSelected:
-          let tint = if rowHover: rgbx(80, 80, 100, 180) else: rgbx(60, 60, 80, 120)
-          sk.drawRect(rowRect.xy, rowRect.wh, tint)
-          if rowHover and window.buttonReleased[MouseLeft]:
-            selected = opt
-            state.open = false
-        discard sk.drawText(sk.textStyle, $opt, textPos, theme.defaultTextColor)
+    # Close when clicking outside.
+    if window.buttonPressed[MouseLeft] and
+      not mouseInsideClip(dropRect) and
+      not mouseInsideClip(popupRect):
+      state.open = false
 
-      sk.popFrame()
-
-      # Close when clicking outside.
-      if window.buttonPressed[MouseLeft] and
-        not mouseInsideClip(dropRect) and
-        not mouseInsideClip(popupRect):
-        state.open = false
-
-      sk.popLayer()
+    sk.popClipRect()
+    sk.popLayer()
 
 template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
   ## Non-interactive progress bar.
@@ -709,6 +714,8 @@ template inputText*(id: int, t: var string) =
 template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: untyped) =
   ## Render a popup in a single pass with caller-provided width.
   menuEnsureState()
+  sk.pushLayer(PopupsLayer)
+  sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
   var layout = MenuLayout(
     origin: popupAt,
     width: popupWidth.float32,
@@ -720,6 +727,8 @@ template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: unt
   let popupHeight = layout.cursorY + theme.menuPadding.float32
   menuAddActive(rect(popupAt, vec2(popupWidth, popupHeight)))
   menuLayouts.setLen(menuLayouts.len - 1)
+  sk.popClipRect()
+  sk.popLayer()
 
 template menuBar*(body: untyped) =
   ## Horizontal application menu bar (File, Edit, ...).
@@ -728,8 +737,6 @@ template menuBar*(body: untyped) =
   menuPathStack.setLen(0)
 
   let elevate = menuState.openPath.len > 0
-  if elevate:
-    sk.pushLayer()
   let barHeight = theme.headerHeight.float32
   sk.pushFrame(vec2(0, 0), vec2(sk.size.x, barHeight))
   # Use a 9-patch so the bar has a visible background.
@@ -742,9 +749,6 @@ template menuBar*(body: untyped) =
   if menuState.openPath.len > 0 and window.buttonPressed[MouseLeft]:
     if not menuPointInside(menuState.activeRects, window.mousePos.vec2):
       menuState.openPath.setLen(0)
-
-  if elevate:
-    sk.popLayer()
 
 template subMenu*(label: string, menuWidth = 200, body: untyped) =
   ## Menu entry that can contain other menu items.
@@ -850,29 +854,31 @@ template tooltip*(text: string) =
   ## Display a tooltip at the mouse cursor.
   ## This should be called after a widget when sk.showTooltip is true.
   let tooltipText = text
-  sk.callsbacks.add proc() =
-    sk.pushLayer()
+  sk.pushLayer(PopupsLayer)
+  sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
-    let textSize = sk.getTextSize(sk.textStyle, tooltipText)
-    let tooltipSize = textSize + vec2(theme.padding.float32 * 2, theme.padding.float32 * 2)
-    let mousePos = window.mousePos.vec2
+  let textSize = sk.getTextSize(sk.textStyle, tooltipText)
+  let tooltipSize = textSize + vec2(theme.padding.float32 * 2, theme.padding.float32 * 2)
+  let mousePos = window.mousePos.vec2
 
-    # Position tooltip near mouse, offset slightly to avoid cursor.
-    var tooltipPos = mousePos + vec2(16, 16)
+  # Position tooltip near mouse, offset slightly to avoid cursor.
+  var tooltipPos = mousePos + vec2(16, 16)
 
-    # Keep tooltip on screen.
-    if tooltipPos.x + tooltipSize.x > sk.size.x:
-      tooltipPos.x = sk.size.x - tooltipSize.x - theme.padding.float32
-    if tooltipPos.y + tooltipSize.y > sk.size.y:
-      tooltipPos.y = mousePos.y - tooltipSize.y - 4
+  # Keep tooltip on screen.
+  let root = sk.rootSize
+  if tooltipPos.x + tooltipSize.x > root.x:
+    tooltipPos.x = root.x - tooltipSize.x - theme.padding.float32
+  if tooltipPos.y + tooltipSize.y > root.y:
+    tooltipPos.y = mousePos.y - tooltipSize.y - 4
 
-    # Ensure tooltip doesn't go off-screen left or top.
-    tooltipPos.x = max(tooltipPos.x, theme.padding.float32)
-    tooltipPos.y = max(tooltipPos.y, theme.padding.float32)
+  # Ensure tooltip doesn't go off-screen left or top.
+  tooltipPos.x = max(tooltipPos.x, theme.padding.float32)
+  tooltipPos.y = max(tooltipPos.y, theme.padding.float32)
 
-    sk.pushFrame(tooltipPos, tooltipSize)
-    sk.draw9Patch("tooltip.9patch", 6, sk.pos, sk.size)
-    discard sk.drawText(sk.textStyle, tooltipText, sk.pos + vec2(theme.padding), theme.defaultTextColor)
-    sk.popFrame()
+  sk.pushFrame(tooltipPos, tooltipSize)
+  sk.draw9Patch("tooltip.9patch", 6, sk.pos, sk.size)
+  discard sk.drawText(sk.textStyle, tooltipText, sk.pos + vec2(theme.padding), theme.defaultTextColor)
+  sk.popFrame()
 
-    sk.popLayer()
+  sk.popClipRect()
+  sk.popLayer()
