@@ -33,6 +33,7 @@ var
   option = 1
   cumulative = false
   element = "Fire"
+  power = "Medium"
   progress = 0.0
   howMuch = 30.0
 
@@ -60,6 +61,7 @@ window.onFrame = proc() =
 
     text("Select an option:")
     dropDown(element, ["Fire", "Water", "Earth", "Air"])
+    dropDown(power, ["Low", "Medium", "High"])
 
     text("Progress Bar:")
     progressBar(progress, 0, 100)
