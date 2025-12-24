@@ -16,6 +16,15 @@ else:
 export atlas, widgets
 
 type
+  SilkyVertex* {.packed.} = object 
+    pos*: Vec2
+    size*: Vec2
+    uvPos*: array[2, uint16]
+    uvSize*: array[2, uint16]
+    color*: ColorRGBX
+    clipPos*: Vec2
+    clipSize*: Vec2
+
   Silky* = ref object
     ## The Silky that draws the AA pixel art sprites.
     inFrame: bool = false
@@ -45,24 +54,12 @@ type
     vao: GLuint              ## Vertex array object.
 
     # VBOs.
-    posVbo: GLuint           ## Per-instance position (x, y).
-    sizeVbo: GLuint          ## Per-instance size (w, h).
-    uvPosVbo: GLuint         ## Per-instance UV position (u, v).
-    uvSizeVbo: GLuint        ## Per-instance UV size (uw, uh).
-    colorVbo: GLuint         ## Per-instance color (ColorRGBX).
-    clipPosVbo: GLuint       ## Per-instance clip position (x, y).
-    clipSizeVbo: GLuint      ## Per-instance clip size (w, h).
+    instanceVbo: GLuint      ## Single VBO for all instance data.
 
     atlasTexture: GLuint     ## GL texture for the atlas image.
 
     # Instance Data.
-    posData: seq[float32]
-    sizeData: seq[float32]
-    uvPosData: seq[uint16]
-    uvSizeData: seq[uint16]
-    colorData: seq[ColorRGBX]
-    clipPosData: seq[float32]
-    clipSizeData: seq[float32]
+    instanceData: seq[SilkyVertex]
 
     instanceCount: int
 
@@ -175,13 +172,7 @@ proc shouldShowTooltip*(sk: Silky): bool =
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc SilkyVert*(
-  pos: Vec2,
-  size: Vec2,
-  uvPos: Vec2,
-  uvSize: Vec2,
-  color: Vec4,
-  clipPos: Vec2,
-  clipSize: Vec2,
+  v: SilkyVertex,
   fragmentUv: var Vec2,
   fragmentColor: var Vec4,
   fragmentClipPos: var Vec2,
@@ -195,18 +186,18 @@ proc SilkyVert*(
 
   # Compute the position of the vertex in the atlas.
   let
-    dx = pos.x + corner.x.float32 * size.x
-    dy = pos.y + corner.y.float32 * size.y
+    dx = v.pos.x + corner.x.float32 * v.size.x
+    dy = v.pos.y + corner.y.float32 * v.size.y
   gl_Position = mvp * vec4(dx, dy, 0.0, 1.0)
 
   # Compute the texture coordinates of the vertex.
   let
-    sx = uvPos.x + float(corner.x) * uvSize.x
-    sy = uvPos.y + float(corner.y) * uvSize.y
+    sx = float32(v.uvPos[0]) + float32(corner.x) * float32(v.uvSize[0])
+    sy = float32(v.uvPos[1]) + float32(corner.y) * float32(v.uvSize[1])
   fragmentUv = vec2(sx, sy) / atlasSize
-  fragmentColor = color
-  fragmentClipPos = clipPos
-  fragmentClipSize = clipSize
+  fragmentColor = v.color.vec4
+  fragmentClipPos = v.clipPos
+  fragmentClipSize = v.clipSize
   fragmentPos = vec2(dx, dy)
 
 proc SilkyFrag*(
@@ -319,25 +310,15 @@ proc drawText*(sk: Silky, font: string, text: string, pos: Vec2, color: ColorRGB
         round(currentPos.y + entry.boundsY)
       )
 
-      sk.posData.add(pos.x)
-      sk.posData.add(pos.y)
-
-      sk.sizeData.add(entry.boundsWidth)
-      sk.sizeData.add(entry.boundsHeight)
-
-      sk.uvPosData.add(entry.x.uint16)
-      sk.uvPosData.add(entry.y.uint16)
-
-      sk.uvSizeData.add(entry.boundsWidth.uint16)
-      sk.uvSizeData.add(entry.boundsHeight.uint16)
-
-      sk.colorData.add(color)
-
-      sk.clipPosData.add(sk.clipRect.x)
-      sk.clipPosData.add(sk.clipRect.y)
-
-      sk.clipSizeData.add(sk.clipRect.w)
-      sk.clipSizeData.add(sk.clipRect.h)
+      sk.instanceData.add(SilkyVertex(
+        pos: pos,
+        size: vec2(entry.boundsWidth, entry.boundsHeight),
+        uvPos: [entry.x.uint16, entry.y.uint16],
+        uvSize: [entry.boundsWidth.uint16, entry.boundsHeight.uint16],
+        color: color,
+        clipPos: sk.clipRect.xy,
+        clipSize: sk.clipRect.wh
+      ))
 
       inc sk.instanceCount
 
@@ -392,13 +373,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   result = Silky()
   result.image = readImage(imagePath)
   result.atlas = readFile(jsonPath).fromJson(SilkyAtlas)
-  result.posData = @[]
-  result.sizeData = @[]
-  result.uvPosData = @[]
-  result.uvSizeData = @[]
-  result.colorData = @[]
-  result.clipPosData = @[]
-  result.clipSizeData = @[]
+  result.instanceData = @[]
   result.instanceCount = 0
 
   when defined(emscripten):
@@ -415,6 +390,12 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
       )
     )
   else:
+    echo "--------------------------------"
+    echo "SilkyVert:"
+    echo toGLSL(SilkyVert, "410", "")
+    echo "SilkyFrag:"
+    echo toGLSL(SilkyFrag, "410", "")
+    echo "--------------------------------"
     result.shader = newShader(
       ("SilkyVert", toGLSL(SilkyVert, "410", "")),
       ("SilkyFrag", toGLSL(SilkyFrag, "410", ""))
@@ -446,75 +427,31 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   glBindVertexArray(result.vao)
   let program = result.shader.programId
 
-  # 1. Position VBO (vec2).
-  glGenBuffers(1, result.posVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.posVbo)
+  # Single Instance VBO for all interleaved data.
+  glGenBuffers(1, result.instanceVbo.addr)
+  glBindBuffer(GL_ARRAY_BUFFER, result.instanceVbo)
   glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let posLoc = glGetAttribLocation(program, "pos")
-  doAssert posLoc != -1, "pos attribute not found"
-  glEnableVertexAttribArray(posLoc.GLuint)
-  glVertexAttribPointer(posLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
-  glVertexAttribDivisor(posLoc.GLuint, 1)
 
-  # 2. Size VBO (vec2).
-  glGenBuffers(1, result.sizeVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.sizeVbo)
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let sizeLoc = glGetAttribLocation(program, "size")
-  doAssert sizeLoc != -1, "size attribute not found"
-  glEnableVertexAttribArray(sizeLoc.GLuint)
-  glVertexAttribPointer(sizeLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
-  glVertexAttribDivisor(sizeLoc.GLuint, 1)
+  let stride = sizeof(SilkyVertex).GLsizei
 
-  # 3. UV Position VBO (vec2).
-  glGenBuffers(1, result.uvPosVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.uvPosVbo)
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let uvPosLoc = glGetAttribLocation(program, "uvPos")
-  doAssert uvPosLoc != -1, "uvPos attribute not found"
-  glEnableVertexAttribArray(uvPosLoc.GLuint)
-  glVertexAttribPointer(uvPosLoc.GLuint, 2, GL_UNSIGNED_SHORT, GL_FALSE, 2 * sizeof(uint16), nil)
-  glVertexAttribDivisor(uvPosLoc.GLuint, 1)
+  # Helper to set up attributes for the SilkyVertex struct.
+  template setAttr(name: string, size: GLint, xtype: GLenum, normalized: GLboolean, offset: int) =
+    let loc = glGetAttribLocation(program, name)
+    echo "Attribute: ", name, " loc: ", loc
+    if loc != -1:
+      glEnableVertexAttribArray(loc.GLuint)
+      glVertexAttribPointer(loc.GLuint, size, xtype, normalized, stride, cast[pointer](offset))
+      glVertexAttribDivisor(loc.GLuint, 1)
+    else:
+      echo "[Warning] Attribute not found: ", name
 
-  # 4. UV Size VBO (vec2).
-  glGenBuffers(1, result.uvSizeVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.uvSizeVbo)
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let uvSizeLoc = glGetAttribLocation(program, "uvSize")
-  doAssert uvSizeLoc != -1, "uvSize attribute not found"
-  glEnableVertexAttribArray(uvSizeLoc.GLuint)
-  glVertexAttribPointer(uvSizeLoc.GLuint, 2, GL_UNSIGNED_SHORT, GL_FALSE, 2 * sizeof(uint16), nil)
-  glVertexAttribDivisor(uvSizeLoc.GLuint, 1)
-
-  # 5. Color VBO (vec4, normalized uint8).
-  glGenBuffers(1, result.colorVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.colorVbo)
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let colorLoc = glGetAttribLocation(program, "color")
-  doAssert colorLoc != -1, "color attribute not found"
-  glEnableVertexAttribArray(colorLoc.GLuint)
-  glVertexAttribPointer(colorLoc.GLuint, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(ColorRGBX).GLsizei, nil)
-  glVertexAttribDivisor(colorLoc.GLuint, 1)
-
-  # 6. Clip Position VBO (vec2).
-  glGenBuffers(1, result.clipPosVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.clipPosVbo)
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let clipPosLoc = glGetAttribLocation(program, "clipPos")
-  doAssert clipPosLoc != -1, "clipPos attribute not found"
-  glEnableVertexAttribArray(clipPosLoc.GLuint)
-  glVertexAttribPointer(clipPosLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
-  glVertexAttribDivisor(clipPosLoc.GLuint, 1)
-
-  # 7. Clip Size VBO (vec2).
-  glGenBuffers(1, result.clipSizeVbo.addr)
-  glBindBuffer(GL_ARRAY_BUFFER, result.clipSizeVbo)
-  glBufferData(GL_ARRAY_BUFFER, 0, nil, GL_STREAM_DRAW)
-  let clipSizeLoc = glGetAttribLocation(program, "clipSize")
-  doAssert clipSizeLoc != -1, "clipSize attribute not found"
-  glEnableVertexAttribArray(clipSizeLoc.GLuint)
-  glVertexAttribPointer(clipSizeLoc.GLuint, 2, cGL_FLOAT, GL_FALSE, 2 * sizeof(float32), nil)
-  glVertexAttribDivisor(clipSizeLoc.GLuint, 1)
+  setAttr("v.pos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, pos))
+  setAttr("v.size", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, size))
+  setAttr("v.uvPos", 2, GL_UNSIGNED_SHORT, GL_FALSE, offsetof(SilkyVertex, uvPos))
+  setAttr("v.uvSize", 2, GL_UNSIGNED_SHORT, GL_FALSE, offsetof(SilkyVertex, uvSize))
+  setAttr("v.color", 4, GL_UNSIGNED_BYTE, GL_TRUE, offsetof(SilkyVertex, color))
+  setAttr("v.clipPos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipPos))
+  setAttr("v.clipSize", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipSize))
 
   # Unbind the buffers.
   glBindBuffer(GL_ARRAY_BUFFER, 0)
@@ -529,26 +466,15 @@ proc drawQuad*(
   color: ColorRGBX
 ) =
   ## Draw a quad.
-  sk.posData.add(pos.x)
-  sk.posData.add(pos.y)
-
-  sk.sizeData.add(size.x.float32)
-  sk.sizeData.add(size.y.float32)
-
-  sk.uvPosData.add(uvPos.x.uint16)
-  sk.uvPosData.add(uvPos.y.uint16)
-
-  sk.uvSizeData.add(uvSize.x.uint16)
-  sk.uvSizeData.add(uvSize.y.uint16)
-
-  sk.colorData.add(color)
-
-  sk.clipPosData.add(sk.clipRect.x)
-  sk.clipPosData.add(sk.clipRect.y)
-
-  sk.clipSizeData.add(sk.clipRect.w)
-  sk.clipSizeData.add(sk.clipRect.h)
-
+  sk.instanceData.add(SilkyVertex(
+    pos: pos,
+    size: size,
+    uvPos: [uvPos.x.uint16, uvPos.y.uint16],
+    uvSize: [uvSize.x.uint16, uvSize.y.uint16],
+    color: color,
+    clipPos: sk.clipRect.xy,
+    clipSize: sk.clipRect.wh
+  ))
   inc sk.instanceCount
 
 proc drawImage*(
@@ -645,13 +571,7 @@ proc contains*(sk: Silky, name: string): bool =
 
 proc clear*(sk: Silky) =
   ## Clear the current instance queue.
-  sk.posData.setLen(0)
-  sk.sizeData.setLen(0)
-  sk.uvPosData.setLen(0)
-  sk.uvSizeData.setLen(0)
-  sk.colorData.setLen(0)
-  sk.clipPosData.setLen(0)
-  sk.clipSizeData.setLen(0)
+  sk.instanceData.setLen(0)
   sk.instanceCount = 0
 
 proc endUi*(
@@ -677,33 +597,9 @@ proc endUi*(
   # Premultiplied alpha blending.
   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
 
-  # Upload position buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.posVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.posData.len * sizeof(float32), sk.posData[0].addr, GL_STREAM_DRAW)
-
-  # Upload size buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.sizeVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.sizeData.len * sizeof(float32), sk.sizeData[0].addr, GL_STREAM_DRAW)
-
-  # Upload UV position buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.uvPosVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.uvPosData.len * sizeof(uint16), sk.uvPosData[0].addr, GL_STREAM_DRAW)
-
-  # Upload UV size buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.uvSizeVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.uvSizeData.len * sizeof(uint16), sk.uvSizeData[0].addr, GL_STREAM_DRAW)
-
-  # Upload color buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.colorVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.colorData.len * sizeof(ColorRGBX), sk.colorData[0].addr, GL_STREAM_DRAW)
-
-  # Upload clipPos buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.clipPosVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.clipPosData.len * sizeof(float32), sk.clipPosData[0].addr, GL_STREAM_DRAW)
-
-  # Upload clipSize buffer.
-  glBindBuffer(GL_ARRAY_BUFFER, sk.clipSizeVbo)
-  glBufferData(GL_ARRAY_BUFFER, sk.clipSizeData.len * sizeof(float32), sk.clipSizeData[0].addr, GL_STREAM_DRAW)
+  # Upload instance buffer.
+  glBindBuffer(GL_ARRAY_BUFFER, sk.instanceVbo)
+  glBufferData(GL_ARRAY_BUFFER, sk.instanceData.len * sizeof(SilkyVertex), sk.instanceData[0].addr, GL_STREAM_DRAW)
 
   # Bind the shader and the atlas texture.
   glUseProgram(sk.shader.programId)
