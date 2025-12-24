@@ -182,7 +182,7 @@ proc SilkyVert*(
   ## Vertex shader for Silky.
   # Compute the corner of the quad based on the vertex ID.
   # 0:(0,0), 1:(1,0), 2:(0,1), 3:(1,1).
-  let corner = uvec2(gl_VertexID mod 2, gl_VertexID div 2)
+  let corner = uvec2(uint32(gl_VertexID mod 2), uint32(gl_VertexID div 2))
 
   # Compute the position of the vertex in the atlas.
   let
