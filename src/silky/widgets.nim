@@ -97,8 +97,7 @@ proc vec2[A, B](x: A, y: B): Vec2 =
   vec2(x.float32, y.float32)
 
 template mouseInsideClip*(r: Rect): bool =
-  ## Check mouse inside rect, current clip, and top layer.
-  sk.layer == sk.topLayer and
+  ## Check mouse inside rect and current clip.
   window.mousePos.vec2.overlaps(r) and
   window.mousePos.vec2.overlaps(sk.clipRect)
 
@@ -495,9 +494,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   sk.advance(vec2(width, height))
 
   if state.open and options.len > 0:
-    let oldBuffer = sk.currentBuffer
-    sk.currentBuffer = PopupsBuffer
-    sk.pushLayer()
+    sk.pushBuffer(PopupsBuffer)
     sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
     let
@@ -534,8 +531,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
       state.open = false
 
     sk.popClipRect()
-    sk.popLayer()
-    sk.currentBuffer = oldBuffer
+    sk.popBuffer()
 
 template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
   ## Non-interactive progress bar.
@@ -713,8 +709,7 @@ template inputText*(id: int, t: var string) =
 template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: untyped) =
   ## Render a popup in a single pass with caller-provided width.
   menuEnsureState()
-  let oldBuffer = sk.currentBuffer
-  sk.currentBuffer = PopupsBuffer
+  sk.pushBuffer(PopupsBuffer)
   sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
   var layout = MenuLayout(
     origin: popupAt,
@@ -728,7 +723,7 @@ template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: unt
   menuAddActive(rect(popupAt, vec2(popupWidth, popupHeight)))
   menuLayouts.setLen(menuLayouts.len - 1)
   sk.popClipRect()
-  sk.currentBuffer = oldBuffer
+  sk.popBuffer()
 
 template menuBar*(body: untyped) =
   ## Horizontal application menu bar (File, Edit, ...).
@@ -737,8 +732,6 @@ template menuBar*(body: untyped) =
   menuPathStack.setLen(0)
 
   let elevate = menuState.openPath.len > 0
-  if elevate:
-    sk.pushLayer()
   let barHeight = theme.headerHeight.float32
   sk.pushFrame(vec2(0, 0), vec2(sk.size.x, barHeight))
   # Use a 9-patch so the bar has a visible background.
@@ -751,9 +744,6 @@ template menuBar*(body: untyped) =
   if menuState.openPath.len > 0 and window.buttonPressed[MouseLeft]:
     if not menuPointInside(menuState.activeRects, window.mousePos.vec2):
       menuState.openPath.setLen(0)
-
-  if elevate:
-    sk.popLayer()
 
 template subMenu*(label: string, menuWidth = 200, body: untyped) =
   ## Menu entry that can contain other menu items.
@@ -859,9 +849,7 @@ template tooltip*(text: string) =
   ## Display a tooltip at the mouse cursor.
   ## This should be called after a widget when sk.showTooltip is true.
   let tooltipText = text
-  let oldBuffer = sk.currentBuffer
-  sk.currentBuffer = PopupsBuffer
-  sk.pushLayer()
+  sk.pushBuffer(PopupsBuffer)
   sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
 
   let textSize = sk.getTextSize(sk.textStyle, tooltipText)
@@ -887,5 +875,4 @@ template tooltip*(text: string) =
   sk.popFrame()
 
   sk.popClipRect()
-  sk.popLayer()
-  sk.currentBuffer = oldBuffer
+  sk.popBuffer()

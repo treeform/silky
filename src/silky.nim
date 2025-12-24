@@ -40,8 +40,6 @@ type
     directionStack: seq[StackDirection]
     textStyle*: string = "Default"
     padding*: float32 = 12
-    topLayer*: int = 0
-    layer*: int = 0
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputRunes*: seq[Rune]
 
@@ -65,6 +63,7 @@ type
     # Instance Data.
     buffers*: array[2, seq[SilkyVertex]]
     currentBuffer*: int
+    bufferStack: seq[int]
 
     clipStack: seq[Rect]
 
@@ -79,6 +78,15 @@ var
   atlasSampler: Uniform[Sampler2D]
 
   traceActive: bool = false
+
+proc pushBuffer*(sk: Silky, buffer: int) =
+  ## Push a new buffer onto the stack.
+  sk.bufferStack.add(sk.currentBuffer)
+  sk.currentBuffer = buffer
+
+proc popBuffer*(sk: Silky) =
+  ## Pop the current buffer from the stack.
+  sk.currentBuffer = sk.bufferStack.pop()
 
 proc pushFrame*(
   sk: Silky,
@@ -137,15 +145,6 @@ proc popClipRect*(sk: Silky) =
 proc clipRect*(sk: Silky): Rect =
   ## Get the current clip rectangle.
   sk.clipStack[^1]
-
-proc pushLayer*(sk: Silky) =
-  ## Push a new layer.
-  inc sk.layer
-  sk.topLayer = max(sk.topLayer, sk.layer)
-
-proc popLayer*(sk: Silky) =
-  ## Pop the current layer.
-  dec sk.layer
 
 proc instanceCount*(sk: Silky): int =
   ## Get the current instance count.
@@ -240,9 +239,7 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
         createDir("tmp")
         dumpMeasures(0, "tmp/trace.json")
 
-  # Reset layers at the start of each frame so popups can rebuild them.
-  sk.layer = 0
-  sk.topLayer = 0
+  # Reset showTooltip at the start of each frame.
   sk.showTooltip = false
 
   sk.pushFrame(vec2(0, 0), size.vec2)
@@ -382,6 +379,7 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   result.buffers[NormalBuffer] = @[]
   result.buffers[PopupsBuffer] = @[]
   result.currentBuffer = NormalBuffer
+  result.bufferStack = @[]
 
   when defined(emscripten):
     result.shader = newShader(
@@ -580,6 +578,7 @@ proc clear*(sk: Silky) =
   sk.buffers[NormalBuffer].setLen(0)
   sk.buffers[PopupsBuffer].setLen(0)
   sk.currentBuffer = NormalBuffer
+  sk.bufferStack.setLen(0)
 
 proc endUi*(
   sk: Silky,
