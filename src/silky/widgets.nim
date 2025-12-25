@@ -670,12 +670,12 @@ template image*(image: string, tint = theme.whiteColor) =
 
 template text*(t: string) =
   ## Draw text.
-  let textSize = sk.drawText(sk.textStyle, t, sk.at, theme.whiteColor)
+  let textSize = sk.drawText(sk.textStyle, t, sk.at, theme.defaultTextColor)
   sk.advance(textSize)
 
 template h1text*(t: string) =
   ## Draw H1 text.
-  let textSize = sk.drawText("H1", t, sk.at, theme.whiteColor)
+  let textSize = sk.drawText("H1", t, sk.at, theme.defaultTextColor)
   sk.advance(textSize)
 
 template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U) =

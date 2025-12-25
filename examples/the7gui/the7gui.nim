@@ -23,6 +23,8 @@ const
 
 let sk = newSilky("dist/atlas.png", "dist/atlas.json")
 
+theme.defaultTextColor = parseHtmlColor("#6C758D").rgbx
+
 window.runeInputEnabled = true
 window.onRune = proc(rune: Rune) =
   sk.inputRunes.add(rune)
