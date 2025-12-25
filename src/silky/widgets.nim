@@ -27,6 +27,18 @@ type
     defaultTextColor*: ColorRGBX = rgbx(255, 255, 255, 255)
     disabledTextColor*: ColorRGBX = rgbx(150, 150, 150, 255)
     errorTextColor*: ColorRGBX = rgbx(255, 100, 100, 255)
+    iconUpColor*: ColorRGBX = rgbx(200, 200, 200, 200)
+    iconOnColor*: ColorRGBX = rgbx(255, 255, 255, 255)
+    iconOffColor*: ColorRGBX = rgbx(110, 110, 110, 110)
+    inputFocusedColor*: ColorRGBX = rgbx(220, 220, 255, 255)
+    dropDownHoverColor*: ColorRGBX = rgbx(220, 220, 240, 255)
+    dropDownPopupColor*: ColorRGBX = rgbx(245, 245, 255, 255)
+    rowHoverColor*: ColorRGBX = rgbx(80, 80, 100, 180)
+    rowSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 120)
+    menuBarColor*: ColorRGBX = rgbx(30, 30, 40, 255)
+    menuHoverColor*: ColorRGBX = rgbx(70, 70, 90, 200)
+    menuItemHoverColor*: ColorRGBX = rgbx(80, 80, 100, 180)
+    whiteColor*: ColorRGBX = rgbx(255, 255, 255, 255)
 
   SubWindowState* = ref object
     pos*: Vec2
@@ -419,9 +431,9 @@ template iconButton*(image: string, body) =
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
-      sk.draw9Patch("button.down.9patch", 8, sk.at - m2, s2, rgbx(255, 255, 255, 255))
+      sk.draw9Patch("button.down.9patch", 8, sk.at - m2, s2, theme.whiteColor)
     else:
-      sk.draw9Patch("button.hover.9patch", 8, sk.at - m2, s2, rgbx(255, 255, 255, 255))
+      sk.draw9Patch("button.hover.9patch", 8, sk.at - m2, s2, theme.whiteColor)
   else:
     sk.hover = false
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
@@ -434,10 +446,9 @@ template clickableIcon*(image: string, on: bool, body) =
   let
     imageSize = sk.getImageSize(image)
     s2 = imageSize
-    upColor = rgbx(200, 200, 200, 200)
-    onColor = rgbx(255, 255, 255, 255)
-    hoverColor = rgbx(255, 255, 255, 255)
-    offColor = rgbx(110, 110, 110, 110)
+    upColor = theme.iconUpColor
+    onColor = theme.iconOnColor
+    offColor = theme.iconOffColor
   var color = upColor
   if mouseInsideClip(rect(sk.at, s2)):
     if window.buttonReleased[MouseLeft]:
@@ -526,7 +537,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
   # Draw control body.
   sk.pushFrame(sk.at, vec2(width, height))
-  let bgColor = if state.open or hover: rgbx(220, 220, 240, 255) else: rgbx(255, 255, 255, 255)
+  let bgColor = if state.open or hover: theme.dropDownHoverColor else: theme.iconOnColor
   sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, bgColor)
   discard sk.drawText(sk.textStyle, displayText, sk.at + vec2(theme.padding), theme.defaultTextColor)
   let arrowPos = vec2(
@@ -548,7 +559,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
       popupRect = rect(popupPos, popupSize)
 
     sk.pushFrame(popupPos, popupSize)
-    sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, rgbx(245, 245, 255, 255))
+    sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, theme.dropDownPopupColor)
 
     for i, opt in options:
       let
@@ -559,7 +570,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
         isSelected = selected == opt
         rowHover = mouseInsideClip(rowRect)
       if rowHover or isSelected:
-        let tint = if rowHover: rgbx(80, 80, 100, 180) else: rgbx(60, 60, 80, 120)
+        let tint = if rowHover: theme.rowHoverColor else: theme.rowSelectedColor
         sk.drawRect(rowRect.xy, rowRect.wh, tint)
         if rowHover and window.buttonReleased[MouseLeft]:
           selected = opt
@@ -596,7 +607,7 @@ template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
       let rowHover = mouseInsideClip(rowRect)
 
       if rowHover or isSelected:
-        let tint = if rowHover: rgbx(80, 80, 100, 180) else: rgbx(60, 60, 80, 120)
+        let tint = if rowHover: theme.rowHoverColor else: theme.rowSelectedColor
         sk.drawRect(rowRect.xy, rowRect.wh, tint)
         if rowHover and window.buttonReleased[MouseLeft]:
           selectedIndex = i
@@ -651,7 +662,7 @@ template ribbon*(p, s: Vec2, tint: ColorRGBX, body) =
   children(body)
   sk.popFrame()
 
-template image*(image: string, tint = rgbx(255, 255, 255, 255)) =
+template image*(image: string, tint = theme.whiteColor) =
   ## Draw an image.
   sk.drawImage(image, sk.at, tint)
   sk.at.x += sk.getImageSize(image).x
@@ -659,12 +670,12 @@ template image*(image: string, tint = rgbx(255, 255, 255, 255)) =
 
 template text*(t: string) =
   ## Draw text.
-  let textSize = sk.drawText(sk.textStyle, t, sk.at, rgbx(255, 255, 255, 255))
+  let textSize = sk.drawText(sk.textStyle, t, sk.at, theme.whiteColor)
   sk.advance(textSize)
 
 template h1text*(t: string) =
   ## Draw H1 text.
-  let textSize = sk.drawText("H1", t, sk.at, rgbx(255, 255, 255, 255))
+  let textSize = sk.drawText("H1", t, sk.at, theme.whiteColor)
   sk.advance(textSize)
 
 template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U) =
@@ -752,7 +763,7 @@ template inputText*(id: int, t: var string, enabled: bool = true, error: bool = 
 
   # Handle input if focused
   if enabled and textInputState.focused:
-    sk.draw9Patch(patch, 6, sk.pos, sk.size, rgbx(220, 220, 255, 255))
+    sk.draw9Patch(patch, 6, sk.pos, sk.size, theme.inputFocusedColor)
 
     # Process runes
     for r in sk.inputRunes:
@@ -820,7 +831,7 @@ template menuBar*(body: untyped) =
   let barHeight = theme.headerHeight.float32
   sk.pushFrame(vec2(0, 0), vec2(sk.size.x, barHeight))
   # Use a 9-patch so the bar has a visible background.
-  sk.draw9Patch("header.9patch", 6, sk.pos, sk.size, rgbx(30, 30, 40, 255))
+  sk.draw9Patch("header.9patch", 6, sk.pos, sk.size, theme.menuBarColor)
   sk.at = sk.pos + vec2(theme.menuPadding)
   children(body)
   sk.popFrame()
@@ -855,7 +866,7 @@ template subMenu*(label: string, menuWidth = 200, body: untyped) =
       menuState.openPath = path
 
     if hover or open:
-      sk.drawRect(menuRect.xy, menuRect.wh, rgbx(70, 70, 90, 200))
+      sk.drawRect(menuRect.xy, menuRect.wh, theme.menuHoverColor)
     discard sk.drawText(sk.textStyle, label, menuRect.xy + vec2(theme.menuPadding), theme.defaultTextColor)
     sk.at.x += size.x + theme.spacing.float32
 
@@ -881,7 +892,7 @@ template subMenu*(label: string, menuWidth = 200, body: untyped) =
       menuState.openPath = path
 
     if hover or open:
-      sk.drawRect(itemRect.xy, itemRect.wh, rgbx(70, 70, 90, 180))
+      sk.drawRect(itemRect.xy, itemRect.wh, theme.menuHoverColor)
     discard sk.drawText(
       sk.textStyle,
       label,
@@ -916,7 +927,7 @@ template menuItem*(label: string, body: untyped) =
 
   let hover = window.mousePos.vec2.overlaps(itemRect)
   if hover:
-    sk.drawRect(itemRect.xy, itemRect.wh, rgbx(80, 80, 100, 180))
+    sk.drawRect(itemRect.xy, itemRect.wh, theme.menuItemHoverColor)
   discard sk.drawText(
     sk.textStyle,
     label,
