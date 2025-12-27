@@ -20,7 +20,7 @@ const
   PopupsLayer* = 1
 
 type
-  SilkyVertex* {.packed.} = object 
+  SilkyVertex* {.packed.} = object
     pos*: Vec2
     size*: Vec2
     uvPos*: array[2, uint16]
@@ -179,7 +179,13 @@ proc shouldShowTooltip*(sk: Silky): bool =
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc SilkyVert*(
-  v: SilkyVertex,
+  pos: Vec2,
+  size: Vec2,
+  uvPos: array[2, uint16],
+  uvSize: array[2, uint16],
+  color: ColorRGBX,
+  clipPos: Vec2,
+  clipSize: Vec2,
   fragmentUv: var Vec2,
   fragmentColor: var Vec4,
   fragmentClipPos: var Vec2,
@@ -193,18 +199,18 @@ proc SilkyVert*(
 
   # Compute the position of the vertex in the atlas.
   let
-    dx = v.pos.x + corner.x.float32 * v.size.x
-    dy = v.pos.y + corner.y.float32 * v.size.y
+    dx = pos.x + corner.x.float32 * size.x
+    dy = pos.y + corner.y.float32 * size.y
   gl_Position = mvp * vec4(dx, dy, 0.0, 1.0)
 
   # Compute the texture coordinates of the vertex.
   let
-    sx = float32(v.uvPos[0]) + float32(corner.x) * float32(v.uvSize[0])
-    sy = float32(v.uvPos[1]) + float32(corner.y) * float32(v.uvSize[1])
+    sx = float32(uvPos[0]) + float32(corner.x) * float32(uvSize[0])
+    sy = float32(uvPos[1]) + float32(corner.y) * float32(uvSize[1])
   fragmentUv = vec2(sx, sy) / atlasSize
-  fragmentColor = v.color.vec4
-  fragmentClipPos = v.clipPos
-  fragmentClipSize = v.clipSize
+  fragmentColor = color.vec4
+  fragmentClipPos = clipPos
+  fragmentClipSize = clipSize
   fragmentPos = vec2(dx, dy)
 
 proc SilkyFrag*(
@@ -443,13 +449,13 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
     else:
       echo "[Warning] Attribute not found: ", name
 
-  setAttr("v.pos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, pos))
-  setAttr("v.size", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, size))
-  setAttr("v.uvPos", 2, GL_UNSIGNED_SHORT, GL_FALSE, offsetof(SilkyVertex, uvPos))
-  setAttr("v.uvSize", 2, GL_UNSIGNED_SHORT, GL_FALSE, offsetof(SilkyVertex, uvSize))
-  setAttr("v.color", 4, GL_UNSIGNED_BYTE, GL_TRUE, offsetof(SilkyVertex, color))
-  setAttr("v.clipPos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipPos))
-  setAttr("v.clipSize", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipSize))
+  setAttr("pos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, pos))
+  setAttr("size", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, size))
+  setAttr("uvPos", 2, GL_UNSIGNED_SHORT, GL_FALSE, offsetof(SilkyVertex, uvPos))
+  setAttr("uvSize", 2, GL_UNSIGNED_SHORT, GL_FALSE, offsetof(SilkyVertex, uvSize))
+  setAttr("color", 4, GL_UNSIGNED_BYTE, GL_TRUE, offsetof(SilkyVertex, color))
+  setAttr("clipPos", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipPos))
+  setAttr("clipSize", 2, cGL_FLOAT, GL_FALSE, offsetof(SilkyVertex, clipSize))
 
   # Unbind the layers.
   glBindBuffer(GL_ARRAY_BUFFER, 0)
