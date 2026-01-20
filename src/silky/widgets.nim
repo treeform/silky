@@ -390,7 +390,7 @@ template iconButton*(image: string, body) =
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
   sk.at += vec2(32 + sk.padding, 0)
 
-template clickableIcon*(image: string, on: bool, body) =
+template clickableIcon*(image: string, on: bool, tooltipText: string = "", body) =
   ## Create an clickable icon with no background and no padding.
   let
     imageSize = sk.getImageSize(image)
@@ -401,6 +401,7 @@ template clickableIcon*(image: string, on: bool, body) =
     offColor = rgbx(110, 110, 110, 110)
   var color = upColor
   if mouseInsideClip(rect(sk.at, s2)):
+    sk.hover = true
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -410,7 +411,10 @@ template clickableIcon*(image: string, on: bool, body) =
         color = onColor
       else:
         color = upColor
+    if tooltipText != "" and sk.shouldShowTooltip():
+      tooltip(tooltipText)
   else:
+    sk.hover = false
     if on:
       color = onColor
     else:
