@@ -419,7 +419,6 @@ template clickableIcon*(image: string, on: bool, tooltipText: string = "", body)
     if tooltipText != "" and sk.shouldShowTooltip(image):
       tooltip(tooltipText, sk.at, s2)
   else:
-    # Don't set hover = false here - let frame-end logic handle it
     if on:
       color = onColor
     else:
