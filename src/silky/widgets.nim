@@ -377,6 +377,7 @@ template iconButton*(image: string, body) =
     buttonRect = rect(sk.at - m2, s2)
   if mouseInsideClip(buttonRect):
     sk.hover = true
+    sk.hoveringElementId = image  # Use image path as unique ID
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -384,7 +385,7 @@ template iconButton*(image: string, body) =
     else:
       sk.draw9Patch("button.hover.9patch", 8, sk.at - m2, s2, rgbx(255, 255, 255, 255))
   else:
-    sk.hover = false
+    # Don't set hover = false here - let frame-end logic handle it
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
   sk.drawImage(image, sk.at)
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
@@ -400,8 +401,10 @@ template clickableIcon*(image: string, on: bool, tooltipText: string = "", body)
     hoverColor = rgbx(255, 255, 255, 255)
     offColor = rgbx(110, 110, 110, 110)
   var color = upColor
-  if mouseInsideClip(rect(sk.at, s2)):
+  let isHovering = mouseInsideClip(rect(sk.at, s2))
+  if isHovering:
     sk.hover = true
+    sk.hoveringElementId = image  # Use image path as unique ID
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -411,10 +414,11 @@ template clickableIcon*(image: string, on: bool, tooltipText: string = "", body)
         color = onColor
       else:
         color = upColor
-    if tooltipText != "" and sk.shouldShowTooltip():
+    # Show tooltip if hovering and idle time threshold met
+    if tooltipText != "" and sk.shouldShowTooltip(image):
       tooltip(tooltipText)
   else:
-    sk.hover = false
+    # Don't set hover = false here - let frame-end logic handle it
     if on:
       color = onColor
     else:

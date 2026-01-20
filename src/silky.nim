@@ -49,6 +49,8 @@ type
     mouseIdleTime*: float64
     hover*: bool = false
     tooltipThreshold*: float64 = 0.5
+    hoveringElementId*: string = ""  # Track which element is currently hovered
+    previousHoveringElementId*: string = ""  # Track previous frame's hovering element
 
     atlas*: SilkyAtlas
     image*: Image
@@ -174,9 +176,9 @@ proc getImageSize*(sk: Silky, image: string): Vec2 =
   let uv = sk.atlas.entries[image]
   return vec2(uv.width.float32, uv.height.float32)
 
-proc shouldShowTooltip*(sk: Silky): bool =
-  ## Check if the tooltip should be shown.
-  sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
+proc shouldShowTooltip*(sk: Silky, elementId: string): bool =
+  ## Check if the tooltip should be shown for a specific element.
+  sk.hoveringElementId == elementId and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc SilkyVert*(
   pos: Vec2,
@@ -256,8 +258,14 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
 
   # Track mouse movement for tooltip idle detection.
   let currentMousePos = window.mousePos.vec2
+
+  sk.previousHoveringElementId = sk.hoveringElementId
+  sk.hoveringElementId = ""
+  
   if currentMousePos != sk.lastMousePos:
-    sk.mouseIdleTime = 0
+    # Only reset idle time if mouse left the elemnt it was hovering.
+    if sk.previousHoveringElementId == "":
+      sk.mouseIdleTime = 0
     sk.lastMousePos = currentMousePos
   else:
     sk.mouseIdleTime += deltaTime
@@ -578,6 +586,11 @@ proc clear*(sk: Silky) =
   sk.layers[PopupsLayer].setLen(0)
   sk.currentLayer = NormalLayer
   sk.layerStack.setLen(0)
+  
+  # Reset timer if hovering element changed.
+  if sk.hoveringElementId != sk.previousHoveringElementId:
+    sk.mouseIdleTime = 0
+  sk.hover = sk.hoveringElementId != ""
 
 proc endUi*(
   sk: Silky,
