@@ -49,8 +49,8 @@ type
     mouseIdleTime*: float64
     hover*: bool = false
     tooltipThreshold*: float64 = 0.5
-    hoveringElementId*: string = ""  # Track which element is currently hovered
-    previousHoveringElementId*: string = ""  # Track previous frame's hovering element
+    hoveringElementId*: string = ""
+    previousHoveringElementId*: string = ""
 
     atlas*: SilkyAtlas
     image*: Image
