@@ -263,7 +263,6 @@ proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   sk.hoveringElementId = ""
   
   if currentMousePos != sk.lastMousePos:
-    # Only reset idle time if mouse left the elemnt it was hovering.
     if sk.previousHoveringElementId == "":
       sk.mouseIdleTime = 0
     sk.lastMousePos = currentMousePos

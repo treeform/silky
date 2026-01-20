@@ -369,23 +369,26 @@ template icon*(image: string) =
   sk.drawImage(image, sk.at)
   sk.advance(vec2(imageSize.x, imageSize.y))
 
-template iconButton*(image: string, body) =
-  ## Create an icon button.
+template iconButton*(image: string, tooltipText: string = "", body) =
+  ## Create an icon button with optional tooltip.
   let
     m2 = vec2(8, 8)
     s2 = sk.getImageSize(image) + vec2(8, 8) * 2
     buttonRect = rect(sk.at - m2, s2)
+    buttonPos = sk.at - m2
   if mouseInsideClip(buttonRect):
     sk.hover = true
-    sk.hoveringElementId = image  # Use image path as unique ID
+    sk.hoveringElementId = image
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
       sk.draw9Patch("button.down.9patch", 8, sk.at - m2, s2, rgbx(255, 255, 255, 255))
     else:
       sk.draw9Patch("button.hover.9patch", 8, sk.at - m2, s2, rgbx(255, 255, 255, 255))
+
+    if tooltipText != "" and sk.shouldShowTooltip(image):
+      tooltip(tooltipText, buttonPos, s2)
   else:
-    # Don't set hover = false here - let frame-end logic handle it
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
   sk.drawImage(image, sk.at)
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
@@ -401,10 +404,9 @@ template clickableIcon*(image: string, on: bool, tooltipText: string = "", body)
     hoverColor = rgbx(255, 255, 255, 255)
     offColor = rgbx(110, 110, 110, 110)
   var color = upColor
-  let isHovering = mouseInsideClip(rect(sk.at, s2))
-  if isHovering:
+  if mouseInsideClip(rect(sk.at, s2)):
     sk.hover = true
-    sk.hoveringElementId = image  # Use image path as unique ID
+    sk.hoveringElementId = image
     if window.buttonReleased[MouseLeft]:
       body
     elif window.buttonDown[MouseLeft]:
@@ -414,9 +416,8 @@ template clickableIcon*(image: string, on: bool, tooltipText: string = "", body)
         color = onColor
       else:
         color = upColor
-    # Show tooltip if hovering and idle time threshold met
     if tooltipText != "" and sk.shouldShowTooltip(image):
-      tooltip(tooltipText)
+      tooltip(tooltipText, sk.at, s2)
   else:
     # Don't set hover = false here - let frame-end logic handle it
     if on:
@@ -858,8 +859,9 @@ template menuItem*(label: string, body: untyped) =
 
   layout.cursorY += rowH
 
-template tooltip*(text: string) =
-  ## Display a tooltip at the mouse cursor.
+template tooltip*(text: string, buttonPos: Vec2 = vec2(0, 0), buttonSize: Vec2 = vec2(0, 0)) =
+  ## Display a tooltip. If buttonPos/buttonSize provided, position above button.
+  ## Otherwise, position near mouse cursor.
   ## This should be called after a widget when sk.showTooltip is true.
   let tooltipText = text
   sk.pushLayer(PopupsLayer)
@@ -867,19 +869,23 @@ template tooltip*(text: string) =
 
   let textSize = sk.getTextSize(sk.textStyle, tooltipText)
   let tooltipSize = textSize + vec2(theme.padding.float32 * 2, theme.padding.float32 * 2)
-  let mousePos = window.mousePos.vec2
+  
+  var tooltipPos: Vec2
+  if buttonSize != vec2(0, 0):
+    tooltipPos = buttonPos + vec2(buttonSize.x / 2 - tooltipSize.x / 2, -tooltipSize.y - 4)
+  else:
+    let mousePos = window.mousePos.vec2
+    tooltipPos = mousePos + vec2(16, 16)
 
-  # Position tooltip near mouse, offset slightly to avoid cursor.
-  var tooltipPos = mousePos + vec2(16, 16)
-
-  # Keep tooltip on screen.
   let root = sk.rootSize
   if tooltipPos.x + tooltipSize.x > root.x:
     tooltipPos.x = root.x - tooltipSize.x - theme.padding.float32
   if tooltipPos.y + tooltipSize.y > root.y:
-    tooltipPos.y = mousePos.y - tooltipSize.y - 4
+    if buttonSize != vec2(0, 0):
+      tooltipPos.y = buttonPos.y + buttonSize.y + 4
+    else:
+      tooltipPos.y = window.mousePos.vec2.y - tooltipSize.y - 4
 
-  # Ensure tooltip doesn't go off-screen left or top.
   tooltipPos.x = max(tooltipPos.x, theme.padding.float32)
   tooltipPos.y = max(tooltipPos.y, theme.padding.float32)
 
