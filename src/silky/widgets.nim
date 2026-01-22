@@ -392,7 +392,7 @@ template iconButton*(image: string, tooltipText: string = "", body) =
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
   sk.drawImage(image, sk.at)
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
-  sk.at += vec2(32 + sk.padding, 0)
+  sk.at += vec2(s2.x, 0)
 
 template clickableIcon*(image: string, on: bool, tooltipText: string = "", body) =
   ## Create an clickable icon with no background and no padding.
