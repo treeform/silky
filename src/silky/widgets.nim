@@ -755,6 +755,36 @@ template image*(imageName: string) =
   ## Draw an image with default text color tint.
   image(imageName, sk.theme.textColor)
 
+proc wordWrapText*(sk: Silky, text: string, maxWidth: float32, font: string = "Default"): string =
+  ## Word-wraps text to fit within maxWidth pixels using the given font.
+  if text.len == 0:
+    return ""
+
+  let words = strutils.splitWhitespace(text)
+  if words.len == 0:
+    return text
+
+  var lines: seq[string]
+  var currentLine = words[0]
+
+  for i in 1 ..< words.len:
+    let word = words[i]
+    let testLine = currentLine & " " & word
+    let testSize = sk.getTextSize(font, testLine)
+
+    if testSize.x <= maxWidth:
+      currentLine = testLine
+    else:
+      lines.add(currentLine)
+      currentLine = word
+
+  lines.add(currentLine)
+
+  for i, line in lines:
+    if i > 0:
+      result.add("\n")
+    result.add(line)
+
 template text*(t: string) =
   ## Draw text.
   let textRect = rect(sk.at, sk.getTextSize(sk.textStyle, t))
