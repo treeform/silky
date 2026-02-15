@@ -392,7 +392,7 @@ proc button*(sk: Silky, window: Window, label: string, isEnabled: bool, isError:
           "button.error.9patch"
         else:
           if result:
-            "button.clicked.9patch"
+            "button.down.9patch"
           else:
             "button.9patch"
       else:
@@ -1075,7 +1075,7 @@ template button*(label: string, body: untyped) =
 
 template button*(label: string, isEnabled: bool, body: untyped) =
   ## Create a button with enabled state.
-  if sk.buttonStart(window, label, isEnabled, false):
+  if sk.button(window, label, isEnabled, false):
     body
 
 template icon*(image: string) =
