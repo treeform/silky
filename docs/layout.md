@@ -14,7 +14,7 @@ There is also a second conceptual pen, the "stretch pen." When you place a child
 
 ## Stretch and sizing layouts.
 
-Stretch to fit layouts that require knowing the sizes of all children in advance are not possible in immediate mode UIs. You cannot look ahead to compute total child sizes before drawing them. Layouts that depend on precomputed child measurements simply do not work here.
+Stretch to fit layouts that require knowing the sizes of all children in advance are tricky in immediate mode UIs. Withoug scrafacing perf of frame independence, you cannot look ahead to compute total child sizes before drawing them. Layouts that depend on precomputed child measurements simply do not work here.
 
 ![Stretch pen](size.png)
 
@@ -54,11 +54,6 @@ There is also the concept of **anchoring**, which determines where stacking begi
 
 Most UIs anchor on the left and stack from top to bottom. That is the default and most common layout style. But you could build something like a chat application that anchors at the bottom and stacks upward, since new chat bubbles appear there. You can also create panels that stack controls inward from different edges to organize screen layout.
 
-## Centering.
-
-A particularly tricky part of immediate mode UI is **centering**. Centering only works when both sizes are known, the size of the parent and the size of the child. Only when both dimensions are available can centering primitives be applied correctly.
-
-![Centering](center.png)
 
 ## Performance considerations.
 
