@@ -233,32 +233,6 @@ proc subWindowEnd*(sk: Silky, window: Window, subWindowState: SubWindowState) =
 
   sk.popLayout()
 
-template subWindow*(title: string, show: var bool, body: untyped) =
-  ## Create a window frame using default placement and sizing.
-  let state = sk.subWindowStart(window, title, show, none(Vec2), none(Vec2))
-  sk.beginWidget("SubWindow", name = title, rect = rect(state.pos, state.size))
-  if state.visible:
-    try:
-      if not state.minimized:
-        frame(title, state.bodyPos, state.bodySize):
-          body
-    finally:
-      sk.subWindowEnd(window, state)
-  sk.endWidget()
-
-template subWindow*(title: string, show: var bool, initialOrigin: Vec2, initialSize: Vec2, body: untyped) =
-  ## Create a window frame with explicit initial position and size.
-  let state = sk.subWindowStart(window, title, show, some(initialOrigin), some(initialSize))
-  sk.beginWidget("SubWindow", name = title, rect = rect(state.pos, state.size))
-  if state.visible:
-    try:
-      if not state.minimized:
-        frame(title, state.bodyPos, state.bodySize):
-          body
-    finally:
-      sk.subWindowEnd(window, state)
-  sk.endWidget()
-
 proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): tuple[state: FrameState, originPos: Vec2] =
   ## Begin a scrollable frame; returns state and origin for cleanup.
   if id notin frameStates:
@@ -382,17 +356,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
   sk.popLayout()
   sk.popClipRect()
 
-template frame*(id: string, framePos, frameSize: Vec2, body: untyped) =
-  ## Frame with scrollbars similar to a window body.
-  sk.beginWidget("Frame", name = id, rect = rect(framePos, frameSize))
-  let frameCtx = sk.frameStart(id, framePos, frameSize)
-  try:
-    body
-  finally:
-    sk.frameEnd(window, frameCtx.state, frameCtx.originPos)
-  sk.endWidget()
-
-template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
+proc button*(sk: Silky, label: string, isEnabled: bool, isError: bool, body: untyped) =
   let
     textSize = sk.getTextSize(sk.textStyle, label)
     buttonSize = textSize + vec2(sk.theme.padding) * 2
@@ -440,21 +404,13 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
 
   sk.advance(buttonSize + vec2(sk.theme.padding))
 
-template button*(label: string, body: untyped) =
-  ## Create a button.
-  button(label, true, false, body)
-
-template button*(label: string, isEnabled: bool, body: untyped) =
-  ## Create a button.
-  button(label, isEnabled, false, body)
-
-template icon*(image: string) =
+proc icon*(sk: Silky, image: string) =
   ## Draw an icon.
   let imageSize = sk.getImageSize(image)
   sk.drawImage(image, sk.at)
   sk.advance(vec2(imageSize.x, imageSize.y))
 
-template iconButton*(image: string, body) =
+proc iconButton*(image: string, body) =
   ## Create an icon button.
   let
     m2 = vec2(8, 8)
@@ -475,7 +431,7 @@ template iconButton*(image: string, body) =
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
   sk.at += vec2(32 + sk.padding, 0)
 
-template clickableIcon*(image: string, on: bool, body) =
+proc clickableIcon*(image: string, on: bool, body) =
   ## Create an clickable icon with no background and no padding.
   let
     imageSize = sk.getImageSize(image)
@@ -505,7 +461,7 @@ template clickableIcon*(image: string, on: bool, body) =
   sk.drawImage(image, sk.at, color)
   sk.at += vec2(imageSize.x, 0)
 
-template radioButton*[T](label: string, variable: var T, value: T) =
+proc radioButton*[T](sk: Silky, label: string, variable: var T, value: T) =
   ## Radio button.
   let
     iconSize = sk.getImageSize("radio.on")
@@ -534,7 +490,7 @@ template radioButton*[T](label: string, variable: var T, value: T) =
 
   sk.advance(vec2(width, height))
 
-template checkBox*(label: string, value: var bool) =
+proc checkBox*(sk: Silky, label: string, value: var bool) =
   ## Checkbox.
   let
     iconSize = sk.getImageSize("check.on")
@@ -562,7 +518,7 @@ template checkBox*(label: string, value: var bool) =
 
   sk.advance(vec2(width, height))
 
-template dropDown*[T](selected: var T, options: openArray[T]) =
+proc dropDown*[T](sk: Silky, selected: var T, options: openArray[T]) =
   ## Dropdown styled like input text; options render in a new layer.
   let id = "dropdown_" & $cast[uint](addr selected)
   if id notin dropDownStates:
@@ -640,7 +596,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     sk.popClipRect()
     sk.popLayer()
 
-template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
+proc listBox*[T](sk: Silky, id: string, items: seq[T], selectedIndex: var int) =
   ## Listbox with scrolling and selection.
   let font = sk.atlas.fonts[sk.textStyle]
   let rowHeight = font.lineHeight + sk.theme.padding.float32
@@ -668,7 +624,7 @@ template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
       sk.advance(vec2(itemWidth, rowHeight - sk.theme.spacing.float32))
   sk.advance(vec2(outerWidth, listHeight))
 
-template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
+proc progressBar*(sk: Silky, value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
   ## Non-interactive progress bar.
   let
     minF = minVal.float32
@@ -700,14 +656,6 @@ proc groupEnd*(sk: Silky) =
   sk.popLayout()
   sk.advance(endAt - sk.at)
 
-template group*(p: Vec2, direction = TopToBottom, body) =
-  ## Create a group.
-  sk.groupStart(p, direction)
-  try:
-    body
-  finally:
-    sk.groupEnd()
-
 proc frameStart*(sk: Silky, p, s: Vec2) =
   ## Begin a simple frame.
   sk.pushLayout(p, s)
@@ -716,14 +664,6 @@ proc frameStart*(sk: Silky, p, s: Vec2) =
 proc frameEnd*(sk: Silky) =
   ## Finish a simple frame.
   sk.popLayout()
-
-template frame*(p, s: Vec2, body: untyped) =
-  ## Create a frame.
-  sk.frameStart(p, s)
-  try:
-    body
-  finally:
-    sk.frameEnd()
 
 proc ribbonStart*(sk: Silky, p, s: Vec2, tint: ColorRGBX) =
   ## Begin a ribbon.
@@ -735,25 +675,13 @@ proc ribbonEnd*(sk: Silky) =
   ## Finish a ribbon.
   sk.popLayout()
 
-template ribbon*(p, s: Vec2, tint: ColorRGBX, body: untyped) =
-  ## Create a ribbon.
-  sk.ribbonStart(p, s, tint)
-  try:
-    body
-  finally:
-    sk.ribbonEnd()
-
-template image*(imageName: string, tint: ColorRGBX) =
+proc image*(sk: Silky, imageName: string, tint: ColorRGBX) =
   ## Draw an image with explicit tint.
   sk.drawImage(imageName, sk.at, tint)
   sk.at.x += sk.getImageSize(imageName).x
   sk.at.x += sk.padding
 
-template image*(imageName: string) =
-  ## Draw an image with default text color tint.
-  image(imageName, sk.theme.textColor)
-
-template text*(t: string) =
+proc text*(sk: Silky, t: string) =
   ## Draw text.
   let textRect = rect(sk.at, sk.getTextSize(sk.textStyle, t))
   sk.beginWidget("Text", text = t, rect = textRect)
@@ -761,12 +689,12 @@ template text*(t: string) =
   sk.endWidget()
   sk.advance(textSize)
 
-template h1text*(t: string) =
+proc h1text*(sk: Silky, t: string) =
   ## Draw H1 text.
   let textSize = sk.drawText("H1", t, sk.at, sk.theme.textH1Color)
   sk.advance(textSize)
 
-template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
+ scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
   ## Draggable scrubber that spans available width and advances layout.
   let
     minF = minVal.float32
@@ -888,14 +816,6 @@ proc menuBarEnd*(sk: Silky, window: Window) =
     if not menuPointInside(menuState.activeRects, window.mousePos.vec2):
       menuState.openPath.setLen(0)
 
-template menuBar*(body: untyped) =
-  ## Horizontal application menu bar (File, Edit, ...).
-  sk.menuBarStart(window)
-  try:
-    body
-  finally:
-    sk.menuBarEnd(window)
-
 proc subMenuStart*(sk: Silky, window: Window, label: string, menuWidth = 200): MenuEntryContext =
   ## Begin a submenu entry; returns context describing whether it is open.
   menuEnsureState()
@@ -980,17 +900,6 @@ proc subMenuEnd*(sk: Silky, ctx: MenuEntryContext) =
   ## Finish a submenu entry and pop path if open.
   if ctx.open:
     menuPathStack.setLen(menuPathStack.len - 1)
-
-template subMenu*(label: string, menuWidth = 200, body: untyped) =
-  ## Menu entry that can contain other menu items.
-  let ctx = sk.subMenuStart(window, label, menuWidth)
-  try:
-    if ctx.open:
-      menuPopup(ctx.path, ctx.popupPos, menuWidth):
-        body
-  finally:
-    sk.subMenuEnd(ctx)
-
 proc menuItemStart*(sk: Silky, window: Window, label: string): MenuItemContext =
   ## Begin a menu item; returns context indicating click state.
   menuEnsureState()
@@ -1029,16 +938,7 @@ proc menuItemEnd*(sk: Silky, ctx: MenuItemContext) =
   ## Finish a menu item and advance layout cursor.
   ctx.layout.cursorY += ctx.rowH
 
-template menuItem*(label: string, body: untyped) =
-  ## Leaf menu entry that runs `body` on click.
-  let ctx = sk.menuItemStart(window, label)
-  try:
-    if ctx.clicked:
-      body
-  finally:
-    sk.menuItemEnd(ctx)
-
-template tooltip*(text: string) =
+proc tooltip*(sk: Silky, text: string) =
   ## Display a tooltip at the mouse cursor.
   ## This should be called after a widget when sk.showTooltip is true.
   let tooltipText = text
@@ -1070,3 +970,139 @@ template tooltip*(text: string) =
 
   sk.popClipRect()
   sk.popLayer()
+
+template subWindow*(title: string, show: var bool, body: untyped) =
+  ## Create a window frame using default placement and sizing.
+  let state = sk.subWindowStart(window, title, show, none(Vec2), none(Vec2))
+  sk.beginWidget("SubWindow", name = title, rect = rect(state.pos, state.size))
+  if state.visible:
+    try:
+      if not state.minimized:
+        frame(title, state.bodyPos, state.bodySize):
+          body
+    finally:
+      sk.subWindowEnd(window, state)
+  sk.endWidget()
+
+template subWindow*(title: string, show: var bool, initialOrigin: Vec2, initialSize: Vec2, body: untyped) =
+  ## Create a window frame with explicit initial position and size.
+  let state = sk.subWindowStart(window, title, show, some(initialOrigin), some(initialSize))
+  sk.beginWidget("SubWindow", name = title, rect = rect(state.pos, state.size))
+  if state.visible:
+    try:
+      if not state.minimized:
+        frame(title, state.bodyPos, state.bodySize):
+          body
+    finally:
+      sk.subWindowEnd(window, state)
+  sk.endWidget()
+
+template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
+  sk.progressBar(value, minVal, maxVal)
+
+template group*(p: Vec2, direction = TopToBottom, body) =
+  ## Create a group.
+  sk.groupStart(p, direction)
+  try:
+    body
+  finally:
+    sk.groupEnd()
+
+template frame*(p, s: Vec2, body: untyped) =
+  ## Create a frame.
+  sk.frameStart(p, s)
+  try:
+    body
+  finally:
+    sk.frameEnd()
+
+template frame*(id: string, framePos, frameSize: Vec2, body: untyped) =
+  ## Frame with scrollbars similar to a window body.
+  sk.beginWidget("Frame", name = id, rect = rect(framePos, frameSize))
+  let frameCtx = sk.frameStart(id, framePos, frameSize)
+  try:
+    body
+  finally:
+    sk.frameEnd(window, frameCtx.state, frameCtx.originPos)
+  sk.endWidget()
+
+template ribbon*(p, s: Vec2, tint: ColorRGBX, body: untyped) =
+  ## Create a ribbon.
+  sk.ribbonStart(p, s, tint)
+  try:
+    body
+  finally:
+    sk.ribbonEnd()
+
+template menuBar*(body: untyped) =
+  ## Horizontal application menu bar (File, Edit, ...).
+  sk.menuBarStart(window)
+  try:
+    body
+  finally:
+    sk.menuBarEnd(window)
+
+template menuItem*(label: string, body: untyped) =
+  ## Leaf menu entry that runs `body` on click.
+  let ctx = sk.menuItemStart(window, label)
+  try:
+    if ctx.clicked:
+      body
+  finally:
+    sk.menuItemEnd(ctx)
+
+template subMenu*(label: string, menuWidth = 200, body: untyped) =
+  ## Menu entry that can contain other menu items.
+  let ctx = sk.subMenuStart(window, label, menuWidth)
+  try:
+    if ctx.open:
+      menuPopup(ctx.path, ctx.popupPos, menuWidth):
+        body
+  finally:
+    sk.subMenuEnd(ctx)
+
+template button*(label: string, body: untyped) =
+  ## Create a button.
+  button(label, true, false, body)
+
+template button*(label: string, isEnabled: bool, body: untyped) =
+  ## Create a button.
+  button(label, isEnabled, false, body)
+
+template icon*(image: string) =
+  sk.icon(image)
+
+template clickableIcon*(image: string, on: bool, body) =
+  sk.clickableIcon(image, on, body)
+
+template iconButton*(image: string, body) =
+  sk.iconButton(image, body)
+
+template radioButton*[T](label: string, variable: var T, value: T) =
+  sk.radioButton(label, variable, value)
+
+template checkBox*(label: string, value: var bool) =
+  sk.checkBox(label, value)
+
+template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
+  sk.listBox(id, items, selectedIndex)
+
+template dropDown*[T](selected: var T, options: openArray[T]) =
+  sk.dropDown(selected, options)
+
+template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
+  sk.scrubber(id, value, minVal, maxVal, label)
+
+template image*(imageName: string) =
+  ## Draw an image with default text color tint.
+  sk.image(imageName, sk.theme.textColor)
+
+template text*(t: string) =
+  sk.text(t)
+
+template h1text*(t: string) =
+  sk.h1text(t)
+
+template tooltip*(text: string) =
+  sk.tooltip(text)
+
