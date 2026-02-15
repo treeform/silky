@@ -399,7 +399,7 @@ proc drawText*(
       inc i
       continue
 
-    if currentPos.x >= maxPos.x:
+    if currentPos.x + entry.advance > maxPos.x:
       if wordWrap:
         # Character-level fallback for words wider than maxWidth.
         currentPos.x = pos.x
