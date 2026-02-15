@@ -32,8 +32,16 @@ type
     scrollingY*: bool
     scrollDragOffset*: Vec2
 
+  ButtonState* = ref object
+    clicked*: bool
+    size*: Vec2
+    rect*: Rect
+    hover*: bool
+    pressed*: bool
+
   ScrubberState* = ref object
     dragging*: bool
+
   DropDownState* = ref object
     open*: bool
 
@@ -356,23 +364,14 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
   sk.popLayout()
   sk.popClipRect()
 
-proc button*(sk: Silky, label: string, isEnabled: bool, isError: bool, body: untyped) =
-  let
-    textSize = sk.getTextSize(sk.textStyle, label)
-    buttonSize = textSize + vec2(sk.theme.padding) * 2
-    buttonRect = rect(sk.at, buttonSize)
-  let hover = sk.mouseInsideClip(window, buttonRect)
-  let pressed = hover and window.buttonDown[MouseLeft]
-
-  sk.beginWidget("Button", text = label, rect = buttonRect)
-
-  let patch =
-    if not isEnabled:
-      "button.disabled.9patch"
-    elif isError:
-      "button.error.9patch"
-    else:
-      "button.9patch"
+proc button*(sk: Silky, window: Window, label: string, isEnabled: bool, isError: bool): bool =
+  ## Draw a button and return true if clicked.
+  let buttonState = ButtonState()
+  buttonState.size = sk.getTextSize(sk.textStyle, label) + vec2(sk.theme.padding) * 2
+  buttonState.rect = rect(sk.at, buttonState.size)
+  buttonState.hover = sk.mouseInsideClip(window, buttonState.rect)
+  buttonState.pressed = buttonState.hover and window.buttonDown[MouseLeft]
+  sk.beginWidget("Button", text = label, rect = buttonState.rect)
 
   let textColor =
     if not isEnabled:
@@ -382,27 +381,30 @@ proc button*(sk: Silky, label: string, isEnabled: bool, isError: bool, body: unt
     else:
       sk.theme.defaultTextColor
 
-  if isEnabled:
-    if hover:
-      let hoverPatch = if isError: "button.error.9patch" else: "button.hover.9patch"
-      if window.buttonReleased[MouseLeft]:
-        body
-      elif window.buttonDown[MouseLeft]:
-        let downPatch = if isError: "button.error.9patch" else: "button.down.9patch"
-        sk.draw9Patch(downPatch, 8, sk.at, buttonSize)
+  if sk.mouseInsideClip(window, buttonState.rect):
+    if window.buttonReleased[MouseLeft]:
+      result = true
+
+  let patch =
+    if isEnabled:
+      if buttonState.hover:
+        if isError:
+          "button.error.9patch"
+        else:
+          if result:
+            "button.clicked.9patch"
+          else:
+            "button.9patch"
       else:
-        sk.draw9Patch(hoverPatch, 8, sk.at, buttonSize)
+        "button.9patch"
     else:
-      sk.draw9Patch(patch, 8, sk.at, buttonSize)
-  else:
-    sk.draw9Patch(patch, 8, sk.at, buttonSize)
+      "button.disabled.9patch"
 
+  sk.draw9Patch(patch, 8, sk.at, buttonState.size)
   discard sk.drawText(sk.textStyle, label, sk.at + vec2(sk.theme.padding), textColor)
-
-  sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hover)
+  sk.setWidgetState(enabled = isEnabled, hovered = buttonState.hover, pressed = buttonState.pressed)
   sk.endWidget()
-
-  sk.advance(buttonSize + vec2(sk.theme.padding))
+  sk.advance(buttonState.size + vec2(sk.theme.padding))
 
 proc icon*(sk: Silky, image: string) =
   ## Draw an icon.
@@ -410,7 +412,7 @@ proc icon*(sk: Silky, image: string) =
   sk.drawImage(image, sk.at)
   sk.advance(vec2(imageSize.x, imageSize.y))
 
-proc iconButton*(image: string, body) =
+proc iconButton*(sk: Silky, window: Window, image: string): bool =
   ## Create an icon button.
   let
     m2 = vec2(8, 8)
@@ -419,7 +421,7 @@ proc iconButton*(image: string, body) =
   if sk.mouseInsideClip(window, buttonRect):
     sk.hover = true
     if window.buttonReleased[MouseLeft]:
-      body
+      result = true
     elif window.buttonDown[MouseLeft]:
       sk.draw9Patch("button.down.9patch", 8, sk.at - m2, s2, sk.theme.iconButtonDownColor)
     else:
@@ -431,8 +433,8 @@ proc iconButton*(image: string, body) =
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
   sk.at += vec2(32 + sk.padding, 0)
 
-proc clickableIcon*(image: string, on: bool, body) =
-  ## Create an clickable icon with no background and no padding.
+proc clickableIcon*(sk: Silky, window: Window, image: string, on: bool): bool =
+  ## Draw a clickable icon with no background and no padding. Returns true if clicked.
   let
     imageSize = sk.getImageSize(image)
     s2 = imageSize
@@ -443,7 +445,7 @@ proc clickableIcon*(image: string, on: bool, body) =
   if sk.mouseInsideClip(window, rect(sk.at, s2)):
     sk.hover = true
     if window.buttonReleased[MouseLeft]:
-      body
+      result = true
     elif window.buttonDown[MouseLeft]:
       color = upColor
     else:
@@ -457,11 +459,10 @@ proc clickableIcon*(image: string, on: bool, body) =
       color = onColor
     else:
       color = offColor
-
   sk.drawImage(image, sk.at, color)
   sk.at += vec2(imageSize.x, 0)
 
-proc radioButton*[T](sk: Silky, label: string, variable: var T, value: T) =
+proc radioButton*[T](sk: Silky, window: Window, label: string, variable: var T, value: T) =
   ## Radio button.
   let
     iconSize = sk.getImageSize("radio.on")
@@ -490,7 +491,7 @@ proc radioButton*[T](sk: Silky, label: string, variable: var T, value: T) =
 
   sk.advance(vec2(width, height))
 
-proc checkBox*(sk: Silky, label: string, value: var bool) =
+proc checkBox*(sk: Silky, window: Window, label: string, value: var bool) =
   ## Checkbox.
   let
     iconSize = sk.getImageSize("check.on")
@@ -518,7 +519,7 @@ proc checkBox*(sk: Silky, label: string, value: var bool) =
 
   sk.advance(vec2(width, height))
 
-proc dropDown*[T](sk: Silky, selected: var T, options: openArray[T]) =
+proc dropDown*[T](sk: Silky, window: Window, selected: var T, options: openArray[T]) =
   ## Dropdown styled like input text; options render in a new layer.
   let id = "dropdown_" & $cast[uint](addr selected)
   if id notin dropDownStates:
@@ -596,7 +597,7 @@ proc dropDown*[T](sk: Silky, selected: var T, options: openArray[T]) =
     sk.popClipRect()
     sk.popLayer()
 
-proc listBox*[T](sk: Silky, id: string, items: seq[T], selectedIndex: var int) =
+proc listBox*[T](sk: Silky, window: Window, id: string, items: seq[T], selectedIndex: var int) =
   ## Listbox with scrolling and selection.
   let font = sk.atlas.fonts[sk.textStyle]
   let rowHeight = font.lineHeight + sk.theme.padding.float32
@@ -604,24 +605,26 @@ proc listBox*[T](sk: Silky, id: string, items: seq[T], selectedIndex: var int) =
   # Use a fixed height or calculate based on items, but capped at 4 items.
   let listHeight = min(rowHeight * 4.float32, rowHeight * max(1, items.len).float32) + sk.theme.padding.float32 * 2
 
-  frame(id, sk.at, vec2(outerWidth, listHeight)):
+  sk.beginWidget("Frame", name = id, rect = rect(sk.at, vec2(outerWidth, listHeight)))
+  let frameCtx = sk.frameStart(id, sk.at, vec2(outerWidth, listHeight))
+  try:
     let itemWidth = sk.size.x - sk.theme.padding.float32 * 3
     for i, item in items:
       let
         rowRect = rect(sk.at, vec2(itemWidth, rowHeight))
         textPos = sk.at + vec2(sk.theme.padding.float32, sk.theme.padding.float32 * 0.5)
-
       let isSelected = selectedIndex == i
       let rowHover = sk.mouseInsideClip(window, rowRect)
-
       if rowHover or isSelected:
         let tint = if rowHover: sk.theme.menuPopupHoverColor else: sk.theme.menuPopupSelectedColor
         sk.drawRect(rowRect.xy, rowRect.wh, tint)
         if rowHover and window.buttonReleased[MouseLeft]:
           selectedIndex = i
-
       discard sk.drawText(sk.textStyle, $item, textPos, sk.theme.defaultTextColor)
       sk.advance(vec2(itemWidth, rowHeight - sk.theme.spacing.float32))
+  finally:
+    sk.frameEnd(window, frameCtx.state, frameCtx.originPos)
+  sk.endWidget()
   sk.advance(vec2(outerWidth, listHeight))
 
 proc progressBar*(sk: Silky, value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
@@ -694,7 +697,7 @@ proc h1text*(sk: Silky, t: string) =
   let textSize = sk.drawText("H1", t, sk.at, sk.theme.textH1Color)
   sk.advance(textSize)
 
- scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
+proc scrubber*[T, U](sk: Silky, window: Window, id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
   ## Draggable scrubber that spans available width and advances layout.
   let
     minF = minVal.float32
@@ -938,9 +941,8 @@ proc menuItemEnd*(sk: Silky, ctx: MenuItemContext) =
   ## Finish a menu item and advance layout cursor.
   ctx.layout.cursorY += ctx.rowH
 
-proc tooltip*(sk: Silky, text: string) =
+proc tooltip*(sk: Silky, window: Window, text: string) =
   ## Display a tooltip at the mouse cursor.
-  ## This should be called after a widget when sk.showTooltip is true.
   let tooltipText = text
   sk.pushLayer(PopupsLayer)
   sk.pushClipRect(rect(vec2(0, 0), sk.rootSize))
@@ -1061,37 +1063,52 @@ template subMenu*(label: string, menuWidth = 200, body: untyped) =
   finally:
     sk.subMenuEnd(ctx)
 
+template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
+  ## Create a button with enabled and error states.
+  if sk.button(window, label, isEnabled, isError):
+    body
+
 template button*(label: string, body: untyped) =
   ## Create a button.
-  button(label, true, false, body)
+  if sk.button(window, label, true, false):
+    body
 
 template button*(label: string, isEnabled: bool, body: untyped) =
-  ## Create a button.
-  button(label, isEnabled, false, body)
+  ## Create a button with enabled state.
+  if sk.buttonStart(window, label, isEnabled, false):
+    body
 
 template icon*(image: string) =
   sk.icon(image)
 
-template clickableIcon*(image: string, on: bool, body) =
-  sk.clickableIcon(image, on, body)
+template clickableIcon*(image: string, on: bool, body: untyped) =
+  ## Create a clickable icon with no background and no padding.
+  if sk.clickableIcon(window, image, on):
+    body
 
-template iconButton*(image: string, body) =
-  sk.iconButton(image, body)
+template iconButton*(image: string, body: untyped) =
+  ## Create an icon button.
+  if sk.iconButton(window, image):
+    body
 
 template radioButton*[T](label: string, variable: var T, value: T) =
-  sk.radioButton(label, variable, value)
+  sk.radioButton(window, label, variable, value)
 
 template checkBox*(label: string, value: var bool) =
-  sk.checkBox(label, value)
+  sk.checkBox(window, label, value)
 
 template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
-  sk.listBox(id, items, selectedIndex)
+  sk.listBox(window, id, items, selectedIndex)
 
 template dropDown*[T](selected: var T, options: openArray[T]) =
-  sk.dropDown(selected, options)
+  sk.dropDown(window, selected, options)
 
 template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
-  sk.scrubber(id, value, minVal, maxVal, label)
+  sk.scrubber(window, id, value, minVal, maxVal, label)
+
+template image*(imageName: string, tint: ColorRGBX) =
+  ## Draw an image with explicit tint.
+  sk.image(imageName, tint)
 
 template image*(imageName: string) =
   ## Draw an image with default text color tint.
@@ -1104,5 +1121,6 @@ template h1text*(t: string) =
   sk.h1text(t)
 
 template tooltip*(text: string) =
-  sk.tooltip(text)
+  ## Display a tooltip at the mouse cursor.
+  sk.tooltip(window, text)
 
