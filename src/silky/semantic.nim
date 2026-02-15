@@ -211,6 +211,10 @@ type
     BottomToTop
     LeftToRight
     RightToLeft
+    RightTopToBottom
+    RightBottomToTop
+    BottomLeftToRight
+    BottomRightToLeft
 
   Theme* = object
     ## Visual theme settings for widgets.
@@ -304,6 +308,10 @@ proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = T
     of BottomToTop: sk.at = pos + vec2(0, size.y)
     of LeftToRight: sk.at = pos
     of RightToLeft: sk.at = pos + vec2(size.x, 0)
+    of RightTopToBottom: sk.at = pos + vec2(size.x, 0)
+    of RightBottomToTop: sk.at = pos + vec2(size.x, size.y)
+    of BottomLeftToRight: sk.at = pos + vec2(0, size.y)
+    of BottomRightToLeft: sk.at = pos + vec2(size.x, size.y)
 
 proc popLayout*(sk: Silky) =
   ## Pops the current layout region from the stack.
@@ -344,10 +352,14 @@ proc advance*(sk: Silky, amount: Vec2) =
   ## Advances the cursor position by the given amount.
   sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(sk.theme.spacing.float32))
   case sk.stackDirection:
-    of TopToBottom: sk.at.y += amount.y + sk.theme.spacing.float32
-    of BottomToTop: sk.at.y -= amount.y + sk.theme.spacing.float32
-    of LeftToRight: sk.at.x += amount.x + sk.theme.spacing.float32
-    of RightToLeft: sk.at.x -= amount.x + sk.theme.spacing.float32
+    of TopToBottom, RightTopToBottom:
+      sk.at.y += amount.y + sk.theme.spacing.float32
+    of BottomToTop, RightBottomToTop:
+      sk.at.y -= amount.y + sk.theme.spacing.float32
+    of LeftToRight, BottomLeftToRight:
+      sk.at.x += amount.x + sk.theme.spacing.float32
+    of RightToLeft, BottomRightToLeft:
+      sk.at.x -= amount.x + sk.theme.spacing.float32
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Returns the size of an image from the atlas.

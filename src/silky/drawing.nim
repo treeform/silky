@@ -25,6 +25,10 @@ type
     BottomToTop
     LeftToRight
     RightToLeft
+    RightTopToBottom
+    RightBottomToTop
+    BottomLeftToRight
+    BottomRightToLeft
 
   Theme* = object
     ## Theme for the Silky UI.
@@ -148,6 +152,14 @@ proc pushLayout*(
       sk.at = pos
     of RightToLeft:
       sk.at = pos + vec2(size.x, 0)
+    of RightTopToBottom:
+      sk.at = pos + vec2(size.x, 0)
+    of RightBottomToTop:
+      sk.at = pos + vec2(size.x, size.y)
+    of BottomLeftToRight:
+      sk.at = pos + vec2(0, size.y)
+    of BottomRightToLeft:
+      sk.at = pos + vec2(size.x, size.y)
 
 proc popLayout*(sk: Silky) =
   ## Pop the current layout container from the stack.
@@ -195,13 +207,13 @@ proc advance*(sk: Silky, amount: Vec2) =
   ## Advance the position.
   sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(sk.theme.spacing.float32))
   case sk.stackDirection:
-    of TopToBottom:
+    of TopToBottom, RightTopToBottom:
       sk.at.y += amount.y + sk.theme.spacing.float32
-    of BottomToTop:
+    of BottomToTop, RightBottomToTop:
       sk.at.y -= amount.y + sk.theme.spacing.float32
-    of LeftToRight:
+    of LeftToRight, BottomLeftToRight:
       sk.at.x += amount.x + sk.theme.spacing.float32
-    of RightToLeft:
+    of RightToLeft, BottomRightToLeft:
       sk.at.x -= amount.x + sk.theme.spacing.float32
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
