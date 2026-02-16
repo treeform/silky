@@ -3,9 +3,9 @@ import
   vmath, bumpy, chroma
 
 when defined(silkyTesting):
-  import semantic, testing, common
+  import semantic, testing, common, scrollbars
 else:
-  import drawing, common, windy
+  import drawing, common, scrollbars, windy
 
 when defined(macos):
   const ScrollSpeed* = 10.0
@@ -27,10 +27,7 @@ type
     visible*: bool
 
   FrameState* = ref object
-    scrollPos*: Vec2
-    scrollingX*: bool
-    scrollingY*: bool
-    scrollDragOffset*: Vec2
+    scroll*: ScrollArea
 
   ButtonState* = ref object
     clicked*: bool
@@ -254,112 +251,54 @@ proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): tuple[state:
     sk.size.x - 2,
     sk.size.y - 2
   ))
+  frameState.scroll.viewPos = sk.pos
+  frameState.scroll.viewSize = sk.size
   sk.at = sk.pos + vec2(sk.theme.padding)
   let originPos = sk.at
-  sk.at -= frameState.scrollPos
+  sk.at += frameState.scroll.scrollOffset()
   return (frameState, originPos)
 
 proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec2) =
   ## Finish a scrollable frame and handle scrollbars.
-  if frameState.scrollingY and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    frameState.scrollingY = false
-  if frameState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    frameState.scrollingX = false
+  frameState.scroll.releaseIfUp(window.buttonDown[MouseLeft])
 
-  # Calculate content size from stretchAt (add padding for last element).
-  # Add scrollPos back because stretchAt is in scrolled coordinates but we need unscrolled.
-  sk.stretchAt += vec2(16)
-  let contentSize = (sk.stretchAt + frameState.scrollPos) - originPos
-  let scrollMax = max(contentSize - sk.size, vec2(0, 0))
+  # Feed content bounds from the layout stretch tracking.
+  # Adjust for scroll offset so bounds are in unscrolled coordinates.
+  let offset = frameState.scroll.scrollOffset()
+  frameState.scroll.contentMin = sk.stretchMin - offset
+  frameState.scroll.contentMax = sk.stretchAt - offset + vec2(16)
 
-  # Clamp scroll position to valid range (handles resize making content smaller).
-  if scrollMax.y > 0:
-    frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
-  else:
-    frameState.scrollPos.y = 0
-  if scrollMax.x > 0:
-    frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
-  else:
-    frameState.scrollPos.x = 0
+  # Initialize scroll for reversed anchors, then clamp.
+  frameState.scroll.initScroll()
+  frameState.scroll.clampScroll()
 
-  # Scroll wheel handling (only when mouse over frame).
+  # Scroll wheel.
   if sk.mouseInsideClip(window, rect(sk.pos, sk.size)):
-    if not frameState.scrollingY and window.scrollDelta.y != 0:
-      frameState.scrollPos.y += window.scrollDelta.y * ScrollSpeed
-      frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
-    if not frameState.scrollingX and window.scrollDelta.x != 0:
-      frameState.scrollPos.x += window.scrollDelta.x * ScrollSpeed
-      frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
+    frameState.scroll.applyWheel(window.scrollDelta.vec2, ScrollSpeed)
 
   # Draw Y scrollbar.
-  if contentSize.y > sk.size.y:
-    let scrollSize = contentSize.y
-    let scrollbarTrackRect = rect(
-      sk.pos.x + sk.size.x - 10,
-      sk.pos.y + 2,
-      8,
-      sk.size.y - 4 - 10
-    )
-    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
-
-    let scrollPosPercent = if scrollMax.y > 0: frameState.scrollPos.y / scrollMax.y else: 0.0
-    let scrollSizePercent = sk.size.y / scrollSize
-    let scrollbarHandleRect = rect(
-      scrollbarTrackRect.x,
-      scrollbarTrackRect.y + (scrollbarTrackRect.h - (scrollbarTrackRect.h * scrollSizePercent)) * scrollPosPercent,
-      8,
-      scrollbarTrackRect.h * scrollSizePercent
-    )
-
-    # Handle scrollbar Y dragging.
-    if frameState.scrollingY:
-      let mouseY = window.mousePos.vec2.y
-      let relativeY = mouseY - frameState.scrollDragOffset.y - scrollbarTrackRect.y
-      let availableTrackHeight = scrollbarTrackRect.h - scrollbarHandleRect.h
-      if availableTrackHeight > 0:
-        let newScrollPosPercent = clamp(relativeY / availableTrackHeight, 0.0, 1.0)
-        frameState.scrollPos.y = newScrollPosPercent * scrollMax.y
-    elif sk.mouseInsideClip(window, scrollbarHandleRect):
+  if frameState.scroll.needsScrollY:
+    let (track, handle) = frameState.scroll.scrollBarY
+    sk.draw9Patch("scrollbar.track.9patch", 4, track.xy, track.wh)
+    if frameState.scroll.scrollingY:
+      frameState.scroll.dragScrollY(window.mousePos.vec2.y)
+    elif sk.mouseInsideClip(window, handle):
       if window.buttonPressed[MouseLeft]:
-        frameState.scrollingY = true
-        frameState.scrollDragOffset.y = window.mousePos.vec2.y - scrollbarHandleRect.y
-
-    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+        frameState.scroll.scrollingY = true
+        frameState.scroll.scrollDragOffset.y = window.mousePos.vec2.y - handle.y
+    sk.draw9Patch("scrollbar.9patch", 4, handle.xy, handle.wh)
 
   # Draw X scrollbar.
-  if contentSize.x > sk.size.x:
-    let scrollSize = contentSize.x
-    let scrollbarTrackRect = rect(
-      sk.pos.x + 2,
-      sk.pos.y + sk.size.y - 10,
-      sk.size.x - 4 - 10,
-      8
-    )
-    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
-
-    let scrollPosPercent = if scrollMax.x > 0: frameState.scrollPos.x / scrollMax.x else: 0.0
-    let scrollSizePercent = sk.size.x / scrollSize
-    let scrollbarHandleRect = rect(
-      scrollbarTrackRect.x + (scrollbarTrackRect.w - (scrollbarTrackRect.w * scrollSizePercent)) * scrollPosPercent,
-      scrollbarTrackRect.y,
-      scrollbarTrackRect.w * scrollSizePercent,
-      8
-    )
-
-    # Handle scrollbar X dragging.
-    if frameState.scrollingX:
-      let mouseX = window.mousePos.vec2.x
-      let relativeX = mouseX - frameState.scrollDragOffset.x - scrollbarTrackRect.x
-      let availableTrackWidth = scrollbarTrackRect.w - scrollbarHandleRect.w
-      if availableTrackWidth > 0:
-        let newScrollPosPercent = clamp(relativeX / availableTrackWidth, 0.0, 1.0)
-        frameState.scrollPos.x = newScrollPosPercent * scrollMax.x
-    elif sk.mouseInsideClip(window, scrollbarHandleRect):
+  if frameState.scroll.needsScrollX:
+    let (track, handle) = frameState.scroll.scrollBarX
+    sk.draw9Patch("scrollbar.track.9patch", 4, track.xy, track.wh)
+    if frameState.scroll.scrollingX:
+      frameState.scroll.dragScrollX(window.mousePos.vec2.x)
+    elif sk.mouseInsideClip(window, handle):
       if window.buttonPressed[MouseLeft]:
-        frameState.scrollingX = true
-        frameState.scrollDragOffset.x = window.mousePos.vec2.x - scrollbarHandleRect.x
-
-    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+        frameState.scroll.scrollingX = true
+        frameState.scroll.scrollDragOffset.x = window.mousePos.vec2.x - handle.x
+    sk.draw9Patch("scrollbar.9patch", 4, handle.xy, handle.wh)
 
   sk.popLayout()
   sk.popClipRect()
@@ -656,9 +595,11 @@ proc groupStart*(sk: Silky, p: Vec2, direction = TopToBottom, anchor = AnchorLef
 
 proc groupEnd*(sk: Silky) =
   ## End a group.
-  let endAt = sk.stretchAt
+  let endMax = sk.stretchAt
+  let endMin = sk.stretchMin
   sk.popLayout()
-  sk.advance(endAt - sk.at)
+  sk.advance(endMax - endMin)
+  sk.stretchMin = min(sk.stretchMin, endMin)
 
 proc frameStart*(sk: Silky, p, s: Vec2) =
   ## Begin a simple frame.

@@ -120,8 +120,6 @@ window.onFrame = proc() =
     stackAnc = Anchors[anchorVal]
     n = numBoxes.int
 
-
-
   sk.pushTheme()
   sk.theme.spacing = layoutSpacing.int
   sk.theme.padding = layoutPadding.int

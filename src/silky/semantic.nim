@@ -210,6 +210,7 @@ type
     posStack: seq[Vec2]
     sizeStack: seq[Vec2]
     stretchAt*: Vec2
+    stretchMin*: Vec2
     directionStack: seq[StackDirection]
     anchorStack: seq[Anchor]
     textStyle*: string = "Default"
@@ -257,6 +258,7 @@ proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = T
   sk.directionStack.add(direction)
   sk.anchorStack.add(anchor)
   sk.stretchAt = sk.at
+  sk.stretchMin = sk.at
   case direction:
   of TopToBottom:
     sk.at = pos
@@ -325,6 +327,7 @@ proc clipRect*(sk: Silky): Rect =
 
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advances the cursor position by the given amount.
+  sk.stretchMin = min(sk.stretchMin, sk.at)
   sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(sk.theme.spacing.float32))
   case sk.stackDirection:
   of TopToBottom:
