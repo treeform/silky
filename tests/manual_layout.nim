@@ -124,7 +124,7 @@ window.onFrame = proc() =
   for i in 0 ..< n:
     let color = BoxColors[i mod BoxColors.len]
     let sz = BoxSizes[i mod BoxSizes.len]
-    rectangle(sz, color)
+    rectangle(sz, color, $(i + 1))
 
   sk.theme.spacing = savedSpacing
   sk.popLayout()

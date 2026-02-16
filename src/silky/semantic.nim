@@ -399,7 +399,9 @@ proc drawText*(
   maxWidth = float32.high,
   maxHeight = float32.high,
   clip = true,
-  wordWrap = false
+  wordWrap = false,
+  hAlign: HorizontalAlignment = LeftAlign,
+  vAlign: VerticalAlignment = TopAlign
 ): Vec2 =
   ## Stub for drawing text that returns the text size.
   sk.getTextSize(font, text)

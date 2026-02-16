@@ -1,5 +1,6 @@
 import pixie, vmath, chroma
 
+export pixie.HorizontalAlignment, pixie.VerticalAlignment
 
 const
   NormalLayer* = 0

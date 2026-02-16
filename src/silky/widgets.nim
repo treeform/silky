@@ -697,9 +697,16 @@ proc h1text*(sk: Silky, t: string) =
   let textSize = sk.drawText("H1", t, sk.at, sk.theme.textH1Color)
   sk.advance(textSize)
 
-proc rectangle*(sk: Silky, size: Vec2, color: ColorRGBX) =
+proc rectangle*(sk: Silky, size: Vec2, color: ColorRGBX, label = "") =
   ## Draw a colored rectangle that respects current stacking direction and anchor.
-  sk.drawRect(sk.widgetPos(size), size, color)
+  let drawPos = sk.widgetPos(size)
+  sk.drawRect(drawPos, size, color)
+  if label.len > 0:
+    discard sk.drawText(
+      sk.textStyle, label, drawPos, sk.theme.textColor,
+      size.x, size.y,
+      hAlign = CenterAlign, vAlign = MiddleAlign
+    )
   sk.advance(size)
 
 proc scrubber*[T, U](sk: Silky, window: Window, id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
@@ -1133,8 +1140,8 @@ template text*(t: string) =
 template h1text*(t: string) =
   sk.h1text(t)
 
-template rectangle*(size: Vec2, color: ColorRGBX) =
-  sk.rectangle(size, color)
+template rectangle*(size: Vec2, color: ColorRGBX, label = "") =
+  sk.rectangle(size, color, label)
 
 template tooltip*(text: string) =
   ## Display a tooltip at the mouse cursor.
