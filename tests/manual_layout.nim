@@ -56,30 +56,20 @@ var
   layoutPadding = 16.0f
   layoutSpacing = 8.0f
   numBoxes = 5.0f
-  directionLabel = "Top to Bottom"
-  anchorLabel = "Left"
+  directionVal = 2
+  anchorVal = 2
 
 const
-  DirectionLabels = ["Top to Bottom", "Bottom to Top", "Left to Right", "Right to Left"]
-  AnchorLabels = ["Left", "Right", "Top", "Bottom"]
+  Directions = [TopToBottom, BottomToTop, LeftToRight, RightToLeft]
+  Anchors = [AnchorLeft, AnchorRight, AnchorTop, AnchorBottom]
 
-proc toStackDirection(s: string): StackDirection =
-  ## Convert a direction label to a StackDirection enum.
-  case s:
-  of "Top to Bottom": TopToBottom
-  of "Bottom to Top": BottomToTop
-  of "Left to Right": LeftToRight
-  of "Right to Left": RightToLeft
-  else: TopToBottom
+proc isVertical(d: int): bool =
+  ## Vertical directions pair with Left/Right anchors.
+  d <= 1
 
-proc toAnchor(s: string): Anchor =
-  ## Convert an anchor label to an Anchor enum.
-  case s:
-  of "Left": AnchorLeft
-  of "Right": AnchorRight
-  of "Top": AnchorTop
-  of "Bottom": AnchorBottom
-  else: AnchorLeft
+proc isHorizontal(d: int): bool =
+  ## Horizontal directions pair with Top/Bottom anchors.
+  d >= 2
 
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
@@ -93,13 +83,31 @@ window.onFrame = proc() =
   h1text("Layout Test")
 
   # Controls.
-  scrubber("padding", layoutPadding, 0.0, 60.0, &"Padding: {layoutPadding:.0f}")
-  scrubber("spacing", layoutSpacing, 0.0, 40.0, &"Spacing: {layoutSpacing:.0f}")
-  scrubber("numBoxes", numBoxes, 1.0, 10.0, &"Boxes: {numBoxes:.0f}")
+  scrubber("padding", layoutPadding, 0.0, 60.0, &"Padding: {layoutPadding:0.1f}")
+  scrubber("spacing", layoutSpacing, 0.0, 40.0, &"Spacing: {layoutSpacing:0.1f}")
+  scrubber("numBoxes", numBoxes, 1.0, 10.0, &"Boxes: {numBoxes:0.1f}")
+  let prevDir = directionVal
   text("Direction:")
-  dropDown(directionLabel, DirectionLabels)
+  group(vec2(0, 0), LeftToRight):
+    radioButton("Top to Bottom", directionVal, 0)
+    radioButton("Bottom to Top", directionVal, 1)
+    radioButton("Left to Right", directionVal, 2)
+    radioButton("Right to Left", directionVal, 3)
+
+  # Auto-fix anchor when switching between vertical and horizontal.
+  if directionVal != prevDir:
+    if directionVal.isVertical and anchorVal >= 2:
+      anchorVal = 0
+    elif directionVal.isHorizontal and anchorVal <= 1:
+      anchorVal = 2
+
+  let vertical = directionVal.isVertical
   text("Anchor:")
-  dropDown(anchorLabel, AnchorLabels)
+  group(vec2(0, 0), LeftToRight):
+    radioButton("Left", anchorVal, 0, vertical)
+    radioButton("Right", anchorVal, 1, vertical)
+    radioButton("Top", anchorVal, 2, not vertical)
+    radioButton("Bottom", anchorVal, 3, not vertical)
 
   # Layout area.
   let
@@ -109,8 +117,8 @@ window.onFrame = proc() =
     areaH = window.size.y.float32 - controlsBottom - Margin
     areaSize = vec2(areaW, areaH)
     pad = layoutPadding
-    stackDir = directionLabel.toStackDirection()
-    stackAnc = anchorLabel.toAnchor()
+    stackDir = Directions[directionVal]
+    stackAnc = Anchors[anchorVal]
     n = numBoxes.int
 
   # Draw area background.

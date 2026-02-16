@@ -462,7 +462,7 @@ proc clickableIcon*(sk: Silky, window: Window, image: string, on: bool): bool =
   sk.drawImage(image, sk.at, color)
   sk.at += vec2(imageSize.x, 0)
 
-proc radioButton*[T](sk: Silky, window: Window, label: string, variable: var T, value: T) =
+proc radioButton*[T](sk: Silky, window: Window, label: string, variable: var T, value: T, isEnabled = true) =
   ## Radio button.
   let
     iconSize = sk.getImageSize("radio.on")
@@ -473,18 +473,19 @@ proc radioButton*[T](sk: Silky, window: Window, label: string, variable: var T, 
 
   sk.beginWidget("RadioButton", text = label, rect = hitRect)
 
-  if sk.mouseInsideClip(window, hitRect) and window.buttonReleased[MouseLeft]:
+  if isEnabled and sk.mouseInsideClip(window, hitRect) and window.buttonReleased[MouseLeft]:
     variable = value
 
   let
     on = variable == value
+    textColor = if isEnabled: sk.theme.defaultTextColor else: sk.theme.disabledTextColor
     iconPos = vec2(sk.at.x, sk.at.y + (height - iconSize.y.float32) * 0.5)
     textPos = vec2(
       iconPos.x + iconSize.x.float32 + sk.theme.spacing.float32,
       sk.at.y + (height - textSize.y) * 0.5
     )
   sk.drawImage(if on: "radio.on" else: "radio.off", iconPos)
-  discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
+  discard sk.drawText(sk.textStyle, label, textPos, textColor)
 
   sk.setWidgetState(checked = on)
   sk.endWidget()
@@ -1111,8 +1112,8 @@ template iconButton*(image: string, body: untyped) =
   if sk.iconButton(window, image):
     body
 
-template radioButton*[T](label: string, variable: var T, value: T) =
-  sk.radioButton(window, label, variable, value)
+template radioButton*[T](label: string, variable: var T, value: T, isEnabled = true) =
+  sk.radioButton(window, label, variable, value, isEnabled)
 
 template checkBox*(label: string, value: var bool) =
   sk.checkBox(window, label, value)
