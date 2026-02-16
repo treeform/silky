@@ -37,6 +37,18 @@ const
     parseHtmlColor("#00cec9").rgbx,
     parseHtmlColor("#6c5ce7").rgbx,
   ]
+  BoxSizes = [
+    vec2(48, 48),
+    vec2(64, 32),
+    vec2(32, 64),
+    vec2(80, 40),
+    vec2(40, 80),
+    vec2(56, 56),
+    vec2(72, 36),
+    vec2(36, 72),
+    vec2(60, 44),
+    vec2(44, 60),
+  ]
 
 let sk = newSilky("tests/dist/atlas.png", "tests/dist/atlas.json")
 
@@ -44,7 +56,6 @@ var
   layoutPadding = 16.0f
   layoutSpacing = 8.0f
   numBoxes = 5.0f
-  boxSize = 48.0f
   direction = "Left, Top to Bottom"
 
 const Directions = [
@@ -86,7 +97,6 @@ window.onFrame = proc() =
   scrubber("padding", layoutPadding, 0.0, 60.0, &"Padding: {layoutPadding:.0f}")
   scrubber("spacing", layoutSpacing, 0.0, 40.0, &"Spacing: {layoutSpacing:.0f}")
   scrubber("numBoxes", numBoxes, 1.0, 10.0, &"Boxes: {numBoxes:.0f}")
-  scrubber("boxSize", boxSize, 16.0, 120.0, &"Box size: {boxSize:.0f}")
   text("Direction:")
   dropDown(direction, Directions)
 
@@ -100,7 +110,6 @@ window.onFrame = proc() =
     pad = layoutPadding
     stackDir = direction.toStackDirection()
     n = numBoxes.int
-    bs = boxSize
 
   # Draw area background.
   sk.drawRect(areaPos, areaSize, AreaBgColor)
@@ -112,28 +121,29 @@ window.onFrame = proc() =
 
   for i in 0 ..< n:
     let color = BoxColors[i mod BoxColors.len]
+    let sz = BoxSizes[i mod BoxSizes.len]
     let drawPos =
       case stackDir:
       of TopToBottom, LeftToRight:
         sk.at
       of BottomToTop:
-        sk.at - vec2(0, bs)
+        sk.at - vec2(0, sz.y)
       of RightToLeft:
-        sk.at - vec2(bs, 0)
+        sk.at - vec2(sz.x, 0)
       of RightTopToBottom:
-        sk.at - vec2(bs, 0)
+        sk.at - vec2(sz.x, 0)
       of BottomLeftToRight:
-        sk.at - vec2(0, bs)
+        sk.at - vec2(0, sz.y)
       of RightBottomToTop, BottomRightToLeft:
-        sk.at - vec2(bs, bs)
-    sk.drawRect(drawPos, vec2(bs, bs), color)
+        sk.at - vec2(sz.x, sz.y)
+    sk.drawRect(drawPos, sz, color)
     discard sk.drawText(
       "Default",
       $(i + 1),
-      drawPos + vec2(bs * 0.5 - 5, bs * 0.5 - 9),
+      drawPos + vec2(sz.x * 0.5 - 5, sz.y * 0.5 - 9),
       rgbx(255, 255, 255, 255)
     )
-    sk.advance(vec2(bs, bs))
+    sk.advance(sz)
 
   sk.theme.spacing = savedSpacing
   sk.popLayout()
