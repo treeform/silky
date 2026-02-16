@@ -3,7 +3,7 @@
 import
   std/[strutils, tables, unicode, times],
   vmath, bumpy, chroma, jsony,
-  silky/atlas
+  atlas, common
 
 type
   WidgetState* = object
@@ -201,63 +201,7 @@ proc diff*(old, new: string): string =
 
   return output.join("\n")
 
-const
-  NormalLayer* = 0
-  PopupsLayer* = 1
-
 type
-  StackDirection* = enum
-    TopToBottom
-    BottomToTop
-    LeftToRight
-    RightToLeft
-    RightTopToBottom
-    RightBottomToTop
-    BottomLeftToRight
-    BottomRightToLeft
-
-  Theme* = object
-    ## Visual theme settings for widgets.
-    padding*: int = 8
-    menuPadding*: int = 2
-    spacing*: int = 8
-    border*: int = 10
-    textPadding*: int = 4
-    headerHeight*: int = 32
-    defaultTextColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    disabledTextColor*: ColorRGBX = rgbx(150, 150, 150, 255)
-    errorTextColor*: ColorRGBX = rgbx(255, 100, 100, 255)
-    buttonHoverColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    buttonDownColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    iconButtonHoverColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    iconButtonDownColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    iconClickableUpColor*: ColorRGBX = rgbx(200, 200, 200, 200)
-    iconClickableOnColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    iconClickableHoverColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    iconClickableOffColor*: ColorRGBX = rgbx(110, 110, 110, 110)
-    dropdownHoverBgColor*: ColorRGBX = rgbx(220, 220, 240, 255)
-    dropdownBgColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    dropdownPopupBgColor*: ColorRGBX = rgbx(245, 245, 255, 255)
-    textColor*: ColorRGBX = rgbx(255, 255, 255, 255)
-    textH1Color*: ColorRGBX = rgbx(255, 255, 255, 255)
-    frameFocusColor*: ColorRGBX = rgbx(220, 220, 255, 255)
-    headerBgColor*: ColorRGBX = rgbx(30, 30, 40, 255)
-    menuRootHoverColor*: ColorRGBX = rgbx(70, 70, 90, 200)
-    menuItemHoverColor*: ColorRGBX = rgbx(70, 70, 90, 180)
-    menuItemBgColor*: ColorRGBX = rgbx(40, 40, 50, 140)
-    menuPopupHoverColor*: ColorRGBX = rgbx(80, 80, 100, 180)
-    menuPopupSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 120)
-
-  SilkyVertex* {.packed.} = object
-    ## Vertex data for GPU rendering.
-    pos*: Vec2
-    size*: Vec2
-    uvPos*: array[2, uint16]
-    uvSize*: array[2, uint16]
-    color*: ColorRGBX
-    clipPos*: Vec2
-    clipSize*: Vec2
-
   Silky* = ref object
     ## Main Silky context for testing mode without GPU.
     inFrame: bool = false
@@ -267,6 +211,7 @@ type
     sizeStack: seq[Vec2]
     stretchAt*: Vec2
     directionStack: seq[StackDirection]
+    anchorStack: seq[Anchor]
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
@@ -277,7 +222,6 @@ type
     hover*: bool = false
     tooltipThreshold*: float64 = 0.5
     atlas*: SilkyAtlas
-    layers*: array[2, seq[SilkyVertex]]
     currentLayer*: int
     layerStack*: seq[int]
     clipStack: seq[Rect]
@@ -295,23 +239,28 @@ proc popLayer*(sk: Silky) =
   ## Pops the current rendering layer from the stack.
   sk.currentLayer = sk.layerStack.pop()
 
-proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = TopToBottom) =
+proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = TopToBottom, anchor: Anchor = AnchorLeft) =
   ## Pushes a new layout region onto the stack.
   sk.atStack.add(sk.at)
   sk.posStack.add(pos)
   sk.at = pos
   sk.sizeStack.add(size)
   sk.directionStack.add(direction)
+  sk.anchorStack.add(anchor)
   sk.stretchAt = sk.at
   case direction:
-    of TopToBottom: sk.at = pos
-    of BottomToTop: sk.at = pos + vec2(0, size.y)
-    of LeftToRight: sk.at = pos
-    of RightToLeft: sk.at = pos + vec2(size.x, 0)
-    of RightTopToBottom: sk.at = pos + vec2(size.x, 0)
-    of RightBottomToTop: sk.at = pos + vec2(size.x, size.y)
-    of BottomLeftToRight: sk.at = pos + vec2(0, size.y)
-    of BottomRightToLeft: sk.at = pos + vec2(size.x, size.y)
+  of TopToBottom:
+    sk.at = pos
+    if anchor == AnchorRight: sk.at.x += size.x
+  of BottomToTop:
+    sk.at = pos + vec2(0, size.y)
+    if anchor == AnchorRight: sk.at.x += size.x
+  of LeftToRight:
+    sk.at = pos
+    if anchor == AnchorBottom: sk.at.y += size.y
+  of RightToLeft:
+    sk.at = pos + vec2(size.x, 0)
+    if anchor == AnchorBottom: sk.at.y += size.y
 
 proc popLayout*(sk: Silky) =
   ## Pops the current layout region from the stack.
@@ -319,6 +268,7 @@ proc popLayout*(sk: Silky) =
   discard sk.posStack.pop()
   discard sk.sizeStack.pop()
   discard sk.directionStack.pop()
+  discard sk.anchorStack.pop()
 
 proc pos*(sk: Silky): Vec2 =
   ## Returns the current layout position.
@@ -336,6 +286,22 @@ proc stackDirection*(sk: Silky): StackDirection =
   ## Returns the current stack direction.
   sk.directionStack[^1]
 
+proc stackAnchor*(sk: Silky): Anchor =
+  ## Returns the current stack anchor.
+  sk.anchorStack[^1]
+
+proc widgetPos*(sk: Silky, size: Vec2): Vec2 =
+  ## Compute top-left draw position for a widget of the given size.
+  result = sk.at
+  if sk.stackDirection in {RightToLeft}:
+    result.x -= size.x
+  if sk.stackDirection in {BottomToTop}:
+    result.y -= size.y
+  if sk.stackAnchor == AnchorRight and sk.stackDirection in {TopToBottom, BottomToTop}:
+    result.x -= size.x
+  if sk.stackAnchor == AnchorBottom and sk.stackDirection in {LeftToRight, RightToLeft}:
+    result.y -= size.y
+
 proc pushClipRect*(sk: Silky, rect: Rect) =
   ## Pushes a clipping rectangle onto the stack.
   sk.clipStack.add(rect)
@@ -352,14 +318,14 @@ proc advance*(sk: Silky, amount: Vec2) =
   ## Advances the cursor position by the given amount.
   sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(sk.theme.spacing.float32))
   case sk.stackDirection:
-    of TopToBottom, RightTopToBottom:
-      sk.at.y += amount.y + sk.theme.spacing.float32
-    of BottomToTop, RightBottomToTop:
-      sk.at.y -= amount.y + sk.theme.spacing.float32
-    of LeftToRight, BottomLeftToRight:
-      sk.at.x += amount.x + sk.theme.spacing.float32
-    of RightToLeft, BottomRightToLeft:
-      sk.at.x -= amount.x + sk.theme.spacing.float32
+  of TopToBottom:
+    sk.at.y += amount.y + sk.theme.spacing.float32
+  of BottomToTop:
+    sk.at.y -= amount.y + sk.theme.spacing.float32
+  of LeftToRight:
+    sk.at.x += amount.x + sk.theme.spacing.float32
+  of RightToLeft:
+    sk.at.x -= amount.x + sk.theme.spacing.float32
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Returns the size of an image from the atlas.

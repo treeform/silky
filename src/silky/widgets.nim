@@ -3,9 +3,9 @@ import
   vmath, bumpy, chroma
 
 when defined(silkyTesting):
-  import silky/semantic, silky/testing
+  import semantic, testing, common
 else:
-  import silky/drawing, windy
+  import drawing, common, windy
 
 when defined(macos):
   const ScrollSpeed* = 10.0
@@ -649,9 +649,9 @@ proc progressBar*(sk: Silky, value: SomeNumber, minVal: SomeNumber, maxVal: Some
 
   sk.advance(vec2(width, height))
 
-proc groupStart*(sk: Silky, p: Vec2, direction = TopToBottom) =
+proc groupStart*(sk: Silky, p: Vec2, direction = TopToBottom, anchor = AnchorLeft) =
   ## Start a group.
-  sk.pushLayout(sk.at + p, sk.size - p, direction)
+  sk.pushLayout(sk.at + p, sk.size - p, direction, anchor)
 
 proc groupEnd*(sk: Silky) =
   ## End a group.
@@ -696,6 +696,11 @@ proc h1text*(sk: Silky, t: string) =
   ## Draw H1 text.
   let textSize = sk.drawText("H1", t, sk.at, sk.theme.textH1Color)
   sk.advance(textSize)
+
+proc rectangle*(sk: Silky, size: Vec2, color: ColorRGBX) =
+  ## Draw a colored rectangle that respects current stacking direction and anchor.
+  sk.drawRect(sk.widgetPos(size), size, color)
+  sk.advance(size)
 
 proc scrubber*[T, U](sk: Silky, window: Window, id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
   ## Draggable scrubber that spans available width and advances layout.
@@ -1002,7 +1007,15 @@ template subWindow*(title: string, show: var bool, initialOrigin: Vec2, initialS
 template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
   sk.progressBar(value, minVal, maxVal)
 
-template group*(p: Vec2, direction = TopToBottom, body) =
+template group*(p: Vec2, direction: StackDirection, anchor: Anchor, body: untyped) =
+  ## Create a group with explicit direction and anchor.
+  sk.groupStart(p, direction, anchor)
+  try:
+    body
+  finally:
+    sk.groupEnd()
+
+template group*(p: Vec2, direction = TopToBottom, body: untyped) =
   ## Create a group.
   sk.groupStart(p, direction)
   try:
@@ -1119,6 +1132,9 @@ template text*(t: string) =
 
 template h1text*(t: string) =
   sk.h1text(t)
+
+template rectangle*(size: Vec2, color: ColorRGBX) =
+  sk.rectangle(size, color)
 
 template tooltip*(text: string) =
   ## Display a tooltip at the mouse cursor.

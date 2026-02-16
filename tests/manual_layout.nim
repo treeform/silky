@@ -1,7 +1,7 @@
-## Demonstrates layout stacking directions with adjustable padding, spacing,
-## and number of boxes. Use the controls at the top to tweak values and pick
-## a stacking direction from the dropdown. The colored boxes below respond
-## to every change in real time.
+## Demonstrates layout stacking directions and anchoring with adjustable
+## padding, spacing, and number of boxes. Use the controls at the top to tweak
+## values, pick a stacking direction and anchor from the dropdowns. The colored
+## boxes below respond to every change in real time.
 
 import
   std/[strformat],
@@ -56,31 +56,30 @@ var
   layoutPadding = 16.0f
   layoutSpacing = 8.0f
   numBoxes = 5.0f
-  direction = "Left, Top to Bottom"
+  directionLabel = "Top to Bottom"
+  anchorLabel = "Left"
 
-const Directions = [
-  "Left, Top to Bottom",
-  "Left, Bottom to Top",
-  "Top, Left to Right",
-  "Top, Right to Left",
-  "Right, Top to Bottom",
-  "Right, Bottom to Top",
-  "Bottom, Left to Right",
-  "Bottom, Right to Left",
-]
+const
+  DirectionLabels = ["Top to Bottom", "Bottom to Top", "Left to Right", "Right to Left"]
+  AnchorLabels = ["Left", "Right", "Top", "Bottom"]
 
 proc toStackDirection(s: string): StackDirection =
   ## Convert a direction label to a StackDirection enum.
   case s:
-  of "Left, Top to Bottom": TopToBottom
-  of "Left, Bottom to Top": BottomToTop
-  of "Top, Left to Right": LeftToRight
-  of "Top, Right to Left": RightToLeft
-  of "Right, Top to Bottom": RightTopToBottom
-  of "Right, Bottom to Top": RightBottomToTop
-  of "Bottom, Left to Right": BottomLeftToRight
-  of "Bottom, Right to Left": BottomRightToLeft
+  of "Top to Bottom": TopToBottom
+  of "Bottom to Top": BottomToTop
+  of "Left to Right": LeftToRight
+  of "Right to Left": RightToLeft
   else: TopToBottom
+
+proc toAnchor(s: string): Anchor =
+  ## Convert an anchor label to an Anchor enum.
+  case s:
+  of "Left": AnchorLeft
+  of "Right": AnchorRight
+  of "Top": AnchorTop
+  of "Bottom": AnchorBottom
+  else: AnchorLeft
 
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
@@ -98,7 +97,9 @@ window.onFrame = proc() =
   scrubber("spacing", layoutSpacing, 0.0, 40.0, &"Spacing: {layoutSpacing:.0f}")
   scrubber("numBoxes", numBoxes, 1.0, 10.0, &"Boxes: {numBoxes:.0f}")
   text("Direction:")
-  dropDown(direction, Directions)
+  dropDown(directionLabel, DirectionLabels)
+  text("Anchor:")
+  dropDown(anchorLabel, AnchorLabels)
 
   # Layout area.
   let
@@ -108,42 +109,22 @@ window.onFrame = proc() =
     areaH = window.size.y.float32 - controlsBottom - Margin
     areaSize = vec2(areaW, areaH)
     pad = layoutPadding
-    stackDir = direction.toStackDirection()
+    stackDir = directionLabel.toStackDirection()
+    stackAnc = anchorLabel.toAnchor()
     n = numBoxes.int
 
   # Draw area background.
   sk.drawRect(areaPos, areaSize, AreaBgColor)
 
   # Push a layout inside the area with padding applied.
-  sk.pushLayout(areaPos + vec2(pad, pad), areaSize - vec2(pad * 2, pad * 2), stackDir)
+  sk.pushLayout(areaPos + vec2(pad, pad), areaSize - vec2(pad * 2, pad * 2), stackDir, stackAnc)
   let savedSpacing = sk.theme.spacing
   sk.theme.spacing = layoutSpacing.int
 
   for i in 0 ..< n:
     let color = BoxColors[i mod BoxColors.len]
     let sz = BoxSizes[i mod BoxSizes.len]
-    let drawPos =
-      case stackDir:
-      of TopToBottom, LeftToRight:
-        sk.at
-      of BottomToTop:
-        sk.at - vec2(0, sz.y)
-      of RightToLeft:
-        sk.at - vec2(sz.x, 0)
-      of RightTopToBottom:
-        sk.at - vec2(sz.x, 0)
-      of BottomLeftToRight:
-        sk.at - vec2(0, sz.y)
-      of RightBottomToTop, BottomRightToLeft:
-        sk.at - vec2(sz.x, sz.y)
-    sk.drawRect(drawPos, sz, color)
-    discard sk.drawText(
-      "Default",
-      $(i + 1),
-      drawPos + vec2(sz.x * 0.5 - 5, sz.y * 0.5 - 9),
-      rgbx(255, 255, 255, 255)
-    )
-    sk.advance(sz)
+    rectangle(sz, color)
 
   sk.theme.spacing = savedSpacing
   sk.popLayout()
