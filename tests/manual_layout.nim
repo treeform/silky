@@ -24,7 +24,6 @@ loadExtensions()
 
 const
   BackgroundColor = parseHtmlColor("#1a1a2e").rgbx
-  AreaBgColor = parseHtmlColor("#2a2a3e").rgbx
   BoxColors = [
     parseHtmlColor("#e74c3c").rgbx,
     parseHtmlColor("#3498db").rgbx,
@@ -121,21 +120,19 @@ window.onFrame = proc() =
     stackAnc = Anchors[anchorVal]
     n = numBoxes.int
 
-  # Draw area background.
-  sk.drawRect(areaPos, areaSize, AreaBgColor)
 
-  # Push a layout inside the area with padding applied.
-  sk.pushLayout(areaPos + vec2(pad, pad), areaSize - vec2(pad * 2, pad * 2), stackDir, stackAnc)
-  let savedSpacing = sk.theme.spacing
+
+  sk.pushTheme()
   sk.theme.spacing = layoutSpacing.int
+  sk.theme.padding = layoutPadding.int
 
-  for i in 0 ..< n:
-    let color = BoxColors[i mod BoxColors.len]
-    let sz = BoxSizes[i mod BoxSizes.len]
-    rectangle(sz, color, $(i + 1))
-
-  sk.theme.spacing = savedSpacing
-  sk.popLayout()
+  frame("layoutArea", areaPos, areaSize):
+    group(vec2(0, 0), stackDir, stackAnc):
+      for i in 0 ..< n:
+        let color = BoxColors[i mod BoxColors.len]
+        let sz = BoxSizes[i mod BoxSizes.len]
+        rectangle(sz, color, $(i + 1))
+  sk.popTheme()
 
   # Frame time.
   let ms = sk.avgFrameTime * 1000

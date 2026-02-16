@@ -37,6 +37,7 @@ type
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
+    themeStack: seq[Theme]
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputRunes*: seq[Rune]
 
@@ -83,6 +84,14 @@ proc pushLayer*(sk: Silky, layer: int) =
 proc popLayer*(sk: Silky) =
   ## Pop the current layer from the stack.
   sk.currentLayer = sk.layerStack.pop()
+
+proc pushTheme*(sk: Silky) =
+  ## Save the current theme onto the stack.
+  sk.themeStack.add(sk.theme)
+
+proc popTheme*(sk: Silky) =
+  ## Restore the previous theme from the stack.
+  sk.theme = sk.themeStack.pop()
 
 proc pushLayout*(
   sk: Silky,

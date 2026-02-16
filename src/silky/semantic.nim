@@ -215,6 +215,7 @@ type
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
+    themeStack: seq[Theme]
     inputRunes*: seq[Rune]
     showTooltip*: bool = false
     lastMousePos*: Vec2
@@ -238,6 +239,14 @@ proc pushLayer*(sk: Silky, layer: int) =
 proc popLayer*(sk: Silky) =
   ## Pops the current rendering layer from the stack.
   sk.currentLayer = sk.layerStack.pop()
+
+proc pushTheme*(sk: Silky) =
+  ## Save the current theme onto the stack.
+  sk.themeStack.add(sk.theme)
+
+proc popTheme*(sk: Silky) =
+  ## Restore the previous theme from the stack.
+  sk.theme = sk.themeStack.pop()
 
 proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = TopToBottom, anchor: Anchor = AnchorLeft) =
   ## Pushes a new layout region onto the stack.
