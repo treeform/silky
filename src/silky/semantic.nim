@@ -394,6 +394,10 @@ proc drawImage*(sk: Silky, name: string, pos: Vec2, color = rgbx(255, 255, 255, 
   ## Stub for drawing an image from the atlas.
   discard
 
+proc drawImage*(sk: Silky, name: string, pos: Vec2, size: Vec2, color = rgbx(255, 255, 255, 255)) {.inline.} =
+  ## Stub for drawing a scaled image from the atlas.
+  discard
+
 proc drawRect*(sk: Silky, pos: Vec2, size: Vec2, color: ColorRGBX) {.inline.} =
   ## Stub for drawing a solid rectangle.
   discard
@@ -424,9 +428,6 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.inline.} =
 
 proc clear*(sk: Silky) =
   ## Clears all rendering layers.
-  sk.layers[NormalLayer].setLen(0)
-  sk.layers[PopupsLayer].setLen(0)
-  sk.currentLayer = NormalLayer
   sk.layerStack.setLen(0)
 
 proc instanceCount*(sk: Silky): int =
@@ -437,9 +438,6 @@ proc newSilky*(imagePath, jsonPath: string): Silky =
   ## Creates a new Silky context for testing.
   result = Silky()
   result.atlas = readFile(jsonPath).fromJson(SilkyAtlas)
-  result.layers[NormalLayer] = @[]
-  result.layers[PopupsLayer] = @[]
-  result.currentLayer = NormalLayer
   result.layerStack = @[]
 
 proc beginUi*(sk: Silky, window: auto, size: IVec2) =
