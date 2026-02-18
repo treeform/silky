@@ -601,15 +601,6 @@ proc groupEnd*(sk: Silky) =
   sk.advance(endMax - endMin)
   sk.stretchMin = min(sk.stretchMin, endMin)
 
-proc frameStart*(sk: Silky, p, s: Vec2) =
-  ## Begin a simple frame.
-  sk.pushLayout(p, s)
-  sk.draw9Patch("window.9patch", 14, sk.pos, sk.size)
-
-proc frameEnd*(sk: Silky) =
-  ## Finish a simple frame.
-  sk.popLayout()
-
 proc ribbonStart*(sk: Silky, p, s: Vec2, tint: ColorRGBX) =
   ## Begin a ribbon.
   sk.pushLayout(p, s)
@@ -974,11 +965,13 @@ template group*(p: Vec2, direction = TopToBottom, body: untyped) =
 
 template frame*(p, s: Vec2, body: untyped) =
   ## Create a frame.
+  sk.beginWidget("Frame", name = "Frame", rect = rect(p, s))
   sk.frameStart(p, s)
   try:
     body
   finally:
     sk.frameEnd()
+  sk.endWidget()
 
 template frame*(id: string, framePos, frameSize: Vec2, body: untyped) =
   ## Frame with scrollbars similar to a window body.

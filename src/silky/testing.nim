@@ -8,15 +8,24 @@ from windy/common import Button
 export Button, unicode
 
 type
+  Screen* = object
+    ## Test screen descriptor compatible with windy.
+    size*: IVec2
+
   Window* = ref object
     ## Test window that simulates a windy Window.
     size*: IVec2
+    pos*: IVec2
     mousePos*: IVec2
+    mouseDelta*: IVec2
     buttonDown*: array[Button, bool]
     buttonPressed*: array[Button, bool]
     buttonReleased*: array[Button, bool]
     scrollDelta*: Vec2
     closeRequested*: bool
+    fullscreen*: bool
+    visible*: bool
+    minimized*: bool
     runeInputEnabled*: bool
     onRune*: proc(rune: Rune)
     onFrame*: proc()
@@ -32,13 +41,17 @@ proc newWindow*(width = 800, height = 600): Window =
   ## Creates a new test window with the given dimensions.
   Window(
     size: ivec2(width.int32, height.int32),
+    pos: ivec2(0, 0),
+    mouseDelta: ivec2(0, 0),
     mousePos: ivec2(0, 0)
   )
 
-proc newWindow*(title: string, size: IVec2, vsync = true): Window =
+proc newWindow*(title: string, size: IVec2, vsync = true, visible = true): Window =
   ## Creates a new test window with windy-compatible signature.
   Window(
     size: size,
+    pos: ivec2(0, 0),
+    mouseDelta: ivec2(0, 0),
     mousePos: ivec2(0, 0)
   )
 
@@ -62,12 +75,17 @@ proc loadExtensions*() {.inline.} =
   ## Stub for loading OpenGL extensions.
   discard
 
+proc getScreens*(): seq[Screen] =
+  ## Returns a stub screen list.
+  @[Screen(size: ivec2(1920, 1080))]
+
 proc resetInputState*(w: Window) =
   ## Resets button pressed and released states for a new frame.
   for i in Button:
     w.buttonPressed[i] = false
     w.buttonReleased[i] = false
   w.scrollDelta = vec2(0, 0)
+  w.mouseDelta = ivec2(0, 0)
 
 proc pressButton*(w: Window, button: Button) =
   ## Simulates pressing a mouse button.
@@ -79,9 +97,29 @@ proc releaseButton*(w: Window, button: Button) =
   w.buttonDown[button] = false
   w.buttonReleased[button] = true
 
+converter toButtonSet*(buttons: array[Button, bool]): set[Button] =
+  ## Converts windy-style button arrays to button sets.
+  for b in Button:
+    if buttons[b]:
+      result.incl(b)
+
 proc moveMouse*(w: Window, x, y: int) =
   ## Moves the simulated mouse cursor to the given position.
-  w.mousePos = ivec2(x.int32, y.int32)
+  let nextPos = ivec2(x.int32, y.int32)
+  w.mouseDelta = nextPos - w.mousePos
+  w.mousePos = nextPos
+
+proc updateMouse*(w: Window) {.inline.} =
+  ## Stub for updating mouse state.
+  w.mouseDelta = ivec2(0, 0)
+
+proc initMouse*(w: Window) {.inline.} =
+  ## Stub for initializing mouse state.
+  discard
+
+proc close*(w: Window) {.inline.} =
+  ## Stub for closing a window.
+  discard
 
 proc newTestHarness*(atlasImg, atlasJson: string, width = 800, height = 600): TestHarness =
   ## Creates a new test harness with the given atlas files.
@@ -89,9 +127,6 @@ proc newTestHarness*(atlasImg, atlasJson: string, width = 800, height = 600): Te
   result.frameCount = 0
   result.sk = Silky()
   result.sk.atlas = readFile(atlasJson).fromJson(SilkyAtlas)
-  result.sk.layers[NormalLayer] = @[]
-  result.sk.layers[PopupsLayer] = @[]
-  result.sk.currentLayer = NormalLayer
   result.sk.layerStack = @[]
 
 proc beginFrame*(h: var TestHarness) =

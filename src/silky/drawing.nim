@@ -634,6 +634,26 @@ proc drawImage*(
     color
   )
 
+proc drawImage*(
+  sk: Silky,
+  name: string,
+  pos: Vec2,
+  size: Vec2,
+  color = rgbx(255, 255, 255, 255)
+) =
+  ## Draw a sprite at the given position and size.
+  if name notin sk.atlas.entries:
+    echo "[Warning] Sprite not found in atlas: " & name
+    return
+  let uv = sk.atlas.entries[name]
+  sk.drawQuad(
+    pos,
+    size,
+    vec2(uv.x.float32, uv.y.float32),
+    vec2(uv.width.float32, uv.height.float32),
+    color
+  )
+
 proc drawRect*(
   sk: Silky,
   pos: Vec2,
