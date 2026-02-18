@@ -266,7 +266,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
   # Adjust for scroll offset so bounds are in unscrolled coordinates.
   let offset = frameState.scroll.scrollOffset()
   frameState.scroll.contentMin = sk.stretchMin - offset
-  frameState.scroll.contentMax = sk.stretchAt - offset + vec2(16)
+  frameState.scroll.contentMax = sk.stretchMax - offset + vec2(16)
 
   # Initialize scroll for reversed anchors, then clamp.
   frameState.scroll.initScroll()
@@ -369,7 +369,7 @@ proc iconButton*(sk: Silky, window: Window, image: string): bool =
     sk.hover = false
     sk.draw9Patch("button.9patch", 8, sk.at - m2, s2)
   sk.drawImage(image, sk.at)
-  sk.stretchAt = max(sk.stretchAt, sk.at + s2)
+  sk.stretchMax = max(sk.stretchMax, sk.at + s2)
   sk.at += vec2(32 + sk.padding, 0)
 
 proc clickableIcon*(sk: Silky, window: Window, image: string, on: bool): bool =
@@ -595,7 +595,7 @@ proc groupStart*(sk: Silky, p: Vec2, direction = TopToBottom, anchor = AnchorLef
 
 proc groupEnd*(sk: Silky) =
   ## End a group.
-  let endMax = sk.stretchAt
+  let endMax = sk.stretchMax
   let endMin = sk.stretchMin
   sk.popLayout()
   sk.advance(endMax - endMin)

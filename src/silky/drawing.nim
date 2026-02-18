@@ -28,10 +28,12 @@ type
     ## The Silky that draws the AA pixel art sprites.
     inFrame: bool = false
     at*: Vec2
+    num*: int
     atStack: seq[Vec2]
+    numStack: seq[int]
     posStack: seq[Vec2]
     sizeStack: seq[Vec2]
-    stretchAt*: Vec2
+    stretchMax*: Vec2
     stretchMin*: Vec2
     directionStack: seq[StackDirection]
     anchorStack: seq[Anchor]
@@ -103,30 +105,33 @@ proc pushLayout*(
 ) =
   ## Push a new layout container onto the stack.
   sk.atStack.add(sk.at)
+  sk.numStack.add(sk.num)
+  sk.num = 0
   sk.posStack.add(pos)
   sk.at = pos
   sk.sizeStack.add(size)
   sk.directionStack.add(direction)
   sk.anchorStack.add(anchor)
-  sk.stretchAt = sk.at
+  sk.stretchMax = sk.at
   sk.stretchMin = sk.at
-  case direction:
-  of TopToBottom:
-    sk.at = pos
-    if anchor == AnchorRight: sk.at.x += size.x
-  of BottomToTop:
-    sk.at = pos + vec2(0, size.y)
-    if anchor == AnchorRight: sk.at.x += size.x
-  of LeftToRight:
-    sk.at = pos
-    if anchor == AnchorBottom: sk.at.y += size.y
-  of RightToLeft:
-    sk.at = pos + vec2(size.x, 0)
-    if anchor == AnchorBottom: sk.at.y += size.y
+  # case direction:
+  # of TopToBottom:
+  #   sk.at = pos
+  #   if anchor == AnchorRight: sk.at.x += size.x
+  # of BottomToTop:
+  #   sk.at = pos + vec2(0, size.y)
+  #   if anchor == AnchorRight: sk.at.x += size.x
+  # of LeftToRight:
+  #   sk.at = pos
+  #   if anchor == AnchorBottom: sk.at.y += size.y
+  # of RightToLeft:
+  #   sk.at = pos + vec2(size.x, 0)
+  #   if anchor == AnchorBottom: sk.at.y += size.y
 
 proc popLayout*(sk: Silky) =
   ## Pop the current layout container from the stack.
   sk.at = sk.atStack.pop()
+  sk.num = sk.numStack.pop()
   discard sk.posStack.pop()
   discard sk.sizeStack.pop()
   discard sk.directionStack.pop()
@@ -186,7 +191,7 @@ proc instanceCount*(sk: Silky): int =
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advance the position.
   sk.stretchMin = min(sk.stretchMin, sk.at)
-  sk.stretchAt = max(sk.stretchAt, sk.at + amount + vec2(sk.theme.spacing.float32))
+  sk.stretchMax = max(sk.stretchMax, sk.at + amount + vec2(sk.theme.spacing.float32))
   case sk.stackDirection:
   of TopToBottom:
     sk.at.y += amount.y + sk.theme.spacing.float32
@@ -196,6 +201,7 @@ proc advance*(sk: Silky, amount: Vec2) =
     sk.at.x += amount.x + sk.theme.spacing.float32
   of RightToLeft:
     sk.at.x -= amount.x + sk.theme.spacing.float32
+  inc sk.num
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Get the size of an image in the atlas.

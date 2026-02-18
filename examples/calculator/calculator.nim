@@ -161,8 +161,8 @@ template calcButton(label: string, body: untyped) =
   sk.endWidget()
 
   sk.at.x += btnSize.x + 10
-  sk.stretchAt.x = max(sk.stretchAt.x, sk.at.x + 10)
-  sk.stretchAt.y = max(sk.stretchAt.y, sk.at.y + 50 + 10)
+  sk.stretchMax.x = max(sk.stretchMax.x, sk.at.x + 10)
+  sk.stretchMax.y = max(sk.stretchMax.y, sk.at.y + 50 + 10)
 
 window.onFrame = proc() =
 
