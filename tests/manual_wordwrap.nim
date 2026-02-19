@@ -50,7 +50,7 @@ window.onFrame = proc() =
     Margin = 20.0f
     BoxHeight = 600.0f
 
-  sk.at = vec2(Margin, Margin)
+  sk.layout.at = vec2(Margin, Margin)
 
   # Title.
   h1text("Word Wrap Example")
@@ -63,7 +63,7 @@ window.onFrame = proc() =
   checkBox("Clip", clipOn)
 
   # Word-wrapped text with background rectangle.
-  let wrappedPos = sk.at
+  let wrappedPos = sk.layout.at
   sk.drawRect(wrappedPos, vec2(wrapWidth, BoxHeight), rgbx(40, 40, 60, 255))
   sk.drawRect(vec2(wrappedPos.x + wrapWidth, wrappedPos.y), vec2(1, BoxHeight), rgbx(100, 100, 200, 200))
   discard sk.drawText(
@@ -78,7 +78,7 @@ window.onFrame = proc() =
 
   # Frame time display.
   let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
+  sk.layout.at = vec2(sk.size.x - 250, Margin)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

@@ -66,7 +66,7 @@ window.onFrame = proc() =
   )
 
   # Horizontal alignment radio buttons.
-  sk.at = vec2(Margin, Margin + titleSize.y + 16)
+  sk.layout.at = vec2(Margin, Margin + titleSize.y + 16)
   text("Horizontal:")
   group(vec2(0, 0), LeftToRight):
     radioButton("Left", hAlignVal, 0)
@@ -82,7 +82,7 @@ window.onFrame = proc() =
 
   # Text display area.
   let
-    controlsBottom = sk.at.y + 8
+    controlsBottom = sk.layout.at.y + 8
     areaPos = vec2(Margin, controlsBottom)
     areaW = window.size.x.float32 - Margin * 2
     areaH = window.size.y.float32 - controlsBottom - Margin
@@ -117,7 +117,7 @@ window.onFrame = proc() =
 
   # Frame time.
   let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
+  sk.layout.at = vec2(sk.size.x - 250, Margin)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

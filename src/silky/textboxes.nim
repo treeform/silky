@@ -864,9 +864,9 @@ proc textBox*(
   # Dimensions.
   let fontData = sk.atlas.fonts[sk.textStyle]
   let padding = sk.theme.padding.float32
-  let outerRect = rect(sk.at, vec2(boxWidth, boxHeight))
+  let outerRect = rect(sk.layout.at, vec2(boxWidth, boxHeight))
   let innerRect = rect(
-    sk.at.x + padding, sk.at.y + padding,
+    sk.layout.at.x + padding, sk.layout.at.y + padding,
     boxWidth - padding * 2, boxHeight - padding * 2
   )
   state.boxSize = vec2(innerRect.w, innerRect.h)

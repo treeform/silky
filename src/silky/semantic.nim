@@ -205,14 +205,8 @@ type
   Silky* = ref object
     ## Main Silky context for testing mode without GPU.
     inFrame: bool = false
-    at*: Vec2
-    atStack: seq[Vec2]
-    posStack: seq[Vec2]
-    sizeStack: seq[Vec2]
-    stretchMax*: Vec2
-    stretchMin*: Vec2
-    directionStack: seq[StackDirection]
-    anchorStack: seq[Anchor]
+    layout*: Layout
+    layoutStack: seq[Layout]
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
@@ -251,46 +245,39 @@ proc popTheme*(sk: Silky) =
 
 proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = TopToBottom, anchor: Anchor = AnchorLeft) =
   ## Pushes a new layout region onto the stack.
-  sk.atStack.add(sk.at)
-  sk.posStack.add(pos)
-  sk.sizeStack.add(size)
-  sk.directionStack.add(direction)
-  sk.anchorStack.add(anchor)
-  sk.at = layoutStart(pos, size, direction, anchor)
-  sk.stretchMax = sk.at
-  sk.stretchMin = sk.at
+  sk.layoutStack.add(sk.layout)
+  sk.layout.init(pos, size, direction, anchor)
 
 proc popLayout*(sk: Silky) =
   ## Pops the current layout region from the stack.
-  sk.at = sk.atStack.pop()
-  discard sk.posStack.pop()
-  discard sk.sizeStack.pop()
-  discard sk.directionStack.pop()
-  discard sk.anchorStack.pop()
+  sk.layout = sk.layoutStack.pop()
 
 proc pos*(sk: Silky): Vec2 =
   ## Returns the current layout position.
-  sk.posStack[^1]
+  sk.layout.pos
 
 proc size*(sk: Silky): Vec2 =
   ## Returns the current layout size.
-  sk.sizeStack[^1]
+  sk.layout.size
 
 proc rootSize*(sk: Silky): Vec2 =
   ## Returns the root layout size.
-  sk.sizeStack[0]
+  if sk.layoutStack.len <= 1:
+    sk.layout.size
+  else:
+    sk.layoutStack[1].size
 
 proc stackDirection*(sk: Silky): StackDirection =
   ## Returns the current stack direction.
-  sk.directionStack[^1]
+  sk.layout.direction
 
 proc stackAnchor*(sk: Silky): Anchor =
   ## Returns the current stack anchor.
-  sk.anchorStack[^1]
+  sk.layout.anchor
 
 proc widgetPos*(sk: Silky, size: Vec2): Vec2 =
   ## Compute top-left draw position for a widget of the given size.
-  layoutWidgetPos(sk.at, size, sk.stackDirection, sk.stackAnchor)
+  sk.layout.widgetPos(size)
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
   ## Pushes a clipping rectangle onto the stack.
@@ -307,9 +294,7 @@ proc clipRect*(sk: Silky): Rect =
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advances the cursor position by the given amount.
   let spacing = sk.theme.spacing.float32
-  sk.stretchMin = min(sk.stretchMin, sk.at)
-  sk.stretchMax = max(sk.stretchMax, sk.at + amount + vec2(spacing))
-  sk.at += layoutAdvanceDelta(amount, sk.stackDirection, spacing)
+  sk.layout.advance(amount, spacing)
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Returns the size of an image from the atlas.

@@ -79,7 +79,7 @@ window.onFrame = proc() =
 
   const Margin = 20.0f
 
-  sk.at = vec2(Margin, Margin)
+  sk.layout.at = vec2(Margin, Margin)
 
   # Title.
   h1text("Layout Test")
@@ -115,7 +115,7 @@ window.onFrame = proc() =
 
   # Layout area.
   let
-    controlsBottom = sk.at.y + 8
+    controlsBottom = sk.layout.at.y + 8
     areaPos = vec2(Margin, controlsBottom)
     areaW = window.size.x.float32 - Margin * 2
     areaH = window.size.y.float32 - controlsBottom - Margin
@@ -165,48 +165,48 @@ window.onFrame = proc() =
 
     sk.pushLayout(areaPos, areaSize, stackDir, stackAnc)
 
-    sk.stretchMax = sk.at
+    sk.layout.stretchMax = sk.layout.at
 
     proc drawStep() =
       if currentStep == step.int:
-        sk.drawRect(sk.at - vec2(3, 3), vec2(6, 6), rgbx(255, 0, 0, 255))
-        sk.drawRect(sk.stretchMin, sk.stretchMax - sk.stretchMin, rgbx(60, 60, 60, 60))
+        sk.drawRect(sk.layout.at - vec2(3, 3), vec2(6, 6), rgbx(255, 0, 0, 255))
+        sk.drawRect(sk.layout.stretchMin, sk.layout.stretchMax - sk.layout.stretchMin, rgbx(60, 60, 60, 60))
       if step.int != debugStep:
         debugStep = step.int
         echo "step: ", currentStep
-        echo "at: ", sk.at
-        echo "stretchMin: ", sk.stretchMin
-        echo "stretchMax: ", sk.stretchMax
+        echo "at: ", sk.layout.at
+        echo "stretchMin: ", sk.layout.stretchMin
+        echo "stretchMax: ", sk.layout.stretchMax
 
       inc currentStep
 
     drawStep()
 
-    sk.at += areaSize * sizeSign
-    sk.stretchMin = sk.at
-    sk.stretchMax = sk.at
+    sk.layout.at += areaSize * sizeSign
+    sk.layout.stretchMin = sk.layout.at
+    sk.layout.stretchMax = sk.layout.at
 
     drawStep()
 
-    sk.at += padding * paddingDir
-    sk.stretchMin = min(sk.stretchMin, sk.at + padding * paddingDir)
-    sk.stretchMax = max(sk.stretchMax, sk.at + padding * paddingDir)
+    sk.layout.at += padding * paddingDir
+    sk.layout.stretchMin = min(sk.layout.stretchMin, sk.layout.at + padding * paddingDir)
+    sk.layout.stretchMax = max(sk.layout.stretchMax, sk.layout.at + padding * paddingDir)
 
     drawStep()
 
     for i in 0 ..< n:
 
-      if sk.num > 0:
-        sk.at += spacing * mainDir
-        sk.stretchMin = min(sk.stretchMin, sk.at + spacing * paddingDir)
-        sk.stretchMax = max(sk.stretchMax, sk.at + spacing * paddingDir)
+      if sk.layout.num > 0:
+        sk.layout.at += spacing * mainDir
+        sk.layout.stretchMin = min(sk.layout.stretchMin, sk.layout.at + spacing * paddingDir)
+        sk.layout.stretchMax = max(sk.layout.stretchMax, sk.layout.at + spacing * paddingDir)
 
         drawStep()
 
       var color = BoxColors[i]
       color.a = 128
       let size = BoxSizes[i]
-      let pos = sk.at + size * sizeSign * paddingDir
+      let pos = sk.layout.at + size * sizeSign * paddingDir
       sk.drawRect(pos, size, color)
       let label = $(i + 1)
       discard sk.drawText(
@@ -215,10 +215,10 @@ window.onFrame = proc() =
         hAlign = CenterAlign, vAlign = MiddleAlign
       )
 
-      sk.stretchMin = min(sk.stretchMin, sk.at + size * paddingDir + padding * paddingDir)
-      sk.stretchMax = max(sk.stretchMax, sk.at + size * paddingDir + padding * paddingDir)
-      sk.at += size * mainDir
-      inc sk.num
+      sk.layout.stretchMin = min(sk.layout.stretchMin, sk.layout.at + size * paddingDir + padding * paddingDir)
+      sk.layout.stretchMax = max(sk.layout.stretchMax, sk.layout.at + size * paddingDir + padding * paddingDir)
+      sk.layout.at += size * mainDir
+      inc sk.layout.num
 
       drawStep()
 
@@ -228,7 +228,7 @@ window.onFrame = proc() =
 
   # Frame time.
   let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
+  sk.layout.at = vec2(sk.size.x - 250, Margin)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

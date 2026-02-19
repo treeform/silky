@@ -76,7 +76,7 @@ window.onFrame = proc() =
 
   const Margin = 20.0f
 
-  sk.at = vec2(Margin, Margin)
+  sk.layout.at = vec2(Margin, Margin)
 
   # Title.
   h1text("Layout Test")
@@ -110,7 +110,7 @@ window.onFrame = proc() =
 
   # Layout area.
   let
-    controlsBottom = sk.at.y + 8
+    controlsBottom = sk.layout.at.y + 8
     areaPos = vec2(Margin, controlsBottom)
     areaW = window.size.x.float32 - Margin * 2
     areaH = window.size.y.float32 - controlsBottom - Margin
@@ -134,7 +134,7 @@ window.onFrame = proc() =
 
   # Frame time.
   let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
+  sk.layout.at = vec2(sk.size.x - 250, Margin)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

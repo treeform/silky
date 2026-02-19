@@ -105,7 +105,7 @@ window.onFrame = proc() =
 
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.at = vec2(x.float32 * 256, y.float32 * 256)
+      sk.layout.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
   subWindow("Challenges", showChallenges, vec2(10, 10), vec2(300, 450)):
@@ -263,11 +263,11 @@ window.onFrame = proc() =
   if not showChallenges and not showCounter and not showTemperature and not showFlightBooker and not showTimer and not showCRUD and not showCircleDrawer and not showCells:
     if window.buttonPressed[MouseLeft]:
       showChallenges = true
-    sk.at = vec2(100, 100)
+    sk.layout.at = vec2(100, 100)
     text("Click anywhere to show the Challenges window")
 
   let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
+  sk.layout.at = sk.pos + vec2(sk.size.x - 250, 20)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

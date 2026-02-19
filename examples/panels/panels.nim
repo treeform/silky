@@ -403,7 +403,7 @@ proc drawAreaRecursive(area: Area, r: Rect) =
     let contentSize = vec2(contentRect.w, contentRect.h)
     frame(frameId, contentPos, contentSize):
       # Start content with some inset padding.
-      sk.at += vec2(8, 8)
+      sk.layout.at += vec2(8, 8)
       h1text(activePanel.name)
       text("This is the content of " & activePanel.name)
       for i in 0 ..< 20:
@@ -490,7 +490,7 @@ window.onFrame = proc() =
     regenerate()
 
   let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 600, 2)
+  sk.layout.at = sk.pos + vec2(sk.size.x - 600, 2)
   let mem = getOccupiedMem()
   let memoryChange = mem - prevMem
   prevMem = mem

@@ -118,16 +118,16 @@ template calcLabel(displayText: string) =
   ## Displays a right-aligned label in a dark background box.
   let
     labelSize = vec2(sk.size.x - 24, 60)
-    labelRect = rect(sk.at, labelSize)
+    labelRect = rect(sk.layout.at, labelSize)
 
   sk.beginWidget("Display", name = "display", text = displayText, rect = labelRect)
-  sk.drawRect(sk.at, labelSize, rgbx(50, 50, 50, 255))
+  sk.drawRect(sk.layout.at, labelSize, rgbx(50, 50, 50, 255))
 
   let oldStyle = sk.textStyle
   sk.textStyle = "H1"
   let labelTextSize = sk.getTextSize(sk.textStyle, displayText)
-  let textX = sk.at.x + labelSize.x - labelTextSize.x - 10
-  discard sk.drawText(sk.textStyle, displayText, vec2(textX, sk.at.y + 14), rgbx(255, 255, 255, 255))
+  let textX = sk.layout.at.x + labelSize.x - labelTextSize.x - 10
+  discard sk.drawText(sk.textStyle, displayText, vec2(textX, sk.layout.at.y + 14), rgbx(255, 255, 255, 255))
   sk.textStyle = oldStyle
   sk.endWidget()
 
@@ -136,7 +136,7 @@ template calcLabel(displayText: string) =
 template calcButton(label: string, body: untyped) =
   let
     btnSize = vec2(60, 50)
-    startPos = sk.at
+    startPos = sk.layout.at
     btnRect = rect(startPos, btnSize)
 
   sk.beginWidget("Button", text = label, rect = btnRect)
@@ -160,9 +160,9 @@ template calcButton(label: string, body: untyped) =
 
   sk.endWidget()
 
-  sk.at.x += btnSize.x + 10
-  sk.stretchMax.x = max(sk.stretchMax.x, sk.at.x + 10)
-  sk.stretchMax.y = max(sk.stretchMax.y, sk.at.y + 50 + 10)
+  sk.layout.at.x += btnSize.x + 10
+  sk.layout.stretchMax.x = max(sk.layout.stretchMax.x, sk.layout.at.x + 10)
+  sk.layout.stretchMax.y = max(sk.layout.stretchMax.y, sk.layout.at.y + 50 + 10)
 
 window.onFrame = proc() =
 
@@ -171,7 +171,7 @@ window.onFrame = proc() =
   # Draw tiled test texture as the background.
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.at = vec2(x.float32 * 256, y.float32 * 256)
+      sk.layout.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
   subWindow("Calculator", showWindow, vec2(10, 10), vec2(340, 480)):
@@ -187,7 +187,7 @@ window.onFrame = proc() =
     # Draw the calculator display.
     calcLabel(displayText)
 
-    let rowX = sk.at.x
+    let rowX = sk.layout.at.x
 
     # Row 1: C, +/- (±), %, ÷.
     calcButton("C"):
@@ -208,8 +208,8 @@ window.onFrame = proc() =
     calcButton("÷"):
       if inOperator(): symbols[^1].operator = "÷"
 
-    sk.at.x = rowX
-    sk.at.y += 60
+    sk.layout.at.x = rowX
+    sk.layout.at.y += 60
 
     # Row 2: 7, 8, 9, ×.
     calcButton("7"):
@@ -224,8 +224,8 @@ window.onFrame = proc() =
     calcButton("×"):
       if inOperator(): symbols[^1].operator = "×"
 
-    sk.at.x = rowX
-    sk.at.y += 60
+    sk.layout.at.x = rowX
+    sk.layout.at.y += 60
 
     # Row 3: 4, 5, 6, -.
     calcButton("4"):
@@ -246,8 +246,8 @@ window.onFrame = proc() =
         if symbols.len > 0 and symbols[^1].number == "":
           symbols[^1].number = "-"
 
-    sk.at.x = rowX
-    sk.at.y += 60
+    sk.layout.at.x = rowX
+    sk.layout.at.y += 60
 
     # Row 4: 1, 2, 3, +.
     calcButton("1"):
@@ -262,8 +262,8 @@ window.onFrame = proc() =
     calcButton("+"):
       if inOperator(): symbols[^1].operator = "+"
 
-    sk.at.x = rowX
-    sk.at.y += 60
+    sk.layout.at.x = rowX
+    sk.layout.at.y += 60
 
     calcButton("0"):
       inNumber()
@@ -277,16 +277,16 @@ window.onFrame = proc() =
     calcButton("="):
       compute()
 
-    sk.at.x = rowX
-    sk.at.y += 60
+    sk.layout.at.x = rowX
+    sk.layout.at.y += 60
 
   if not showWindow:
     if window.buttonPressed[MouseLeft]:
       showWindow = true
-    sk.at = vec2(100, 100)
+    sk.layout.at = vec2(100, 100)
 
   let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
+  sk.layout.at = sk.pos + vec2(sk.size.x - 250, 20)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

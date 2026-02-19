@@ -197,14 +197,14 @@ window.onFrame = proc() =
   # Draw map background.
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.at = vec2(x.float32 * 256, y.float32 * 256)
+      sk.layout.at = vec2(x.float32 * 256, y.float32 * 256)
       image("testTexture", rgbx(30, 30, 30, 255))
 
   ribbon(sk.pos, vec2(sk.size.x, 64), RibbonColor):
     image("ui/logo")
     h1text("Hello, World!")
 
-    sk.at = sk.pos + vec2(sk.size.x - 100, 16)
+    sk.layout.at = sk.pos + vec2(sk.size.x - 100, 16)
     iconButton("ui/heart"):
       echo "heart"
     if sk.shouldShowTooltip:
@@ -246,7 +246,7 @@ window.onFrame = proc() =
         tooltip("Rewind to End")
 
     # Position the second group relative to the right side of the window.
-    sk.at = sk.pos + vec2(sk.size.x - 240, 16)
+    sk.layout.at = sk.pos + vec2(sk.size.x - 240, 16)
     group(vec2(0, 0), TopToBottom):
       clickableIcon("ui/heart", true):
         echo "clickable heart"
@@ -270,11 +270,11 @@ window.onFrame = proc() =
         tooltip("Tack")
 
   frame("vibe-frame", vec2(sk.size.x - (16 * (32 + Margin)), 100) - vec2(14, 14), vec2(700, 600) + vec2(14, 14)):
-    sk.at = sk.pos + vec2(Margin, Margin) * 2
+    sk.layout.at = sk.pos + vec2(Margin, Margin) * 2
     for i, vibe in vibes:
       if i > 0 and i mod 13 == 0:
-        sk.at.x = sk.pos.x + Margin * 2
-        sk.at.y += 32 + Margin
+        sk.layout.at.x = sk.pos.x + Margin * 2
+        sk.layout.at.y += 32 + Margin
       iconButton(vibe):
         echo vibe
       if sk.shouldShowTooltip:
@@ -284,7 +284,7 @@ window.onFrame = proc() =
     text("Step: 1 of 10\nscore: 100\nlevel: 1\nwidth: 100\nheight: 100\nnum agents: 10")
 
   let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
+  sk.layout.at = sk.pos + vec2(sk.size.x - 250, 20)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

@@ -27,12 +27,8 @@ type
   Silky* = ref object
     ## The Silky that draws the AA pixel art sprites.
     inFrame: bool = false
-    at*: Vec2
-    num*: int
-    stretchMax*: Vec2
-    stretchMin*: Vec2
+    layout*: Layout
     layoutStack: seq[Layout]
-    layoutState: Layout
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
@@ -92,20 +88,6 @@ proc popTheme*(sk: Silky) =
   ## Restore the previous theme from the stack.
   sk.theme = sk.themeStack.pop()
 
-proc captureLayoutState(sk: Silky) =
-  ## Copies public layout fields into the active layout state.
-  sk.layoutState.at = sk.at
-  sk.layoutState.num = sk.num
-  sk.layoutState.stretchMin = sk.stretchMin
-  sk.layoutState.stretchMax = sk.stretchMax
-
-proc applyLayoutState(sk: Silky) =
-  ## Copies active layout state into public layout fields.
-  sk.at = sk.layoutState.at
-  sk.num = sk.layoutState.num
-  sk.stretchMin = sk.layoutState.stretchMin
-  sk.stretchMax = sk.layoutState.stretchMax
-
 proc pushLayout*(
   sk: Silky,
   pos: Vec2,
@@ -114,44 +96,39 @@ proc pushLayout*(
   anchor: Anchor = AnchorLeft
 ) =
   ## Push a new layout container onto the stack.
-  sk.captureLayoutState()
-  layout.pushLayout(sk.layoutStack, sk.layoutState)
-  sk.layoutState = initLayout(pos, size, direction, anchor)
-  sk.applyLayoutState()
+  sk.layoutStack.add(sk.layout)
+  sk.layout.init(pos, size, direction, anchor)
 
 proc popLayout*(sk: Silky) =
   ## Pop the current layout container from the stack.
-  sk.captureLayoutState()
-  sk.layoutState = layout.popLayout(sk.layoutStack)
-  sk.applyLayoutState()
+  sk.layout = sk.layoutStack.pop()
 
 proc pos*(sk: Silky): Vec2 =
   ## Get the current layout position.
-  sk.layoutState.pos
+  sk.layout.pos
 
 proc size*(sk: Silky): Vec2 =
   ## Get the current layout size.
-  sk.layoutState.size
+  sk.layout.size
 
 proc rootSize*(sk: Silky): Vec2 =
   ## Get the root layout size.
   if sk.layoutStack.len <= 1:
-    sk.layoutState.size
+    sk.layout.size
   else:
     sk.layoutStack[1].size
 
 proc stackDirection*(sk: Silky): StackDirection =
   ## Get the current stack direction.
-  sk.layoutState.direction
+  sk.layout.direction
 
 proc stackAnchor*(sk: Silky): Anchor =
   ## Get the current stack anchor.
-  sk.layoutState.anchor
+  sk.layout.anchor
 
 proc widgetPos*(sk: Silky, size: Vec2): Vec2 =
   ## Compute top-left draw position for a widget of the given size.
-  sk.captureLayoutState()
-  layoutWidgetPos(sk.layoutState, size)
+  sk.layout.widgetPos(size)
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
   ## Push a new clip rectangle onto the stack.
@@ -175,9 +152,7 @@ proc instanceCount*(sk: Silky): int =
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advance the position.
   let spacing = sk.theme.spacing.float32
-  sk.captureLayoutState()
-  advanceLayout(sk.layoutState, amount, spacing)
-  sk.applyLayoutState()
+  sk.layout.advance(amount, spacing)
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Get the size of an image in the atlas.

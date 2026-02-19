@@ -42,75 +42,57 @@ proc applyBasis(layout: var Layout) =
     if layout.paddingDir.y < 0: 1f else: 0f
   )
 
-proc initLayout*(
+proc init*(
+  layout: var Layout,
+  pos: Vec2,
+  size: Vec2,
+  direction: StackDirection = TopToBottom,
+  anchor: Anchor = AnchorLeft
+)=
+  ## Creates a new layout context with computed basis and stretch at start.
+  layout = Layout(
+    pos: pos,
+    size: size,
+    direction: direction,
+    anchor: anchor
+  )
+  layout.applyBasis()
+  let startPos = layout.pos + layout.size * layout.sizeSign
+  layout.at = startPos
+  layout.num = 0
+  layout.stretchMin = startPos
+  layout.stretchMax = startPos
+
+proc newLayout*(
   pos: Vec2,
   size: Vec2,
   direction: StackDirection = TopToBottom,
   anchor: Anchor = AnchorLeft
 ): Layout =
-  ## Creates a new layout context with computed basis and stretch at start.
-  var basisLayout = Layout(direction: direction, anchor: anchor)
-  basisLayout.applyBasis()
-  let
-    startPos = pos + size * basisLayout.sizeSign
-    mainDir = basisLayout.mainDir
-    paddingDir = basisLayout.paddingDir
-    sizeSign = basisLayout.sizeSign
-  result = Layout(
-    at: startPos,
-    num: 0,
-    pos: pos,
-    size: size,
-    direction: direction,
-    anchor: anchor,
-    stretchMin: startPos,
-    stretchMax: startPos,
-    mainDir: mainDir,
-    paddingDir: paddingDir,
-    sizeSign: sizeSign
-  )
+  ## Creates and returns a fully initialized layout context.
+  result.init(pos, size, direction, anchor)
 
-proc pushLayout*(stack: var seq[Layout], layout: Layout) =
-  ## Pushes a full layout snapshot onto a stack.
-  stack.add(layout)
-
-proc popLayout*(stack: var seq[Layout]): Layout =
-  ## Pops and returns one full layout snapshot from a stack.
-  stack.pop()
-
-proc layoutStart*(pos, size: Vec2, direction: StackDirection, anchor: Anchor): Vec2 =
+proc start*(layout: Layout): Vec2 =
   ## Returns the initial layout cursor after anchor growth is applied.
-  var layout = Layout(direction: direction, anchor: anchor)
-  layout.applyBasis()
-  pos + size * layout.sizeSign
+  layout.pos + layout.size * layout.sizeSign
 
-proc layoutPaddingOffset*(padding: Vec2, direction: StackDirection, anchor: Anchor): Vec2 =
-  ## Returns the signed padding offset for the selected direction and anchor.
-  var layout = Layout(direction: direction, anchor: anchor)
-  layout.applyBasis()
+proc paddingOffset*(layout: Layout, padding: Vec2): Vec2 =
+  ## Returns the signed padding offset for this layout.
   padding * layout.paddingDir
 
-proc layoutWidgetPos*(at, widgetSize: Vec2, direction: StackDirection, anchor: Anchor): Vec2 =
-  ## Returns the top-left draw position for a widget.
-  var layout = Layout(at: at, direction: direction, anchor: anchor)
-  layout.applyBasis()
-  layout.at + widgetSize * layout.sizeSign * layout.paddingDir
-
-proc layoutWidgetPos*(layout: Layout, widgetSize: Vec2): Vec2 =
+proc widgetPos*(layout: Layout, widgetSize: Vec2): Vec2 =
   ## Returns the top-left draw position for a widget.
   layout.at + widgetSize * layout.sizeSign * layout.paddingDir
 
-proc layoutAdvanceDelta*(amount: Vec2, direction: StackDirection, spacing: float32): Vec2 =
+proc advanceDelta*(layout: Layout, amount: Vec2, spacing: float32): Vec2 =
   ## Returns the cursor delta for one placed child.
-  var layout = Layout(direction: direction, anchor: AnchorLeft)
-  layout.applyBasis()
   (amount + vec2(spacing)) * layout.mainDir
 
-proc advanceLayout*(layout: var Layout, amount: Vec2, spacing: float32) =
+proc advance*(layout: var Layout, amount: Vec2, spacing: float32) =
   ## Advances layout cursor and updates stretch bounds.
   layout.stretchMin = min(layout.stretchMin, layout.at)
   layout.stretchMax = max(layout.stretchMax, layout.at + amount + vec2(spacing))
-  layout.at += (amount + vec2(spacing)) * layout.mainDir
+  layout.at += layout.advanceDelta(amount, spacing)
   inc layout.num
 
 proc includeRect*(minPos: var Vec2, maxPos: var Vec2, pos: Vec2, size: Vec2) =

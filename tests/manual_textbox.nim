@@ -59,7 +59,7 @@ window.onFrame = proc() =
 
   const Margin = 20.0f
 
-  sk.at = vec2(Margin, Margin)
+  sk.layout.at = vec2(Margin, Margin)
 
   # Title.
   h1text("Text Box Example")
@@ -104,7 +104,7 @@ window.onFrame = proc() =
 
   # Frame time display.
   let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
+  sk.layout.at = vec2(sk.size.x - 250, Margin)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()

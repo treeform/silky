@@ -24,16 +24,16 @@ const Cases = [
 suite "Layout module":
   test "Layout stack push and pop keeps full state":
     var stack: seq[Layout]
-    var parent = initLayout(vec2(10, 20), vec2(100, 50), TopToBottom, AnchorRight)
+    var parent = newLayout(vec2(10, 20), vec2(100, 50), TopToBottom, AnchorRight)
     parent.at = vec2(33, 44)
     parent.num = 7
     parent.stretchMin = vec2(2, 3)
     parent.stretchMax = vec2(80, 90)
-    pushLayout(stack, parent)
-    var child = initLayout(vec2(0, 0), vec2(20, 10), LeftToRight, AnchorBottom)
-    advanceLayout(child, vec2(8, 6), 2'f32)
+    stack.add(parent)
+    var child = newLayout(vec2(0, 0), vec2(20, 10), LeftToRight, AnchorBottom)
+    child.advance(vec2(8, 6), 2'f32)
     check child.num == 1
-    let restored = popLayout(stack)
+    let restored = stack.pop()
     check restored.at == vec2(33, 44)
     check restored.num == 7
     check restored.pos == vec2(10, 20)
@@ -50,9 +50,9 @@ suite "Layout module":
       childSize = vec2(25, 15)
     for c in Cases:
       let
-        layout = initLayout(containerPos, containerSize, c.direction, c.anchor)
-        startPos = layoutStart(containerPos, containerSize, c.direction, c.anchor)
-        widgetPos = layoutWidgetPos(startPos, childSize, c.direction, c.anchor)
+        layout = newLayout(containerPos, containerSize, c.direction, c.anchor)
+        startPos = layout.start()
+        widgetPos = layout.widgetPos(childSize)
       check startPos == c.expectedStart
       check widgetPos == c.expectedPos
       check (layout.mainDir.x == 0) xor (layout.mainDir.y == 0)
@@ -63,18 +63,27 @@ suite "Layout module":
       padding = vec2(8, 6)
       amount = vec2(25, 15)
       spacing = 4'f32
-    check layoutPaddingOffset(padding, TopToBottom, AnchorLeft) == vec2(8, 6)
-    check layoutPaddingOffset(padding, TopToBottom, AnchorRight) == vec2(-8, 6)
-    check layoutPaddingOffset(padding, BottomToTop, AnchorLeft) == vec2(8, -6)
-    check layoutPaddingOffset(padding, BottomToTop, AnchorRight) == vec2(-8, -6)
-    check layoutPaddingOffset(padding, LeftToRight, AnchorTop) == vec2(8, 6)
-    check layoutPaddingOffset(padding, LeftToRight, AnchorBottom) == vec2(8, -6)
-    check layoutPaddingOffset(padding, RightToLeft, AnchorTop) == vec2(-8, 6)
-    check layoutPaddingOffset(padding, RightToLeft, AnchorBottom) == vec2(-8, -6)
-    check layoutAdvanceDelta(amount, TopToBottom, spacing) == vec2(0, 19)
-    check layoutAdvanceDelta(amount, BottomToTop, spacing) == vec2(0, -19)
-    check layoutAdvanceDelta(amount, LeftToRight, spacing) == vec2(29, 0)
-    check layoutAdvanceDelta(amount, RightToLeft, spacing) == vec2(-29, 0)
+    let
+      ttbLeft = newLayout(vec2(0, 0), vec2(1, 1), TopToBottom, AnchorLeft)
+      ttbRight = newLayout(vec2(0, 0), vec2(1, 1), TopToBottom, AnchorRight)
+      bttLeft = newLayout(vec2(0, 0), vec2(1, 1), BottomToTop, AnchorLeft)
+      bttRight = newLayout(vec2(0, 0), vec2(1, 1), BottomToTop, AnchorRight)
+      ltrTop = newLayout(vec2(0, 0), vec2(1, 1), LeftToRight, AnchorTop)
+      ltrBottom = newLayout(vec2(0, 0), vec2(1, 1), LeftToRight, AnchorBottom)
+      rtlTop = newLayout(vec2(0, 0), vec2(1, 1), RightToLeft, AnchorTop)
+      rtlBottom = newLayout(vec2(0, 0), vec2(1, 1), RightToLeft, AnchorBottom)
+    check ttbLeft.paddingOffset(padding) == vec2(8, 6)
+    check ttbRight.paddingOffset(padding) == vec2(-8, 6)
+    check bttLeft.paddingOffset(padding) == vec2(8, -6)
+    check bttRight.paddingOffset(padding) == vec2(-8, -6)
+    check ltrTop.paddingOffset(padding) == vec2(8, 6)
+    check ltrBottom.paddingOffset(padding) == vec2(8, -6)
+    check rtlTop.paddingOffset(padding) == vec2(-8, 6)
+    check rtlBottom.paddingOffset(padding) == vec2(-8, -6)
+    check ttbLeft.advanceDelta(amount, spacing) == vec2(0, 19)
+    check bttLeft.advanceDelta(amount, spacing) == vec2(0, -19)
+    check ltrTop.advanceDelta(amount, spacing) == vec2(29, 0)
+    check rtlTop.advanceDelta(amount, spacing) == vec2(-29, 0)
 
   test "Rectangle helpers":
     var
@@ -89,10 +98,10 @@ suite "Layout module":
     check r.w == 35 and r.h == 40
 
   test "Advance updates stretch in layout object":
-    var lay = initLayout(vec2(10, 20), vec2(100, 50), RightToLeft, AnchorTop)
+    var lay = newLayout(vec2(10, 20), vec2(100, 50), RightToLeft, AnchorTop)
     check lay.stretchMin == lay.at
     check lay.stretchMax == lay.at
-    advanceLayout(lay, vec2(25, 15), 4'f32)
+    lay.advance(vec2(25, 15), 4'f32)
     check lay.stretchMin == vec2(110, 20)
     check lay.stretchMax == vec2(139, 39)
     check lay.at == vec2(81, 20)

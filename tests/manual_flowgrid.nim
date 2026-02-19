@@ -41,22 +41,22 @@ window.onFrame = proc() =
     SliderWidth = 300.0f
 
   # Title.
-  sk.at = vec2(Margin, Margin)
+  sk.layout.at = vec2(Margin, Margin)
   text("Flow Grid Example - Resize the frame to see elements reflow")
 
   # Instructions.
-  sk.at = vec2(Margin, 50)
+  sk.layout.at = vec2(Margin, 50)
   text("Drag the sliders to resize the frame. Elements wrap automatically.")
 
   # Width slider with fixed width frame.
-  sk.at = vec2(Margin, 80)
+  sk.layout.at = vec2(Margin, 80)
   text("Width:")
   sk.pushLayout(vec2(Margin + SliderLabelWidth, 80), vec2(SliderWidth, 24))
   scrubber("width", frameWidth, 200.0, 600.0)
   sk.popLayout()
 
   # Height slider with fixed width frame.
-  sk.at = vec2(Margin, 110)
+  sk.layout.at = vec2(Margin, 110)
   text("Height:")
   sk.pushLayout(vec2(Margin + SliderLabelWidth, 110), vec2(SliderWidth, 24))
   scrubber("height", frameHeight, 100.0, 500.0)
@@ -71,13 +71,13 @@ window.onFrame = proc() =
       buttonWidth = 32.0f + sk.padding
       margin = 12.0f
       scrollbarWidth = 16.0f
-      startX = sk.at.x
+      startX = sk.layout.at.x
 
     for i in 0 ..< NumItems:
       # Check if we need to wrap to the next line, accounting for scrollbar.
-      if sk.at.x + buttonWidth > sk.pos.x + sk.size.x - margin - scrollbarWidth:
-        sk.at.x = startX
-        sk.at.y += 32 + margin
+      if sk.layout.at.x + buttonWidth > sk.pos.x + sk.size.x - margin - scrollbarWidth:
+        sk.layout.at.x = startX
+        sk.layout.at.y += 32 + margin
 
       let icon = 
         if i mod 2 == 0: 
@@ -89,9 +89,9 @@ window.onFrame = proc() =
         echo "Clicked item ", i
 
   # Show click status.
-  sk.at = vec2(framePos.x + frameWidth + 20, 150)
+  sk.layout.at = vec2(framePos.x + frameWidth + 20, 150)
   text("Click status:")
-  sk.at.y += 24
+  sk.layout.at.y += 24
   var clickCount = 0
   for i in 0 ..< NumItems:
     if clickedItems[i]:
@@ -100,7 +100,7 @@ window.onFrame = proc() =
 
   # Frame time display.
   let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
+  sk.layout.at = sk.pos + vec2(sk.size.x - 250, 20)
   text(&"frame time: {ms:>7.3f}ms")
 
   sk.endUi()
