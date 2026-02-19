@@ -42,11 +42,11 @@ const
     vec2(32, 64),
     vec2(80, 40),
     vec2(40, 80),
-    vec2(56, 56),
-    vec2(72, 36),
-    vec2(36, 72),
-    vec2(60, 44),
-    vec2(44, 60),
+    vec2(156, 156),
+    vec2(272, 136),
+    vec2(136, 372),
+    vec2(160, 544),
+    vec2(644, 660),
   ]
 
 let sk = newSilky("tests/dist/atlas.png", "tests/dist/atlas.json")
