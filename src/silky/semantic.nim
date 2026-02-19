@@ -3,7 +3,7 @@
 import
   std/[strutils, tables, unicode, times],
   vmath, bumpy, chroma, jsony,
-  atlas, common
+  atlas, common, layout
 
 type
   WidgetState* = object
@@ -253,25 +253,12 @@ proc pushLayout*(sk: Silky, pos: Vec2, size: Vec2, direction: StackDirection = T
   ## Pushes a new layout region onto the stack.
   sk.atStack.add(sk.at)
   sk.posStack.add(pos)
-  sk.at = pos
   sk.sizeStack.add(size)
   sk.directionStack.add(direction)
   sk.anchorStack.add(anchor)
+  sk.at = layoutStart(pos, size, direction, anchor)
   sk.stretchMax = sk.at
   sk.stretchMin = sk.at
-  case direction:
-  of TopToBottom:
-    sk.at = pos
-    if anchor == AnchorRight: sk.at.x += size.x
-  of BottomToTop:
-    sk.at = pos + vec2(0, size.y)
-    if anchor == AnchorRight: sk.at.x += size.x
-  of LeftToRight:
-    sk.at = pos
-    if anchor == AnchorBottom: sk.at.y += size.y
-  of RightToLeft:
-    sk.at = pos + vec2(size.x, 0)
-    if anchor == AnchorBottom: sk.at.y += size.y
 
 proc popLayout*(sk: Silky) =
   ## Pops the current layout region from the stack.
@@ -303,15 +290,7 @@ proc stackAnchor*(sk: Silky): Anchor =
 
 proc widgetPos*(sk: Silky, size: Vec2): Vec2 =
   ## Compute top-left draw position for a widget of the given size.
-  result = sk.at
-  if sk.stackDirection in {RightToLeft}:
-    result.x -= size.x
-  if sk.stackDirection in {BottomToTop}:
-    result.y -= size.y
-  if sk.stackAnchor == AnchorRight and sk.stackDirection in {TopToBottom, BottomToTop}:
-    result.x -= size.x
-  if sk.stackAnchor == AnchorBottom and sk.stackDirection in {LeftToRight, RightToLeft}:
-    result.y -= size.y
+  layoutWidgetPos(sk.at, size, sk.stackDirection, sk.stackAnchor)
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
   ## Pushes a clipping rectangle onto the stack.
@@ -327,17 +306,10 @@ proc clipRect*(sk: Silky): Rect =
 
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advances the cursor position by the given amount.
+  let spacing = sk.theme.spacing.float32
   sk.stretchMin = min(sk.stretchMin, sk.at)
-  sk.stretchMax = max(sk.stretchMax, sk.at + amount + vec2(sk.theme.spacing.float32))
-  case sk.stackDirection:
-  of TopToBottom:
-    sk.at.y += amount.y + sk.theme.spacing.float32
-  of BottomToTop:
-    sk.at.y -= amount.y + sk.theme.spacing.float32
-  of LeftToRight:
-    sk.at.x += amount.x + sk.theme.spacing.float32
-  of RightToLeft:
-    sk.at.x -= amount.x + sk.theme.spacing.float32
+  sk.stretchMax = max(sk.stretchMax, sk.at + amount + vec2(spacing))
+  sk.at += layoutAdvanceDelta(amount, sk.stackDirection, spacing)
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Returns the size of an image from the atlas.
