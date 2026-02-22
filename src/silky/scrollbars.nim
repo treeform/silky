@@ -58,14 +58,14 @@ proc scrollOffset*(sa: ScrollArea): Vec2 =
   ## Return the translation to apply to content before drawing.
   result = -sa.scrollPos
 
-proc applyWheel*(sa: var ScrollArea, delta: Vec2, speed: float32) =
+proc applyWheel*(sa: var ScrollArea, delta: Vec2) =
   ## Apply scroll wheel input.
   let sm = sa.scrollMax
   if not sa.scrollingY and delta.y != 0:
-    sa.scrollPos.y += delta.y * speed
+    sa.scrollPos.y += delta.y
     sa.scrollPos.y = clamp(sa.scrollPos.y, 0.0f, sm.y)
   if not sa.scrollingX and delta.x != 0:
-    sa.scrollPos.x += delta.x * speed
+    sa.scrollPos.x += delta.x
     sa.scrollPos.x = clamp(sa.scrollPos.x, 0.0f, sm.x)
 
 proc scrollBarY*(sa: ScrollArea): tuple[track: Rect, handle: Rect] =

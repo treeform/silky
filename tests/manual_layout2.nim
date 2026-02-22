@@ -136,7 +136,8 @@ window.onFrame = proc() =
 
   #frame("layoutArea", areaPos, areaSize):
   block:
-    sk.drawRect(areaPos, areaSize, rgbx(10, 10, 10, 10))
+    sk.layout.num = 0
+
     # group(vec2(0, 0), stackDir, stackAnc):
     #   for i in 0 ..< n:
     #     let color = BoxColors[i mod BoxColors.len]
@@ -195,9 +196,12 @@ window.onFrame = proc() =
 
     var currentStep = 0
 
-    sk.pushLayout(areaPos, areaSize, stackDir, stackAnc)
+    #sk.pushLayout(areaPos, areaSize, stackDir, stackAnc)
 
     sk.layout.stretchMax = sk.layout.at
+    sk.layout.stretchMin = sk.layout.at
+
+    sk.drawRect(sk.layout.at, areaSize, rgbx(10, 10, 10, 10))
 
     proc drawStep() =
       if currentStep == step.int:
@@ -214,12 +218,14 @@ window.onFrame = proc() =
 
     drawStep()
 
+    # Apply Anchor.
     sk.layout.at += areaSize * si
     sk.layout.stretchMin = sk.layout.at
     sk.layout.stretchMax = sk.layout.at
 
     drawStep()
 
+    # Apply Padding.
     sk.layout.at += padding * pd
     sk.layout.stretchMin = min(sk.layout.stretchMin, sk.layout.at + padding * pd)
     sk.layout.stretchMax = max(sk.layout.stretchMax, sk.layout.at + padding * pd)
@@ -229,6 +235,7 @@ window.onFrame = proc() =
     for i in 0 ..< n:
 
       if sk.layout.num > 0:
+        # Apply Spacing.
         sk.layout.at += spacing * dr
         sk.layout.stretchMin = min(sk.layout.stretchMin, sk.layout.at + spacing * pd)
         sk.layout.stretchMax = max(sk.layout.stretchMax, sk.layout.at + spacing * pd)
@@ -238,6 +245,7 @@ window.onFrame = proc() =
       var color = BoxColors[i]
       color.a = 128
       let size = BoxSizes[i]
+      # Adjust the widget position.
       let pos = sk.layout.at + size * si * pd
       sk.drawRect(pos, size, color)
       let label = $(i + 1)
@@ -247,6 +255,7 @@ window.onFrame = proc() =
         hAlign = CenterAlign, vAlign = MiddleAlign
       )
 
+      # Advance to next widget.
       sk.layout.stretchMin = min(sk.layout.stretchMin, sk.layout.at + size * pd + padding * pd)
       sk.layout.stretchMax = max(sk.layout.stretchMax, sk.layout.at + size * pd + padding * pd)
       sk.layout.at += size * dr
@@ -254,7 +263,7 @@ window.onFrame = proc() =
 
       drawStep()
 
-    sk.popLayout()
+    #sk.popLayout()
 
 
   sk.popTheme()

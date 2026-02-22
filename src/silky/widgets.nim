@@ -3,14 +3,14 @@ import
   vmath, bumpy, chroma
 
 when defined(silkyTesting):
-  import semantic, testing, common, scrollbars
+  import semantic, testing, common, scrollbars, layout
 else:
-  import drawing, common, scrollbars, windy
+  import drawing, common, scrollbars, windy, layout
 
 when defined(macos):
-  const ScrollSpeed* = 10.0
+  const ScrollSpeed* = vec2(10.0, 10.0)
 else:
-  const ScrollSpeed* = -10.0
+  const ScrollSpeed* = vec2(30.0, -30.0)
 
 type
 
@@ -238,7 +238,7 @@ proc subWindowEnd*(sk: Silky, window: Window, subWindowState: SubWindowState) =
 
   sk.popLayout()
 
-proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): tuple[state: FrameState, originPos: Vec2] =
+proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): FrameState =
   ## Begin a scrollable frame; returns state and origin for cleanup.
   if id notin frameStates:
     frameStates[id] = FrameState()
@@ -251,14 +251,11 @@ proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): tuple[state:
     sk.size.x - 2,
     sk.size.y - 2
   ))
-  frameState.scroll.viewPos = sk.pos
-  frameState.scroll.viewSize = sk.size
-  sk.layout.at = sk.pos + vec2(sk.theme.padding)
-  let originPos = sk.layout.at
-  sk.layout.at += frameState.scroll.scrollOffset()
-  return (frameState, originPos)
+  sk.layout.applyAnchor()
+  sk.layout.applyPadding(vec2(sk.theme.padding.float32))
+  return frameState
 
-proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec2) =
+proc frameEnd*(sk: Silky, window: Window, frameState: FrameState) =
   ## Finish a scrollable frame and handle scrollbars.
   frameState.scroll.releaseIfUp(window.buttonDown[MouseLeft])
 
@@ -266,7 +263,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
   # Adjust for scroll offset so bounds are in unscrolled coordinates.
   let offset = frameState.scroll.scrollOffset()
   frameState.scroll.contentMin = sk.layout.stretchMin - offset
-  frameState.scroll.contentMax = sk.layout.stretchMax - offset + vec2(16)
+  frameState.scroll.contentMax = sk.layout.stretchMax - offset
 
   # Initialize scroll for reversed anchors, then clamp.
   frameState.scroll.initScroll()
@@ -274,7 +271,27 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
 
   # Scroll wheel.
   if sk.mouseInsideClip(window, rect(sk.pos, sk.size)):
-    frameState.scroll.applyWheel(window.scrollDelta.vec2, ScrollSpeed)
+    frameState.scroll.applyWheel(window.scrollDelta.vec2 * ScrollSpeed)
+
+  # Draw debug bounds for the full scroll content area.
+  block:
+    let
+      debugPos = frameState.scroll.contentMin + frameState.scroll.scrollOffset()
+      debugSize = max(frameState.scroll.contentMax - frameState.scroll.contentMin, vec2(0))
+    sk.drawRect(debugPos, debugSize, color(1, 0, 0, 0.14).rgbx)
+
+  # Draw debug around original frame bounds.
+  block:
+    let
+      debugPos = frameState.scroll.viewPos + frameState.scroll.scrollOffset()
+      debugSize = frameState.scroll.viewSize
+    sk.drawRect(debugPos, debugSize, color(0, 1, 0, 0.14).rgbx)
+
+  let text = "Content: " & $frameState.scroll.contentMin & " " & $frameState.scroll.contentMax & "\n" &
+    "Scroll: " & $frameState.scroll.scrollOffset() & "\n" &
+    "View: " & $frameState.scroll.viewPos & " " & $frameState.scroll.viewSize
+  discard sk.drawText(sk.textStyle, text, sk.layout.at, color(1, 1, 1, 1).rgbx)
+
 
   # Draw Y scrollbar.
   if frameState.scroll.needsScrollY:
@@ -966,21 +983,21 @@ template group*(p: Vec2, direction = TopToBottom, body: untyped) =
 template frame*(p, s: Vec2, body: untyped) =
   ## Create a frame.
   sk.beginWidget("Frame", name = "Frame", rect = rect(p, s))
-  sk.frameStart(p, s)
+  let frameState = sk.frameStart(p, s)
   try:
     body
   finally:
-    sk.frameEnd()
+    sk.frameEnd(frameState)
   sk.endWidget()
 
 template frame*(id: string, framePos, frameSize: Vec2, body: untyped) =
   ## Frame with scrollbars similar to a window body.
   sk.beginWidget("Frame", name = id, rect = rect(framePos, frameSize))
-  let frameCtx = sk.frameStart(id, framePos, frameSize)
+  let frameState = sk.frameStart(id, framePos, frameSize)
   try:
     body
   finally:
-    sk.frameEnd(window, frameCtx.state, frameCtx.originPos)
+    sk.frameEnd(window, frameState)
   sk.endWidget()
 
 template ribbon*(p, s: Vec2, tint: ColorRGBX, body: untyped) =

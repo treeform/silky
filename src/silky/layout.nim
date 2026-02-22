@@ -5,14 +5,14 @@ import
 type
   Layout* = object
     ## Stores the current layout context.
-    at*: Vec2
-    num*: int
-    pos*: Vec2
-    size*: Vec2
-    direction*: StackDirection
-    anchor*: Anchor
-    stretchMax*: Vec2
-    stretchMin*: Vec2
+    at*: Vec2 # Current layout cursor position.
+    num*: int # Number of widgets placed.
+    pos*: Vec2 # Start of the layout outer layout area.
+    size*: Vec2 # Size of the layout outer layout area.
+    direction*: StackDirection # Direction of the layout.
+    anchor*: Anchor # Anchor of the layout.
+    stretchMax*: Vec2 # Maximum stretch position inside the layout area.
+    stretchMin*: Vec2 # Minimum stretch position inside the layout area.
 
     # Layout basis vectors.
     mainDir*: Vec2
@@ -72,17 +72,21 @@ proc newLayout*(
   ## Creates and returns a fully initialized layout context.
   result.init(pos, size, direction, anchor)
 
-proc start*(layout: Layout): Vec2 =
+proc applyAnchor*(layout: var Layout) =
   ## Returns the initial layout cursor after anchor growth is applied.
-  layout.pos + layout.size * layout.sizeSign
+  layout.at = layout.pos + layout.size * layout.sizeSign
 
-proc paddingOffset*(layout: Layout, padding: Vec2): Vec2 =
+proc applyPadding*(layout: var Layout, padding: Vec2) =
   ## Returns the signed padding offset for this layout.
-  padding * layout.paddingDir
+  layout.at += padding * layout.paddingDir
 
 proc widgetPos*(layout: Layout, widgetSize: Vec2): Vec2 =
   ## Returns the top-left draw position for a widget.
   layout.at + widgetSize * layout.sizeSign * layout.paddingDir
+
+proc applySpacing*(layout: var Layout, spacing: Vec2) =
+  ## Returns the signed spacing offset for this layout.
+  layout.at += spacing * layout.sizeSign * layout.paddingDir
 
 proc advanceDelta*(layout: Layout, amount: Vec2, spacing: float32): Vec2 =
   ## Returns the cursor delta for one placed child.

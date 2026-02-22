@@ -166,6 +166,7 @@ window.onFrame = proc() =
     sk.pushLayout(areaPos, areaSize, stackDir, stackAnc)
 
     sk.layout.stretchMax = sk.layout.at
+    # sk.layout.stretchMin = sk.layout.at
 
     proc drawStep() =
       if currentStep == step.int:
