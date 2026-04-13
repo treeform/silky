@@ -233,3 +233,19 @@ proc clickText*(w: Window, sk: Silky, label: string, kind = "") =
 proc clickButton*(w: Window, sk: Silky, label: string) =
   ## Clicks a Button widget by its label.
   w.clickText(sk, label, "Button")
+
+proc getConfig*(appName: string, fileName: string): string =
+  ## Stub for reading persistent config in testing mode.
+  ""
+
+proc setConfig*(appName: string, fileName: string, content: string) =
+  ## Stub for writing persistent config in testing mode.
+  discard
+
+proc openUrl*(url: string) =
+  ## Stub for opening a URL in testing mode.
+  discard
+
+proc openTempTextFile*(title, text: string) =
+  ## Stub for opening a temp text file in testing mode.
+  discard

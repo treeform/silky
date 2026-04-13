@@ -540,3 +540,16 @@ proc semanticReset*(sk: Silky) =
 proc semanticEnabled*(sk: Silky): bool =
   ## Returns true if semantic capture is enabled.
   true
+
+# Provide measure stubs so that code using {.measure.} compiles in testing mode.
+macro measure*(fn: untyped) =
+  ## Passes procedures through unchanged in testing mode.
+  return fn
+
+template measurePush*(what: string) =
+  ## No-op profile begin marker.
+  discard
+
+template measurePop*() =
+  ## No-op profile end marker.
+  discard
