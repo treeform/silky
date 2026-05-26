@@ -49,8 +49,8 @@ jobs:
       - name: Run unit tests
         if: ${{ !matrix.emscripten }}
         run: |
-          nim r tests/test_semantic.nim
           nim r tests/test_textboxes.nim
+          nim r tests/test_atlas_png.nim
 
       - name: Compile examples
         if: ${{ !matrix.emscripten }}

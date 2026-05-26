@@ -26,53 +26,77 @@ window.onRune = proc(rune: Rune) =
   sk.inputRunes.add(rune)
 
 window.onFrame = proc() =
-
   sk.beginUI(window, window.size)
-
-  # Clear screen with the selected background color.
   sk.clearScreen(BackgroundColor)
 
-  menuBar:
-    subMenu("File", menuWidth = 200):
-      menuItem("Open"):
-        echo "Open"
-      subMenu("Open Recent", menuWidth = 120):
-        menuItem("File 1"):
-          echo "File 1"
-        menuItem("File 2"):
-          echo "File 2"
-        menuItem("File 3"):
-          echo "File 3"
-        subMenu("Even More", menuWidth = 100):
-          menuItem("Config A"):
-            echo "Config A"
-          menuItem("Config B"):
-            echo "Config B"
-      menuItem("Save"):
-        echo "Save"
-      menuItem("Close"):
-        echo "Close"
-    subMenu("Edit", menuWidth = 150):
-      menuItem("Cut"):
-        echo "Cut"
-      menuItem("Copy"):
-        echo "Copy"
-      menuItem("Paste"):
-        echo "Paste"
-    subMenu("View", menuWidth = 150):
-      menuItem("Fullscreen"):
-        echo "Fullscreen"
-      menuItem("Windowed"):
-        echo "Windowed"
-      menuItem("Maximized"):
-        echo "Maximized"
-    subMenu("Help", menuWidth = 100):
-      menuItem("About"):
-        echo "About"
+  ui:
+    rectangle "menubar":
+      box 0, 0, sk.size.x, 36
+      patch "header.9patch", 6
+      tint "#ffffff"
+      group "menu roots":
+        box 8, 4, 420, 28
+        layout LeftToRight
+        itemSpacing 4
+        menuRoot "File", 72
+        menuRoot "Edit", 72
+        menuRoot "View", 72
+        menuRoot "Help", 72
 
-  let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+    case openMenu
+    of "File":
+      popupMenu "file", 8, 36, 200, 250:
+        menuItem "Open":
+          echo "Open"
+        menuItem "Open Recent / File 1":
+          echo "File 1"
+        menuItem "Open Recent / File 2":
+          echo "File 2"
+        menuItem "Open Recent / File 3":
+          echo "File 3"
+        menuItem "Even More / Config A":
+          echo "Config A"
+        menuItem "Even More / Config B":
+          echo "Config B"
+        menuItem "Save":
+          echo "Save"
+        menuItem "Close":
+          echo "Close"
+    of "Edit":
+      popupMenu "edit", 84, 36, 170, 110:
+        menuItem "Cut":
+          echo "Cut"
+        menuItem "Copy":
+          echo "Copy"
+        menuItem "Paste":
+          echo "Paste"
+    of "View":
+      popupMenu "view", 160, 36, 170, 110:
+        menuItem "Fullscreen":
+          echo "Fullscreen"
+        menuItem "Windowed":
+          echo "Windowed"
+        menuItem "Maximized":
+          echo "Maximized"
+    of "Help":
+      popupMenu "help", 236, 36, 130, 48:
+        menuItem "About":
+          echo "About"
+    else:
+      discard
+
+    text "hint":
+      box 24, 80, 460, 26
+      characters "Menus are now authored as immediate DSL scopes."
+      font "H1"
+
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, 20, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
+
+  if window.buttonPressed[MouseLeft] and window.mousePos.y > 360:
+    openMenu = ""
 
   sk.endUi()
   window.swapBuffers()

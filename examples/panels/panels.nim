@@ -346,7 +346,9 @@ proc drawAreaRecursive(area: Area, r: Rect) =
 
     # Draw Header
     let headerRect = rect(r.x, r.y, r.w, AreaHeaderHeight)
-    sk.draw9Patch("panel.header.9patch", 3, headerRect.xy, headerRect.wh)
+    rectangle "panel.header:" & $cast[uint](area):
+      box headerRect.x, headerRect.y, headerRect.w, headerRect.h
+      patch "panel.header.9patch", 3
 
     # Draw Tabs
     var x = r.x + 4
@@ -379,14 +381,18 @@ proc drawAreaRecursive(area: Area, r: Rect) =
         maybeDragStartPos = vec2(0, 0)
         maybeDragPanel = nil
 
-      if isSelected:
-        sk.draw9Patch("panel.tab.selected.9patch", 3, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
-      elif isHovered:
-        sk.draw9Patch("panel.tab.hover.9patch", 3, tabRect.xy, tabRect.wh, rgbx(255, 255, 255, 255))
-      else:
-        sk.draw9Patch("panel.tab.9patch", 3, tabRect.xy, tabRect.wh)
-
-      discard sk.drawText("Default", panel.name, vec2(x + 8, r.y + 4 + 2), rgbx(255, 255, 255, 255))
+      rectangle "panel.tab:" & $cast[uint](panel):
+        box tabRect.x, tabRect.y, tabRect.w, tabRect.h
+        if isSelected:
+          patch "panel.tab.selected.9patch", 3
+        elif isHovered:
+          patch "panel.tab.hover.9patch", 3
+        else:
+          patch "panel.tab.9patch", 3
+        text "panel.tab.text:" & $cast[uint](panel):
+          box 8, 6, tabRect.w - 16, tabRect.h - 8
+          characters panel.name
+          tint "#ffffff"
 
       x += tabW + 2
     sk.popClipRect()
@@ -395,15 +401,18 @@ proc drawAreaRecursive(area: Area, r: Rect) =
     let contentRect = rect(r.x, r.y + AreaHeaderHeight, r.w, r.h - AreaHeaderHeight)
     let activePanel = area.panels[area.selectedPanelNum]
     let frameId = "panel:" & $cast[uint](activePanel)
-    let contentPos = vec2(contentRect.x, contentRect.y)
-    let contentSize = vec2(contentRect.w, contentRect.h)
-    frame(frameId, contentPos, contentSize):
-      # Start content with some inset padding.
-      sk.at += vec2(8, 8)
+    frame frameId:
+      box contentRect.x, contentRect.y, contentRect.w, contentRect.h
+      layout TopToBottom
+      horizontalPadding 8
+      verticalPadding 8
+      itemSpacing 8
       h1text(activePanel.name)
-      text("This is the content of " & activePanel.name)
+      text "panel.body:" & $cast[uint](activePanel):
+        characters "This is the content of " & activePanel.name
       for i in 0 ..< 20:
-        text(&"Scrollable line {i} for " & activePanel.name)
+        text "panel.line:" & $cast[uint](activePanel) & ":" & $i:
+          characters &"Scrollable line {i} for " & activePanel.name
 
 
 window.onFrame = proc() =
@@ -468,26 +477,35 @@ window.onFrame = proc() =
          let (_, highlightRect) = targetArea.getTabInsertInfo(window.mousePos.vec2)
          dropHighlight = highlightRect
 
-  drawAreaRecursive(rootArea, rect(0, 1, window.size.x.float32, window.size.y.float32))
+  ui:
+    drawAreaRecursive(rootArea, rect(0, 1, window.size.x.float32, window.size.y.float32))
 
-  # Draw drop highlight and ghost when dragging a panel.
-  if showDropHighlight and dragPanel != nil:
-    sk.drawRect(dropHighlight.xy, dropHighlight.wh, rgbx(255, 255, 0, 100))
+    # Draw drop highlight and ghost when dragging a panel.
+    if showDropHighlight and dragPanel != nil:
+      rectangle "drop highlight":
+        box dropHighlight.x, dropHighlight.y, dropHighlight.w, dropHighlight.h
+        tint rgbx(255, 255, 0, 100)
 
-    # Draw dragging ghost
-    let label = dragPanel.name
-    let textSize = sk.getTextSize("Default", label)
-    let size = textSize + vec2(16, 8)
-    sk.draw9Patch("tooltip.9patch", 4, window.mousePos.vec2 + vec2(10, 10), size, rgbx(255, 255, 255, 200))
-    discard sk.drawText("Default", label, window.mousePos.vec2 + vec2(18, 14), rgbx(255, 255, 255, 255))
+      let label = dragPanel.name
+      let textSize = sk.getTextSize("Default", label)
+      let ghostPos = window.mousePos.vec2 + vec2(10, 10)
+      rectangle "drag ghost":
+        box ghostPos.x, ghostPos.y, textSize.x + 16, textSize.y + 8
+        patch "tooltip.9patch", 4
+        tint rgbx(255, 255, 255, 200)
+        text "drag ghost text":
+          box 8, 4, textSize.x, textSize.y
+          characters label
+          tint "#ffffff"
 
-  # Regenerate the layout when R is pressed.
-  if window.buttonPressed[KeyR]:
-    regenerate()
+    # Regenerate the layout when R is pressed.
+    if window.buttonPressed[KeyR]:
+      regenerate()
 
-  let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, 20, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()

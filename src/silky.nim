@@ -1,20 +1,26 @@
 import std/[tables]
 
 when defined(silkyTesting):
-  import silky/[semantic, atlas, widgets, textboxes, testing]
-  export semantic, atlas, widgets, tables, textboxes, testing
+  import silky/[semantic, atlas, widgets, textboxes, testing, fidgetdsl, menus]
+  export semantic, atlas, tables, textboxes, testing, fidgetdsl, menus
+  export widgets except
+    button, checkBox, clickableIcon, dropDown, frame, group, h1text, icon,
+    iconButton, image, listBox, progressBar, radioButton, ribbon, scrubber, text
 else:
   import windy
   when not defined(useDirectX) and
       not defined(useVulkan) and
       not defined(useMetal4):
     import opengl
-  import silky/[contexts, atlas, widgets, textboxes]
+  import silky/[contexts, atlas, widgets, textboxes, fidgetdsl, menus]
   when not defined(useDirectX) and
       not defined(useVulkan) and
       not defined(useMetal4):
     export opengl
-  export windy, contexts, atlas, widgets, tables, textboxes
+  export windy, contexts, atlas, tables, textboxes, fidgetdsl, menus
+  export widgets except
+    button, checkBox, clickableIcon, dropDown, frame, group, h1text, icon,
+    iconButton, image, listBox, progressBar, radioButton, ribbon, scrubber, text
 
   when defined(useMetal4):
     proc loadExtensions*() {.inline.} =
