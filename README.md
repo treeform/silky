@@ -58,12 +58,12 @@ To run this example, you'll need a `data` directory with a `button.9patch.png` f
 
 Silky supports multiple graphics backends across platforms:
 
-| | OpenGL | DirectX 12 | Vulkan 1.4 | Metal 4 | WebGL 2 |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Windows** | ✅ | ✅ | ✅ | | |
-| **macOS** | ✅ | | | ✅ | |
-| **Linux** | ✅ | | | | |
-| **Emscripten/WASM** | | | | | ✅ |
+| | OpenGL | DirectX 12 | Vulkan 1.4 | Metal 4 | CPU | WebGL 2 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Windows** | ✅ | ✅ | ✅ | | ✅ | |
+| **macOS** | ✅ | | | ✅ | | |
+| **Linux** | ✅ | | | | | |
+| **Emscripten/WASM** | | | | | | ✅ |
 
 Compile with the appropriate flag to select a backend:
 
@@ -72,8 +72,13 @@ nim c app.nim                  # OpenGL (default)
 nim c -d:useDirectX app.nim   # DirectX 12
 nim c -d:useVulkan app.nim    # Vulkan 1.4
 nim c -d:useMetal4 app.nim    # Metal 4
+nim c -d:useCpu app.nim       # CPU rasterizer
 nim c -d:emscripten app.nim   # WebGL 2 (Emscripten)
 ```
+
+The CPU backend keeps the same Silky API, but rasterizes into a Pixie image and
+presents it through Windy. It is currently intended for simple Windows testing
+and bring-up work where a GPU backend is not available.
 
 ## Theming
 

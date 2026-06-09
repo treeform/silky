@@ -17,8 +17,6 @@ let window = newWindow(
 makeContextCurrent(window)
 loadExtensions()
 
-const BackgroundColor = parseHtmlColor("#000000").rgbx
-
 let sk = newSilky(window, "dist/atlas.png")
 
 # Set up a light theme for 7GUIs.
@@ -95,18 +93,13 @@ proc isValidFloat(s: string): bool =
 window.onFrame = proc() =
 
   sk.beginUI(window, window.size)
-  sk.clearScreen(BackgroundColor)
+  sk.clearScreen(rgbx(30, 30, 30, 255))
 
   # Update the timer elapsed time.
   let now = epochTime()
   let dt = now - lastFrameTime
   lastFrameTime = now
   timerElapsed = min(timerElapsed + dt, timerDuration)
-
-  for x in 0 ..< 16:
-    for y in 0 ..< 10:
-      sk.at = vec2(x.float32 * 256, y.float32 * 256)
-      image("testTexture", rgbx(30, 30, 30, 255))
 
   subWindow("Challenges", showChallenges, vec2(10, 10), vec2(300, 450)):
     button("Counter"): showCounter = not showCounter
