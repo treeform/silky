@@ -134,6 +134,19 @@ proc interact*(
     return Released
   return Hovered
 
+proc completedClick*(
+  sk: Silky,
+  interaction: Interaction,
+  widgetRect: Rect
+): bool =
+  ## Returns true when an interaction completed a click this frame.
+  interaction == Released or (
+    sk.buttonPressed[MouseLeft] and
+    sk.buttonReleased[MouseLeft] and
+    sk.mousePos.overlaps(widgetRect) and
+    sk.mousePos.overlaps(sk.clipRect)
+  )
+
 proc menuPathOpen(path: seq[string]): bool =
   ## Check if the given menu path is currently open.
   menuState.openPath.len >= path.len and menuState.openPath[0 ..< path.len] == path
@@ -240,7 +253,7 @@ proc subWindowStart*(
     )
     minimizeInteraction = sk.interact(minimizeRect, true)
 
-  if minimizeInteraction == Pressed:
+  if sk.completedClick(minimizeInteraction, minimizeRect):
     subWindowState.minimized = not subWindowState.minimized
 
   if subWindowState.minimized:
@@ -264,7 +277,7 @@ proc subWindowStart*(
     )
     closeInteraction = sk.interact(closeRect, true)
 
-  if closeInteraction == Released:
+  if sk.completedClick(closeInteraction, closeRect):
     show = false
 
   sk.drawImage("close", closeRect.xy)
@@ -507,7 +520,7 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
 
   sk.draw9Patch(patch, 8, sk.at, buttonSize)
 
-  if interaction == Released:
+  if sk.completedClick(interaction, buttonRect):
     body
 
   let
@@ -555,9 +568,11 @@ template iconButton*(image: string, body) =
     patch = "button.down.9patch"
   of Released:
     sk.hover = false
-    body
   else:
     sk.hover = false
+
+  if sk.completedClick(interaction, buttonRect):
+    body
 
   sk.draw9Patch(patch, 8, sk.at - m2, s2, sk.theme.iconButtonDownColor)
   sk.drawImage(image, sk.at)
@@ -588,7 +603,7 @@ template clickableIcon*(image: string, on: bool, body) =
   if sk.hover:
     sk.tooltipAnchor = iconRect
 
-  if interaction == Pressed:
+  if sk.completedClick(interaction, iconRect):
     body
 
   sk.drawImage(image, sk.at, color)
@@ -607,7 +622,7 @@ template radioButton*[T](label: string, variable: var T, value: T) =
 
   let interaction = sk.interact(hitRect, true)
 
-  if interaction == Released:
+  if sk.completedClick(interaction, hitRect):
     variable = value
 
   let
@@ -641,7 +656,7 @@ template checkBox*(label: string, value: var bool) =
 
   let interaction = sk.interact(hitRect, true)
 
-  if interaction == Released:
+  if sk.completedClick(interaction, hitRect):
     value = not value
 
   let
@@ -681,7 +696,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
   let interaction = sk.interact(dropRect, true)
 
-  if interaction == Released:
+  if sk.completedClick(interaction, dropRect):
     state.open = not state.open
 
   # Draw control body.
@@ -723,7 +738,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
       let rowHover = interaction in [Pressed, Held, Hovered]
 
-      if interaction == Released:
+      if sk.completedClick(interaction, rowRect):
         selected = opt
         state.open = false
 
@@ -762,7 +777,7 @@ template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
         interaction = sk.interact(rowRect, true)
         rowHover = interaction in [Pressed, Held, Hovered]
 
-      if interaction == Released:
+      if sk.completedClick(interaction, rowRect):
         selectedIndex = i
 
       if rowHover:

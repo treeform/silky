@@ -80,6 +80,22 @@ suite "Basic Window UI":
     check node != nil
     check node.children.len == 0
 
+  test "checkbox handles same-frame press release":
+    check cumulative == false
+    window.pumpFrame(sk)
+    let node = sk.semantic.root.findByText("Cumulative", "CheckBox")
+    check node != nil
+    check node.rect.w > 0
+    window.moveMouse(
+      (node.rect.x + node.rect.w / 2).int,
+      (node.rect.y + node.rect.h / 2).int
+    )
+    window.pumpFrame(sk)
+    window.pressButton(MouseLeft)
+    window.releaseButton(MouseLeft)
+    window.pumpFrame(sk)
+    check cumulative == true
+
   test "radio buttons update checked state":
     check option == 1
 
