@@ -402,35 +402,57 @@ proc getImageSize*(sk: Silky, image: string): Vec2 =
   let uv = sk.atlas.entries[image]
   vec2(uv.width.float32, uv.height.float32)
 
+proc isAsciiText(text: string): bool {.inline.} =
+  for ch in text:
+    if ord(ch) >= 128:
+      return false
+  true
+
 proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
   ## Calculates the rendered size of text in a given font.
   if font notin sk.atlas.fonts:
     return vec2(0, 0)
   let fontData = sk.atlas.fonts[font]
   var currentPos = vec2(0, fontData.lineHeight)
-  let runedText = text.toRunes
 
-  for i in 0 ..< runedText.len:
-    let rune = runedText[i]
-    if rune == Rune(10):
-      currentPos.x = 0
-      currentPos.y += fontData.lineHeight
-      continue
+  if text.isAsciiText():
+    for i in 0 ..< text.len:
+      let ch = text[i]
+      if ch == '\n':
+        currentPos.x = 0
+        currentPos.y += fontData.lineHeight
+        continue
 
-    let glyphStr = $rune
-    var entry: LetterEntry
-    if glyphStr in fontData.entries:
-      entry = fontData.entries[glyphStr][0]
-    elif "?" in fontData.entries:
-      entry = fontData.entries["?"][0]
-    else:
-      continue
+      var entry: AsciiLetterEntry
+      if not fontData.lookupAsciiLetter(ch, 0, entry):
+        continue
 
-    currentPos.x += entry.advance
-    if i < runedText.len - 1:
-      let nextGlyphStr = $runedText[i+1]
-      if nextGlyphStr in entry.kerning:
-        currentPos.x += entry.kerning[nextGlyphStr]
+      currentPos.x += entry.advance
+      if i < text.len - 1:
+        currentPos.x += fontData.lookupAsciiKerning(ch, text[i + 1])
+  else:
+    let runedText = text.toRunes
+    for i in 0 ..< runedText.len:
+      let rune = runedText[i]
+      if rune == Rune(10):
+        currentPos.x = 0
+        currentPos.y += fontData.lineHeight
+        continue
+
+      let glyphStr = $rune
+      var entry: LetterEntry
+      if glyphStr in fontData.entries:
+        entry = fontData.entries[glyphStr][0]
+      elif "?" in fontData.entries:
+        entry = fontData.entries["?"][0]
+      else:
+        continue
+
+      currentPos.x += entry.advance
+      if i < runedText.len - 1:
+        let nextGlyphStr = $runedText[i + 1]
+        if nextGlyphStr in entry.kerning:
+          currentPos.x += entry.kerning[nextGlyphStr]
 
   return currentPos
 
