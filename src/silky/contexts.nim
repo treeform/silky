@@ -426,6 +426,12 @@ proc drawTriangle*(
       maskUv: vec2(-1, -1)
     ))
 
+proc isAsciiText(text: string): bool =
+  for ch in text:
+    if ord(ch) >= 128:
+      return false
+  true
+
 proc drawText*(
   sk: Silky,
   font: string,
@@ -454,7 +460,6 @@ proc drawText*(
   let
     fontData = sk.atlas.fonts[font]
     maxPos = pos + vec2(maxWidth, maxHeight)
-    runedText = text.toRunes
     hasSubpixel = fontData.subpixelSteps > 0
     layer = sk.drawer.currentLayer
     needsHAlign = hAlign != LeftAlign
@@ -497,6 +502,105 @@ proc drawText*(
         sk.drawer.layers[layer][j].pos.x += dx
     lineStartIdx = sk.drawer.layers[layer].len
 
+  if text.isAsciiText():
+    var i = 0
+    while i < text.len:
+      let ch = text[i]
+
+      if ch == '\n':
+        alignLine(currentPos.x - pos.x)
+        currentPos.x = pos.x
+        currentPos.y += fontData.lineHeight
+        inc i
+        continue
+
+      if wordWrap and currentPos.x > pos.x and ch != ' ':
+        let isWordStart =
+          i == 0 or
+          text[i - 1] == ' ' or
+          text[i - 1] == '\n'
+        if isWordStart:
+          var
+            wordW = 0.0'f
+            j = i
+          while j < text.len and text[j] != ' ' and text[j] != '\n':
+            var wordEntry: AsciiLetterEntry
+            if fontData.lookupAsciiLetter(text[j], 0, wordEntry):
+              wordW += wordEntry.advance
+            inc j
+          if currentPos.x + wordW > pos.x + maxWidth:
+            alignLine(currentPos.x - pos.x)
+            currentPos.x = pos.x
+            currentPos.y += fontData.lineHeight
+
+      let variant =
+        if hasSubpixel:
+          let frac = currentPos.x - currentPos.x.floor
+          (frac * fontData.subpixelSteps.float32).int mod
+            fontData.subpixelSteps
+        else:
+          0
+
+      var entry: AsciiLetterEntry
+      if not fontData.lookupAsciiLetter(ch, variant, entry):
+        inc i
+        continue
+
+      if currentPos.x >= maxPos.x:
+        if wordWrap:
+          alignLine(currentPos.x - pos.x)
+          currentPos.x = pos.x
+          currentPos.y += fontData.lineHeight
+        elif glyphClip:
+          while i < text.len and text[i] != '\n':
+            inc i
+          continue
+
+      if glyphClip and currentPos.y + entry.boundsY >= maxPos.y:
+        break
+
+      if entry.boundsWidth > 0 and entry.boundsHeight > 0:
+        let glyphPos = vec2(
+          floor(currentPos.x) + entry.boundsX,
+          round(currentPos.y + entry.boundsY)
+        )
+        sk.drawQuad(
+          glyphPos,
+          vec2(entry.boundsWidth, entry.boundsHeight),
+          vec2(entry.x.float32, entry.y.float32),
+          vec2(entry.boundsWidth, entry.boundsHeight),
+          color,
+          textClip[0],
+          textClip[1]
+        )
+
+      currentPos.x += entry.advance
+      if i < text.len - 1:
+        currentPos.x += fontData.lookupAsciiKerning(ch, text[i + 1])
+
+      inc i
+
+    alignLine(currentPos.x - pos.x)
+
+    if needsVAlign:
+      let
+        textHeight =
+          currentPos.y - pos.y - fontData.ascent + fontData.lineHeight
+        dy =
+          case vAlign:
+          of TopAlign:
+            0.0'f
+          of MiddleAlign:
+            floor((maxHeight - textHeight) * 0.5)
+          of BottomAlign:
+            floor(maxHeight - textHeight)
+      if dy != 0:
+        for j in textStartIdx ..< sk.drawer.layers[layer].len:
+          sk.drawer.layers[layer][j].pos.y += dy
+
+    return currentPos - pos
+
+  let runedText = text.toRunes
   var i = 0
   while i < runedText.len:
     let rune = runedText[i]
@@ -614,33 +718,50 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
 
   let
     fontData = sk.atlas.fonts[font]
-    runedText = text.toRunes
   var
     currentPos = vec2(0, fontData.lineHeight)
     maxWidth = 0.0'f
 
-  for i in 0 ..< runedText.len:
-    let rune = runedText[i]
-    if rune == Rune(10):
-      maxWidth = max(maxWidth, currentPos.x)
-      currentPos.x = 0
-      currentPos.y += fontData.lineHeight
-      continue
+  if text.isAsciiText():
+    for i in 0 ..< text.len:
+      let ch = text[i]
+      if ch == '\n':
+        maxWidth = max(maxWidth, currentPos.x)
+        currentPos.x = 0
+        currentPos.y += fontData.lineHeight
+        continue
 
-    let glyphStr = $rune
-    var entry: LetterEntry
-    if glyphStr in fontData.entries:
-      entry = fontData.entries[glyphStr][0]
-    elif "?" in fontData.entries:
-      entry = fontData.entries["?"][0]
-    else:
-      continue
+      var entry: AsciiLetterEntry
+      if not fontData.lookupAsciiLetter(ch, 0, entry):
+        continue
 
-    currentPos.x += entry.advance
-    if i < runedText.len - 1:
-      let nextGlyphStr = $runedText[i + 1]
-      if nextGlyphStr in entry.kerning:
-        currentPos.x += entry.kerning[nextGlyphStr]
+      currentPos.x += entry.advance
+      if i < text.len - 1:
+        currentPos.x += fontData.lookupAsciiKerning(ch, text[i + 1])
+  else:
+    let runedText = text.toRunes
+    for i in 0 ..< runedText.len:
+      let rune = runedText[i]
+      if rune == Rune(10):
+        maxWidth = max(maxWidth, currentPos.x)
+        currentPos.x = 0
+        currentPos.y += fontData.lineHeight
+        continue
+
+      let glyphStr = $rune
+      var entry: LetterEntry
+      if glyphStr in fontData.entries:
+        entry = fontData.entries[glyphStr][0]
+      elif "?" in fontData.entries:
+        entry = fontData.entries["?"][0]
+      else:
+        continue
+
+      currentPos.x += entry.advance
+      if i < runedText.len - 1:
+        let nextGlyphStr = $runedText[i + 1]
+        if nextGlyphStr in entry.kerning:
+          currentPos.x += entry.kerning[nextGlyphStr]
 
   maxWidth = max(maxWidth, currentPos.x)
   vec2(maxWidth, currentPos.y)

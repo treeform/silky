@@ -36,6 +36,16 @@ type
     advance*: float32
     kerning*: Table[string, float32]
 
+  AsciiLetterEntry* = object
+    ## Runtime glyph metrics without the per-glyph kerning table.
+    x*: int
+    y*: int
+    boundsX*: float32
+    boundsY*: float32
+    boundsWidth*: float32
+    boundsHeight*: float32
+    advance*: float32
+
   FontAtlas* = ref object
     ## The font atlas that is used to draw text.
     size*: float32
@@ -45,6 +55,9 @@ type
     lineGap*: float32
     subpixelSteps*: int
     entries*: Table[string, seq[LetterEntry]]
+    asciiEntries: array[128, seq[AsciiLetterEntry]]
+    asciiKerning: array[128, array[128, float32]]
+    fallbackEntries: seq[AsciiLetterEntry]
 
   SilkyAtlas* = ref object
     ## The pixel atlas that gets converted to JSON.
@@ -59,6 +72,86 @@ type
     allocator*: SkylineAllocator
     atlasImage*: Image
     atlas*: SilkyAtlas
+
+proc toAsciiLetterEntry(entry: LetterEntry): AsciiLetterEntry =
+  AsciiLetterEntry(
+    x: entry.x,
+    y: entry.y,
+    boundsX: entry.boundsX,
+    boundsY: entry.boundsY,
+    boundsWidth: entry.boundsWidth,
+    boundsHeight: entry.boundsHeight,
+    advance: entry.advance
+  )
+
+proc prepareFastLookups(fontAtlas: FontAtlas) =
+  ## Builds runtime-only ASCII lookup tables for hot text drawing paths.
+  for i in 0 ..< fontAtlas.asciiEntries.len:
+    fontAtlas.asciiEntries[i].setLen(0)
+  fontAtlas.fallbackEntries.setLen(0)
+  for left in 0 ..< fontAtlas.asciiKerning.len:
+    for right in 0 ..< fontAtlas.asciiKerning[left].len:
+      fontAtlas.asciiKerning[left][right] = 0
+
+  for code in 0 ..< 128:
+    let key = $chr(code)
+    if key in fontAtlas.entries:
+      let sourceEntries = fontAtlas.entries[key]
+      fontAtlas.asciiEntries[code].setLen(sourceEntries.len)
+      for i in 0 ..< sourceEntries.len:
+        fontAtlas.asciiEntries[code][i] =
+          sourceEntries[i].toAsciiLetterEntry()
+
+  if "?" in fontAtlas.entries:
+    let sourceEntries = fontAtlas.entries["?"]
+    fontAtlas.fallbackEntries.setLen(sourceEntries.len)
+    for i in 0 ..< sourceEntries.len:
+      fontAtlas.fallbackEntries[i] = sourceEntries[i].toAsciiLetterEntry()
+
+  for left in 0 ..< 128:
+    let leftKey = $chr(left)
+    if leftKey notin fontAtlas.entries:
+      continue
+    let leftEntries = fontAtlas.entries[leftKey]
+    if leftEntries.len == 0 or leftEntries[0].kerning.len == 0:
+      continue
+    for right in 0 ..< 128:
+      let rightKey = $chr(right)
+      if rightKey in leftEntries[0].kerning:
+        fontAtlas.asciiKerning[left][right] = leftEntries[0].kerning[rightKey]
+
+proc prepareFastLookups*(atlas: SilkyAtlas) =
+  ## Builds runtime-only fast lookup tables after JSON atlas decoding.
+  for fontAtlas in atlas.fonts.mvalues:
+    fontAtlas.prepareFastLookups()
+
+proc lookupAsciiLetter*(
+  fontAtlas: FontAtlas,
+  ch: char,
+  variant: int,
+  entry: var AsciiLetterEntry
+): bool =
+  ## Looks up one ASCII glyph without allocating a string key.
+  let code = ord(ch)
+  if code < 128:
+    let entries = fontAtlas.asciiEntries[code]
+    if entries.len > 0:
+      entry = entries[min(variant, entries.len - 1)]
+      return true
+  if fontAtlas.fallbackEntries.len > 0:
+    entry = fontAtlas.fallbackEntries[0]
+    return true
+  false
+
+proc lookupAsciiKerning*(fontAtlas: FontAtlas, left, right: char): float32 =
+  ## Returns cached ASCII kerning without allocating string keys.
+  let
+    leftCode = ord(left)
+    rightCode = ord(right)
+  if leftCode < 128 and rightCode < 128:
+    fontAtlas.asciiKerning[leftCode][rightCode]
+  else:
+    0.0'f32
 
 proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
   ## Generate a pixel atlas from the given directories.
@@ -186,7 +279,8 @@ proc extractAtlasJsonFromPng*(pngData: string): string =
 proc readAtlasFromPng*(path: string): SilkyAtlas =
   ## Reads and decodes the atlas JSON embedded in an atlas PNG file.
   try:
-    extractAtlasJsonFromPng(readFile(path)).fromJson(SilkyAtlas)
+    result = extractAtlasJsonFromPng(readFile(path)).fromJson(SilkyAtlas)
+    result.prepareFastLookups()
   except IOError as e:
     raise newException(SilkyAtlasError, e.msg, e)
 
@@ -197,6 +291,7 @@ proc readAtlas*(
   try:
     let pngData = readFile(path)
     result.atlas = extractAtlasJsonFromPng(pngData).fromJson(SilkyAtlas)
+    result.atlas.prepareFastLookups()
     result.image = decodePng(pngData).convertToImage()
   except IOError as e:
     raise newException(SilkyAtlasError, e.msg, e)
@@ -332,6 +427,7 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
       let kerning = typeface.getKerningAdjustment(rune, rune2)
       if kerning != 0:
         fontAtlas.entries[glyphStr][0].kerning[glyphStr2] = kerning * scale
+  fontAtlas.prepareFastLookups()
   builder.atlas.fonts[name] = fontAtlas
 
 proc write*(builder: AtlasBuilder, outputPngPath: string) =
