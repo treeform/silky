@@ -36,6 +36,15 @@ type
     advance*: float32
     kerning*: Table[string, float32]
 
+  GlyphEntries* = ref object
+    ## Runtime reference to the stored variants for one glyph.
+    entries*: seq[LetterEntry]
+
+  GlyphLookup* = object
+    ## Runtime lookup tables for allocation-free Unicode text rendering.
+    entries*: Table[Rune, GlyphEntries]
+    kerning*: Table[uint64, float32]
+
   FontAtlas* = ref object
     ## The font atlas that is used to draw text.
     size*: float32
@@ -45,6 +54,7 @@ type
     lineGap*: float32
     subpixelSteps*: int
     entries*: Table[string, seq[LetterEntry]]
+    lookup*: GlyphLookup
 
   SilkyAtlas* = ref object
     ## The pixel atlas that gets converted to JSON.
@@ -59,6 +69,69 @@ type
     allocator*: SkylineAllocator
     atlasImage*: Image
     atlas*: SilkyAtlas
+
+  FontAtlasObject = typeof(FontAtlas()[])
+
+proc skipHook*(T: typedesc[FontAtlasObject], key: static string): bool =
+  ## Skips runtime-only lookup tables during atlas JSON serialization.
+  key == "lookup"
+
+proc kerningKey(left, right: Rune): uint64 {.inline.} =
+  ## Packs two Unicode scalar values into one table key.
+  (uint64(uint32(int32(left))) shl 32) or uint64(uint32(int32(right)))
+
+proc rebuildGlyphLookups*(fontAtlas: FontAtlas) =
+  ## Rebuilds runtime Unicode lookup tables from serialized atlas entries.
+  fontAtlas.lookup.entries = initTable[Rune, GlyphEntries](
+    fontAtlas.entries.len
+  )
+  fontAtlas.lookup.kerning = initTable[uint64, float32]()
+
+  for glyphStr, entries in fontAtlas.entries:
+    if glyphStr.len == 0:
+      continue
+    let left = glyphStr.runeAt(0)
+    fontAtlas.lookup.entries[left] = GlyphEntries(entries: entries)
+    if entries.len == 0:
+      continue
+    for rightStr, adjustment in entries[0].kerning:
+      if rightStr.len == 0:
+        continue
+      let right = rightStr.runeAt(0)
+      fontAtlas.lookup.kerning[kerningKey(left, right)] = adjustment
+
+proc rebuildGlyphLookups*(atlas: SilkyAtlas) =
+  ## Rebuilds runtime text lookup tables for every font in an atlas.
+  for fontAtlas in atlas.fonts.mvalues:
+    fontAtlas.rebuildGlyphLookups()
+
+proc lookupLetter*(
+  fontAtlas: FontAtlas,
+  rune: Rune,
+  variant: int,
+  entry: var ptr LetterEntry
+): bool {.inline.} =
+  ## Looks up one glyph entry without allocating a string key.
+  if rune in fontAtlas.lookup.entries:
+    let glyphEntries = fontAtlas.lookup.entries[rune]
+    if glyphEntries.entries.len > 0:
+      entry = unsafeAddr glyphEntries.entries[
+        min(variant, glyphEntries.entries.len - 1)
+      ]
+      return true
+
+  let fallback = Rune(63)
+  if fallback in fontAtlas.lookup.entries:
+    let glyphEntries = fontAtlas.lookup.entries[fallback]
+    if glyphEntries.entries.len > 0:
+      entry = unsafeAddr glyphEntries.entries[0]
+      return true
+
+  false
+
+proc lookupKerning*(fontAtlas: FontAtlas, left, right: Rune): float32 {.inline.} =
+  ## Looks up kerning between two glyphs without allocating string keys.
+  fontAtlas.lookup.kerning.getOrDefault(kerningKey(left, right))
 
 proc newAtlasBuilder*(size, margin: int): AtlasBuilder =
   ## Generate a pixel atlas from the given directories.
@@ -186,7 +259,8 @@ proc extractAtlasJsonFromPng*(pngData: string): string =
 proc readAtlasFromPng*(path: string): SilkyAtlas =
   ## Reads and decodes the atlas JSON embedded in an atlas PNG file.
   try:
-    extractAtlasJsonFromPng(readFile(path)).fromJson(SilkyAtlas)
+    result = extractAtlasJsonFromPng(readFile(path)).fromJson(SilkyAtlas)
+    result.rebuildGlyphLookups()
   except IOError as e:
     raise newException(SilkyAtlasError, e.msg, e)
 
@@ -197,6 +271,7 @@ proc readAtlas*(
   try:
     let pngData = readFile(path)
     result.atlas = extractAtlasJsonFromPng(pngData).fromJson(SilkyAtlas)
+    result.atlas.rebuildGlyphLookups()
     result.image = decodePng(pngData).convertToImage()
   except IOError as e:
     raise newException(SilkyAtlasError, e.msg, e)
@@ -332,6 +407,7 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
       let kerning = typeface.getKerningAdjustment(rune, rune2)
       if kerning != 0:
         fontAtlas.entries[glyphStr][0].kerning[glyphStr2] = kerning * scale
+  fontAtlas.rebuildGlyphLookups()
   builder.atlas.fonts[name] = fontAtlas
 
 proc write*(builder: AtlasBuilder, outputPngPath: string) =
