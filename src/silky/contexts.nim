@@ -6,6 +6,12 @@ import
 when defined(profile):
   import fluffy/measure, std/os
   export measure
+
+  const
+    SilkyProfileFrames* {.intdefine.} = 0
+    SilkyProfileTracePath* {.strdefine.} = "tmp/trace.json"
+
+  var profileFrameCount*: int
 else:
   macro measure*(fn: untyped) =
     ## Passes procedures through unchanged when profiling is off.
@@ -32,6 +38,8 @@ else:
 const
   NormalLayer* = 0
   PopupsLayer* = 1
+  LineFeedRune = Rune(10)
+  SpaceRune = Rune(32)
 
 type
   StackDirection* = enum
@@ -241,6 +249,18 @@ proc getImageSize*(sk: Silky, image: string): Vec2 =
   let uv = sk.atlas.entries[image]
   vec2(uv.width.float32, uv.height.float32)
 
+proc nextRune(text: string, i: var int): Rune {.inline.} =
+  ## Reads one UTF-8 rune and advances the byte index.
+  fastRuneAt(text, i, result, true)
+
+proc peekRune(text: string, i: int, rune: var Rune): bool {.inline.} =
+  ## Reads one UTF-8 rune without changing the caller's byte index.
+  if i >= text.len:
+    return false
+  var j = i
+  fastRuneAt(text, j, rune, true)
+  return true
+
 proc shouldShowTooltip*(sk: Silky): bool =
   ## Returns true when a tooltip should be shown.
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
@@ -254,6 +274,10 @@ proc resetInteractions*(sk: Silky) =
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
   when defined(profile):
+    if SilkyProfileFrames > 0 and not traceActive:
+      traceActive = true
+      startTrace()
+
     if window.buttonPressed[KeyF3]:
       if not traceActive:
         traceActive = true
@@ -315,6 +339,18 @@ proc endUiShared*(sk: Silky) =
   sk.inputRunes.setLen(0)
   sk.inFrame = false
   measurePop()
+
+  when defined(profile):
+    if SilkyProfileFrames > 0 and traceActive:
+      inc profileFrameCount
+      if profileFrameCount >= SilkyProfileFrames:
+        traceActive = false
+        endTrace()
+        let traceDir = splitFile(SilkyProfileTracePath).dir
+        if traceDir.len > 0:
+          createDir(traceDir)
+        dumpMeasures(SilkyProfileTracePath)
+        sk.window.closeRequested = true
 
 proc drawQuad*(
   sk: Silky,
@@ -438,7 +474,7 @@ proc drawText*(
   wordWrap = false,
   hAlign: HorizontalAlignment = LeftAlign,
   vAlign: VerticalAlignment = TopAlign
-): Vec2 =
+): Vec2 {.measure.} =
   ## Queues text glyphs using atlas-backed font data.
   assert sk.inFrame
   if font notin sk.atlas.fonts:
@@ -454,7 +490,6 @@ proc drawText*(
   let
     fontData = sk.atlas.fonts[font]
     maxPos = pos + vec2(maxWidth, maxHeight)
-    runedText = text.toRunes
     hasSubpixel = fontData.subpixelSteps > 0
     layer = sk.drawer.currentLayer
     needsHAlign = hAlign != LeftAlign
@@ -497,41 +532,42 @@ proc drawText*(
         sk.drawer.layers[layer][j].pos.x += dx
     lineStartIdx = sk.drawer.layers[layer].len
 
-  var i = 0
-  while i < runedText.len:
-    let rune = runedText[i]
+  var
+    i = 0
+    previousRune = Rune(0)
+    hasPreviousRune = false
+  while i < text.len:
+    let runeStart = i
+    let rune = text.nextRune(i)
 
-    if rune == Rune(10):
+    if rune == LineFeedRune:
       alignLine(currentPos.x - pos.x)
       currentPos.x = pos.x
       currentPos.y += fontData.lineHeight
-      inc i
+      hasPreviousRune = false
       continue
 
-    if wordWrap and currentPos.x > pos.x and rune != Rune(32):
+    if wordWrap and currentPos.x > pos.x and rune != SpaceRune:
       let isWordStart =
-        i == 0 or
-        runedText[i - 1] == Rune(32) or
-        runedText[i - 1] == Rune(10)
+        not hasPreviousRune or
+        previousRune == SpaceRune or
+        previousRune == LineFeedRune
       if isWordStart:
         var
           wordW = 0.0'f
-          j = i
-        while j < runedText.len and
-          runedText[j] != Rune(32) and
-          runedText[j] != Rune(10):
-          let gs = $runedText[j]
-          if gs in fontData.entries:
-            wordW += fontData.entries[gs][0].advance
-          elif "?" in fontData.entries:
-            wordW += fontData.entries["?"][0].advance
-          inc j
+          j = runeStart
+        while j < text.len:
+          let wordRune = text.nextRune(j)
+          if wordRune == SpaceRune or wordRune == LineFeedRune:
+            break
+          var wordEntry: ptr LetterEntry
+          if fontData.lookupLetter(wordRune, 0, wordEntry):
+            wordW += wordEntry.advance
         if currentPos.x + wordW > pos.x + maxWidth:
           alignLine(currentPos.x - pos.x)
           currentPos.x = pos.x
           currentPos.y += fontData.lineHeight
 
-    let glyphStr = $rune
     let variant =
       if hasSubpixel:
         let frac = currentPos.x - currentPos.x.floor
@@ -540,13 +576,10 @@ proc drawText*(
       else:
         0
 
-    var entry: LetterEntry
-    if glyphStr in fontData.entries:
-      entry = fontData.entries[glyphStr][variant]
-    elif "?" in fontData.entries:
-      entry = fontData.entries["?"][0]
-    else:
-      inc i
+    var entry: ptr LetterEntry
+    if not fontData.lookupLetter(rune, variant, entry):
+      previousRune = rune
+      hasPreviousRune = true
       continue
 
     if currentPos.x >= maxPos.x:
@@ -555,8 +588,11 @@ proc drawText*(
         currentPos.x = pos.x
         currentPos.y += fontData.lineHeight
       elif glyphClip:
-        while i < runedText.len and runedText[i] != Rune(10):
-          inc i
+        while i < text.len:
+          var next: Rune
+          if not text.peekRune(i, next) or next == LineFeedRune:
+            break
+          discard text.nextRune(i)
         continue
 
     if glyphClip and currentPos.y + entry.boundsY >= maxPos.y:
@@ -578,14 +614,12 @@ proc drawText*(
       )
 
     currentPos.x += entry.advance
-    if i < runedText.len - 1:
-      let nextGlyphStr = $runedText[i + 1]
-      if glyphStr in fontData.entries and
-        nextGlyphStr in fontData.entries[glyphStr][0].kerning:
-        currentPos.x +=
-          fontData.entries[glyphStr][0].kerning[nextGlyphStr]
+    var next: Rune
+    if text.peekRune(i, next):
+      currentPos.x += fontData.lookupKerning(rune, next)
 
-    inc i
+    previousRune = rune
+    hasPreviousRune = true
 
   alignLine(currentPos.x - pos.x)
 
@@ -607,40 +641,33 @@ proc drawText*(
 
   currentPos - pos
 
-proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
+proc getTextSize*(sk: Silky, font: string, text: string): Vec2 {.measure.} =
   ## Returns the size of text in pixels.
   if font notin sk.atlas.fonts:
     return vec2(0, 0)
 
-  let
-    fontData = sk.atlas.fonts[font]
-    runedText = text.toRunes
+  let fontData = sk.atlas.fonts[font]
   var
+    i = 0
     currentPos = vec2(0, fontData.lineHeight)
     maxWidth = 0.0'f
 
-  for i in 0 ..< runedText.len:
-    let rune = runedText[i]
-    if rune == Rune(10):
+  while i < text.len:
+    let rune = text.nextRune(i)
+    if rune == LineFeedRune:
       maxWidth = max(maxWidth, currentPos.x)
       currentPos.x = 0
       currentPos.y += fontData.lineHeight
       continue
 
-    let glyphStr = $rune
-    var entry: LetterEntry
-    if glyphStr in fontData.entries:
-      entry = fontData.entries[glyphStr][0]
-    elif "?" in fontData.entries:
-      entry = fontData.entries["?"][0]
-    else:
+    var entry: ptr LetterEntry
+    if not fontData.lookupLetter(rune, 0, entry):
       continue
 
     currentPos.x += entry.advance
-    if i < runedText.len - 1:
-      let nextGlyphStr = $runedText[i + 1]
-      if nextGlyphStr in entry.kerning:
-        currentPos.x += entry.kerning[nextGlyphStr]
+    var next: Rune
+    if text.peekRune(i, next):
+      currentPos.x += fontData.lookupKerning(rune, next)
 
   maxWidth = max(maxWidth, currentPos.x)
   vec2(maxWidth, currentPos.y)
@@ -793,7 +820,7 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   ## Clears or updates the frame clear color through the drawer.
   sk.drawer.clearScreen(color)
 
-proc endUi*(sk: Silky) {.measure.} =
+proc endUi*(sk: Silky) =
   ## Flushes the queued draws through the active drawer.
   for i in 1 ..< sk.drawer.layers.len:
     sk.drawer.layers[NormalLayer].add(sk.drawer.layers[i])
