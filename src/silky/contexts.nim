@@ -259,7 +259,7 @@ proc peekRune(text: string, i: int, rune: var Rune): bool {.inline.} =
     return false
   var j = i
   fastRuneAt(text, j, rune, true)
-  true
+  return true
 
 proc shouldShowTooltip*(sk: Silky): bool =
   ## Returns true when a tooltip should be shown.
@@ -646,8 +646,7 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 {.measure.} =
   if font notin sk.atlas.fonts:
     return vec2(0, 0)
 
-  let
-    fontData = sk.atlas.fonts[font]
+  let fontData = sk.atlas.fonts[font]
   var
     i = 0
     currentPos = vec2(0, fontData.lineHeight)
