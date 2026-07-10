@@ -31,7 +31,6 @@ type
     clicked*: bool
 
 var
-  openMenu* = ""
   menuState*: MenuState = MenuState(
     openPath: @[],
     activeRects: @[]
@@ -104,9 +103,6 @@ proc menuBarStart*(sk: Silky, window: Window) =
   menuEnsureState()
   menuState.activeRects.setLen(0)
   menuPathStack.setLen(0)
-
-  let elevate = menuState.openPath.len > 0
-  discard elevate
 
   let barHeight = sk.theme.headerHeight.float32
   sk.pushLayout(vec2(0, 0), vec2(sk.size.x, barHeight))
@@ -213,7 +209,7 @@ proc subMenuEnd*(sk: Silky, ctx: MenuEntryContext) =
   if ctx.open:
     menuPathStack.setLen(menuPathStack.len - 1)
 
-template subMenu*(label: string, menuWidth = 200, body: untyped) =
+template subMenu*(label: string, menuWidth: int, body: untyped) =
   ## Menu entry that can contain other menu items.
   let ctx = sk.subMenuStart(window, label, menuWidth)
   try:
@@ -223,9 +219,25 @@ template subMenu*(label: string, menuWidth = 200, body: untyped) =
   finally:
     sk.subMenuEnd(ctx)
 
+template subMenu*(label: string, body: untyped) =
+  ## Menu entry that can contain other menu items.
+  subMenu(label, 200):
+    body
+
+template menu*(label: string, menuWidth: int, body: untyped) =
+  ## Alias for subMenu. Prefer this name at the top of a menuBar.
+  subMenu(label, menuWidth):
+    body
+
+template menu*(label: string, body: untyped) =
+  ## Alias for subMenu. Prefer this name at the top of a menuBar.
+  subMenu(label):
+    body
+
 proc menuItemStart*(sk: Silky, window: Window, label: string): MenuItemContext =
   ## Begin a menu item; returns context indicating click state.
   menuEnsureState()
+  doAssert menuLayouts.len > 0, "menuItem must be inside menuBar / subMenu"
   let layout = menuLayouts[^1]
 
   let textSize = sk.getTextSize(sk.textStyle, label)
@@ -261,49 +273,11 @@ proc menuItemEnd*(sk: Silky, ctx: MenuItemContext) =
   ## Finish a menu item and advance layout cursor.
   ctx.layout.cursorY += ctx.rowH
 
-template menuRoot*(label: string, width: float32) =
-  rectangle "menu root:" & label:
-    box width, 28
-    tint rgbx(50, 50, 65, 180)
-    onHover:
-      tint sk.theme.menuRootHoverColor
-    onClick:
-      if openMenu == label:
-        openMenu = ""
-      else:
-        openMenu = label
-    text "menu root text:" & label:
-      box 10, 5, width - 20, 18
-      characters label
-
 template menuItem*(label: string, body: untyped) =
   ## Leaf menu entry that runs `body` on click.
-  if menuLayouts.len > 0:
-    let ctx = sk.menuItemStart(window, label)
-    try:
-      if ctx.clicked:
-        body
-    finally:
-      sk.menuItemEnd(ctx)
-  else:
-    rectangle "menu item:" & label:
-      box 180, 28
-      tint sk.theme.menuItemBgColor
-      onHover:
-        tint sk.theme.menuItemHoverColor
-      onClick:
-        openMenu = ""
-        body
-      text "menu item text:" & label:
-        box 10, 5, 160, 18
-        characters label
-
-template popupMenu*(id: string, x, y, w, h: float32, body: untyped) =
-  frame "popup:" & id:
-    box x, y, w, h
-    patch "dropdown.9patch", 6
-    layout TopToBottom
-    horizontalPadding 6
-    verticalPadding 6
-    itemSpacing 4
-    body
+  let ctx = sk.menuItemStart(window, label)
+  try:
+    if ctx.clicked:
+      body
+  finally:
+    sk.menuItemEnd(ctx)

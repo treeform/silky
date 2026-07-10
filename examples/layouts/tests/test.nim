@@ -20,8 +20,8 @@ suite "Layouts - Overlap Test":
 
   test "buttons overlap - rects intersect":
     let
-      behind = sk.semantic.root.findByText("Behind", "Button")
-      inFront = sk.semantic.root.findByText("In Front", "Button")
+      behind = sk.semantic.root.findByName("behind", "Rectangle")
+      inFront = sk.semantic.root.findByName("front", "Rectangle")
     check inFront.rect.x < behind.rect.x + behind.rect.w
     check inFront.rect.x + inFront.rect.w > behind.rect.x
     check inFront.rect.y < behind.rect.y + behind.rect.h
@@ -29,14 +29,14 @@ suite "Layouts - Overlap Test":
 
   test "In Front button is rendered after Behind":
     let
-      behind = sk.semantic.root.findByText("Behind", "Button")
-      inFront = sk.semantic.root.findByText("In Front", "Button")
+      behind = sk.semantic.root.findByName("behind", "Rectangle")
+      inFront = sk.semantic.root.findByName("front", "Rectangle")
     check inFront.childIndex > behind.childIndex
 
   test "clicking in the overlapped zone triggers only In Front":
     let
-      behind = sk.semantic.root.findByText("Behind", "Button")
-      inFront = sk.semantic.root.findByText("In Front", "Button")
+      behind = sk.semantic.root.findByName("behind", "Rectangle")
+      inFront = sk.semantic.root.findByName("front", "Rectangle")
       intersection = behind.rect and inFront.rect
       overlapCenter = intersection.xy + intersection.wh * 0.5'f
 

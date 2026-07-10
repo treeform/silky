@@ -49,9 +49,9 @@ window.onFrame = proc() =
           box 0, 20, 100, 32
           patch "button.9patch", 6
           onHover:
-            tint sk.theme.buttonHoverColor
+            patch "button.hover.9patch", 6
           onDown:
-            tint sk.theme.buttonDownColor
+            patch "button.down.9patch", 6
           onClick:
             behindClicked = true
           text "behind label":
@@ -62,9 +62,9 @@ window.onFrame = proc() =
           box 15, 0, 100, 32
           patch "button.9patch", 6
           onHover:
-            tint sk.theme.buttonHoverColor
+            patch "button.hover.9patch", 6
           onDown:
-            tint sk.theme.buttonDownColor
+            patch "button.down.9patch", 6
           onClick:
             inFrontClicked = true
           text "front label":

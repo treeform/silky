@@ -116,9 +116,6 @@ var showWindow = true
 template calcDisplay(displayText: string) =
   let displayTextSize = sk.getTextSize("H1", displayText)
   rectangle "display":
-    semanticKind "Display"
-    semanticName "display"
-    semanticText displayText
     box 292, 60
     tint rgbx(50, 50, 50, 255)
     text "display text":
@@ -130,8 +127,6 @@ template calcDisplay(displayText: string) =
 template calcButton(label: string, body: untyped) =
   let buttonTextSize = sk.getTextSize("Default", label)
   rectangle "calc button:" & label:
-    semanticKind "Button"
-    semanticText label
     box 60, 50
     patch "button.9patch", 4
     onHover:

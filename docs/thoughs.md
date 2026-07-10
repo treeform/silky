@@ -60,28 +60,30 @@ Silky Menu Bar
 
 ```nim
 ui:
-  subWindow("My First Tool", myToolActive, vec2(100, 100), vec2(400, 500)):
-    menuBar:
-      menu "File":
-        menuItem "Open..", "Ctrl+O":
-          openFile()
-        menuItem "Save", "Ctrl+S":
-          saveFile()
-        menuItem "Close", "Ctrl+W":
-          myToolActive = false
+  menuBar:
+    menu "File":
+      menuItem "Open..":
+        openFile()
+      menuItem "Save":
+        saveFile()
+      menuItem "Close":
+        myToolActive = false
+    menu "Edit":
+      menuItem "Cut":
+        cut()
+      subMenu "More":
+        menuItem "Preferences":
+          openPrefs()
 
-    # Color and plot widgets are still evolving.
-    # Prefer nested text / frame for scrolling content:
+  text "important":
+    characters "Important Stuff"
+    tint rgbx(255, 255, 0, 255)
 
-    text "important":
-      characters "Important Stuff"
-      tint rgbx(255, 255, 0, 255)
-
-    frame "scrolling":
-      box 360, 200
-      for n in 0 ..< 50:
-        text "row" & $n:
-          characters &"{n:04d}: Some text"
+  frame "scrolling":
+    box 360, 200
+    for n in 0 ..< 50:
+      text "row" & $n:
+        characters &"{n:04d}: Some text"
 ```
 
 See [porting.md](porting.md) for moving older cursor-style Silky code to this DSL.
