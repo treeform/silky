@@ -14,6 +14,7 @@ const Examples = [
   "menu",
   "panels",
   "the7gui",
+  "todomvc",
 ]
 
 const

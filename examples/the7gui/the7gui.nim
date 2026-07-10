@@ -10,7 +10,7 @@ builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
 builder.write("dist/atlas.png")
 
 let window = newWindow(
-  "7GUIs - Counter",
+  "7GUIs",
   ivec2(800, 600),
   vsync = false
 )
@@ -19,7 +19,6 @@ loadExtensions()
 
 let sk = newSilky(window, "dist/atlas.png")
 
-# Set up a light theme for 7GUIs.
 sk.theme.defaultTextColor = parseHtmlColor("#2C3E50").rgbx
 sk.theme.disabledTextColor = parseHtmlColor("#95A5A6").rgbx
 sk.theme.errorTextColor = parseHtmlColor("#E74C3C").rgbx
@@ -68,200 +67,219 @@ var
   oldCrudSelected = -1
 
 proc isValidDate(s: string): bool =
-  ## Check if the string is a valid date.
   try:
     discard parse(s, "dd.MM.yyyy")
-    return true
+    true
   except:
-    return false
+    false
 
 proc parseDate(s: string): DateTime =
-  ## Parse a date string or return a safe default on failure.
   try:
-    return parse(s, "dd.MM.yyyy")
+    parse(s, "dd.MM.yyyy")
   except:
-    return dateTime(2000, Month(1), 1, 0, 0, 0, zone = utc())
+    dateTime(2000, Month(1), 1, 0, 0, 0, zone = utc())
 
 proc isValidFloat(s: string): bool =
-  ## Check if the string is a valid float.
   try:
     discard parseFloat(s)
-    return true
+    true
   except ValueError:
-    return false
+    false
 
 window.onFrame = proc() =
-
   sk.beginUI(window, window.size)
   sk.clearScreen(rgbx(30, 30, 30, 255))
 
-  # Update the timer elapsed time.
   let now = epochTime()
   let dt = now - lastFrameTime
   lastFrameTime = now
   timerElapsed = min(timerElapsed + dt, timerDuration)
 
-  subWindow("Challenges", showChallenges, vec2(10, 10), vec2(300, 450)):
-    button("Counter"): showCounter = not showCounter
-    button("Temperature Converter"): showTemperature = not showTemperature
-    button("Flight Booker"): showFlightBooker = not showFlightBooker
-    button("Timer"): showTimer = not showTimer
-    button("CRUD"): showCRUD = not showCRUD
-    button("Circle Drawer", false): showCircleDrawer = not showCircleDrawer
-    button("Cells", false): showCells = not showCells
+  ui:
+    subWindow("Challenges", showChallenges, vec2(10, 10), vec2(300, 450)):
+      button "Counter":
+        showCounter = not showCounter
+      button "Temperature Converter":
+        showTemperature = not showTemperature
+      button "Flight Booker":
+        showFlightBooker = not showFlightBooker
+      button "Timer":
+        showTimer = not showTimer
+      button "CRUD":
+        showCRUD = not showCRUD
+      button "Circle Drawer", false:
+        showCircleDrawer = not showCircleDrawer
+      button "Cells", false:
+        showCells = not showCells
 
-  subWindow("Counter", showCounter, vec2(320, 50), vec2(320, 200)):
-    text(&"{counter}")
-    button("Count"):
-      inc counter
+    subWindow("Counter", showCounter, vec2(320, 50), vec2(320, 200)):
+      text "counter value":
+        characters &"{counter}"
+      button "Count":
+        inc counter
 
-  subWindow("Temperature Converter", showTemperature, vec2(320, 60), vec2(320, 250)):
-    let cValid = isValidFloat(celsius)
-    let oldCelsius = celsius
-    text("Celsius")
-    textInput("celsius", celsius, true, not cValid)
-    if celsius != oldCelsius:
-      try:
-        let c = parseFloat(celsius)
-        let f = c * (9.0 / 5.0) + 32.0
-        fahrenheit = fmt"{f:.1f}"
-        if "fahrenheit" in textBoxStates:
-           textBoxStates["fahrenheit"].setText(fahrenheit)
-      except ValueError:
-        discard
+    subWindow("Temperature Converter", showTemperature, vec2(320, 60), vec2(320, 250)):
+      let cValid = isValidFloat(celsius)
+      let oldCelsius = celsius
+      text "celsius label":
+        characters "Celsius"
+      textInput "celsius", celsius, true, not cValid
+      if celsius != oldCelsius:
+        try:
+          let c = parseFloat(celsius)
+          let f = c * (9.0 / 5.0) + 32.0
+          fahrenheit = fmt"{f:.1f}"
+          if "fahrenheit" in textBoxStates:
+             textBoxStates["fahrenheit"].setText(fahrenheit)
+        except ValueError:
+          discard
 
-    let fValid = isValidFloat(fahrenheit)
-    let oldFahrenheit = fahrenheit
-    text("Fahrenheit")
-    textInput("fahrenheit", fahrenheit, true, not fValid)
-    if fahrenheit != oldFahrenheit:
-      try:
-        let f = parseFloat(fahrenheit)
-        let c = (f - 32.0) * (5.0 / 9.0)
-        celsius = fmt"{c:.1f}"
-        if "celsius" in textBoxStates:
-           textBoxStates["celsius"].setText(celsius)
-      except ValueError:
-        discard
+      let fValid = isValidFloat(fahrenheit)
+      let oldFahrenheit = fahrenheit
+      text "fahrenheit label":
+        characters "Fahrenheit"
+      textInput "fahrenheit", fahrenheit, true, not fValid
+      if fahrenheit != oldFahrenheit:
+        try:
+          let f = parseFloat(fahrenheit)
+          let c = (f - 32.0) * (5.0 / 9.0)
+          celsius = fmt"{c:.1f}"
+          if "celsius" in textBoxStates:
+             textBoxStates["celsius"].setText(celsius)
+        except ValueError:
+          discard
 
-  subWindow("Flight Booker", showFlightBooker, vec2(320, 70), vec2(350, 400)):
-    dropDown(flightType, ["one-way flight", "return flight"])
+    subWindow("Flight Booker", showFlightBooker, vec2(320, 70), vec2(350, 400)):
+      dropDown flightType, ["one-way flight", "return flight"]
 
-    let startValid = isValidDate(startDateStr)
-    text("Start Date")
-    textInput("startDate", startDateStr, true, not startValid)
+      let startValid = isValidDate(startDateStr)
+      text "start label":
+        characters "Start Date"
+      textInput "startDate", startDateStr, true, not startValid
 
-    let isReturn = flightType == "return flight"
-    let returnValid = isValidDate(returnDateStr)
-    text("Return Date")
-    textInput("returnDate", returnDateStr, isReturn, isReturn and not returnValid)
+      let isReturn = flightType == "return flight"
+      let returnValid = isValidDate(returnDateStr)
+      text "return label":
+        characters "Return Date"
+      textInput "returnDate", returnDateStr, isReturn, isReturn and not returnValid
 
-    var dateOrderError = false
-    if isReturn and startValid and returnValid:
-      let start = parseDate(startDateStr)
-      let ret = parseDate(returnDateStr)
-      if ret < start:
-        dateOrderError = true
+      var dateOrderError = false
+      if isReturn and startValid and returnValid:
+        let start = parseDate(startDateStr)
+        let ret = parseDate(returnDateStr)
+        if ret < start:
+          dateOrderError = true
 
-    var canBook = startValid and (not isReturn or (returnValid and not dateOrderError))
+      let canBook = startValid and (not isReturn or (returnValid and not dateOrderError))
 
-    button("Book", canBook, dateOrderError):
-      if flightType == "one-way flight":
-        bookedMessage = &"You have booked a one-way flight on {startDateStr}."
-      else:
-        bookedMessage = &"You have booked a return flight departing on {startDateStr} and returning on {returnDateStr}."
+      button "Book", canBook, dateOrderError:
+        if flightType == "one-way flight":
+          bookedMessage = &"You have booked a one-way flight on {startDateStr}."
+        else:
+          bookedMessage = &"You have booked a return flight departing on {startDateStr} and returning on {returnDateStr}."
 
-    if dateOrderError:
-      text("Return date cannot be before start date.")
-    elif bookedMessage != "":
-      text(bookedMessage)
+      if dateOrderError:
+        text "date order error":
+          characters "Return date cannot be before start date."
+      elif bookedMessage != "":
+        text "booked message":
+          characters bookedMessage
 
-  subWindow("Timer", showTimer, vec2(320, 80), vec2(300, 250)):
-    text(&"Elapsed Time: {timerElapsed:.1f}s")
-    progressBar(timerElapsed, 0, timerDuration)
-    text("Duration:")
-    scrubber("timer_scrubber", timerDuration, 0.1, 60.0)
-    button("Reset"):
-      timerElapsed = 0.0
+    subWindow("Timer", showTimer, vec2(320, 80), vec2(300, 250)):
+      text "elapsed":
+        characters &"Elapsed Time: {timerElapsed:.1f}s"
+      progressBar timerElapsed, 0, timerDuration
+      text "duration label":
+        characters "Duration:"
+      scrubber "timer_scrubber", timerDuration, 0.1, 60.0
+      button "Reset":
+        timerElapsed = 0.0
 
-  subWindow("CRUD", showCRUD, vec2(150, 150), vec2(400, 450)):
-    text("Filter prefix:")
-    textInput("crudPrefix", crudPrefix)
+    subWindow("CRUD", showCRUD, vec2(150, 150), vec2(400, 450)):
+      text "filter label":
+        characters "Filter prefix:"
+      textInput "crudPrefix", crudPrefix
 
-    # Filter database based on prefix using case insensitive comparison.
-    var filteredItems: seq[string]
-    var originalIndices: seq[int]
-    for i, person in crudDatabase:
-      if crudPrefix == "" or person.toLowerAscii().startsWith(crudPrefix.toLowerAscii()):
-        filteredItems.add(person)
-        originalIndices.add(i)
+      var filteredItems: seq[string]
+      var originalIndices: seq[int]
+      for i, person in crudDatabase:
+        if crudPrefix == "" or person.toLowerAscii().startsWith(crudPrefix.toLowerAscii()):
+          filteredItems.add(person)
+          originalIndices.add(i)
 
-    # If selection is out of bounds for the filtered list, reset it.
-    if crudSelected >= filteredItems.len:
-      crudSelected = -1
+      if crudSelected >= filteredItems.len:
+        crudSelected = -1
 
-    listBox("crud_list", filteredItems, crudSelected)
+      listBox "crud_list", filteredItems, crudSelected
 
-    # If selection changed, sync the name and surname fields.
-    if crudSelected != oldCrudSelected:
-      if crudSelected != -1 and crudSelected < filteredItems.len:
-        let person = filteredItems[crudSelected]
-        let parts = person.split(", ")
-        if parts.len == 2:
-          crudSurname = parts[0]
-          crudName = parts[1]
-      else:
-        # Clear fields when selection is lost.
-        crudName = ""
-        crudSurname = ""
-
-      # Sync back to input text states to update display immediately.
-      if "crudName" in textBoxStates: textBoxStates["crudName"].setText(crudName)
-      if "crudSurname" in textBoxStates: textBoxStates["crudSurname"].setText(crudSurname)
-      oldCrudSelected = crudSelected
-
-    text("Name:")
-    textInput("crudName", crudName)
-    text("Surname:")
-    textInput("crudSurname", crudSurname)
-
-    let canUpdateDelete = crudSelected != -1
-    let originalIdx = if canUpdateDelete: originalIndices[crudSelected] else: -1
-
-    group(vec2(0, 0), LeftToRight):
-      button("Create"):
-        if crudName != "" and crudSurname != "":
-          crudDatabase.add(crudSurname & ", " & crudName)
+      if crudSelected != oldCrudSelected:
+        if crudSelected != -1 and crudSelected < filteredItems.len:
+          let person = filteredItems[crudSelected]
+          let parts = person.split(", ")
+          if parts.len == 2:
+            crudSurname = parts[0]
+            crudName = parts[1]
+        else:
           crudName = ""
           crudSurname = ""
 
-      button("Update", canUpdateDelete):
-        if crudName != "" and crudSurname != "":
-          crudDatabase[originalIdx] = crudSurname & ", " & crudName
+        if "crudName" in textBoxStates: textBoxStates["crudName"].setText(crudName)
+        if "crudSurname" in textBoxStates: textBoxStates["crudSurname"].setText(crudSurname)
+        oldCrudSelected = crudSelected
 
-      button("Delete", canUpdateDelete):
-        crudDatabase.delete(originalIdx)
-        crudSelected = -1
-        crudName = ""
-        crudSurname = ""
-        if "crudName" in textBoxStates: textBoxStates["crudName"].setText("")
-        if "crudSurname" in textBoxStates: textBoxStates["crudSurname"].setText("")
+      text "name label":
+        characters "Name:"
+      textInput "crudName", crudName
+      text "surname label":
+        characters "Surname:"
+      textInput "crudSurname", crudSurname
 
-  subWindow("Circle Drawer", showCircleDrawer, vec2(160, 160), vec2(400, 400)):
-    text("Coming soon...")
+      let canUpdateDelete = crudSelected != -1
+      let originalIdx = if canUpdateDelete: originalIndices[crudSelected] else: -1
 
-  subWindow("Cells", showCells, vec2(170, 170), vec2(500, 400)):
-    text("Coming soon...")
+      group "crud actions":
+        box 340, 42
+        layout LeftToRight
+        itemSpacing 8
+        button "Create":
+          if crudName != "" and crudSurname != "":
+            crudDatabase.add(crudSurname & ", " & crudName)
+            crudName = ""
+            crudSurname = ""
 
-  if not showChallenges and not showCounter and not showTemperature and not showFlightBooker and not showTimer and not showCRUD and not showCircleDrawer and not showCells:
-    if window.buttonPressed[MouseLeft]:
-      showChallenges = true
-    sk.at = vec2(100, 100)
-    text("Click anywhere to show the Challenges window")
+        button "Update", canUpdateDelete:
+          if crudName != "" and crudSurname != "":
+            crudDatabase[originalIdx] = crudSurname & ", " & crudName
 
-  let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+        button "Delete", canUpdateDelete:
+          crudDatabase.delete(originalIdx)
+          crudSelected = -1
+          crudName = ""
+          crudSurname = ""
+          if "crudName" in textBoxStates: textBoxStates["crudName"].setText("")
+          if "crudSurname" in textBoxStates: textBoxStates["crudSurname"].setText("")
+
+    subWindow("Circle Drawer", showCircleDrawer, vec2(160, 160), vec2(400, 400)):
+      text "circle soon":
+        characters "Coming soon..."
+
+    subWindow("Cells", showCells, vec2(170, 170), vec2(500, 400)):
+      text "cells soon":
+        characters "Coming soon..."
+
+    if not showChallenges and not showCounter and not showTemperature and
+        not showFlightBooker and not showTimer and not showCRUD and
+        not showCircleDrawer and not showCells:
+      text "restore prompt":
+        box 100, 100, 440, 28
+        characters "Click anywhere to show the Challenges window"
+      if window.buttonPressed[MouseLeft]:
+        showChallenges = true
+
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, 20, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()

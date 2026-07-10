@@ -22,6 +22,9 @@ loadExtensions()
 const
   BackgroundColor = parseHtmlColor("#1a1a2e").rgbx
   NumItems = 50
+  Margin = 20.0f
+  SliderLabelWidth = 60.0f
+  SliderWidth = 300.0f
 
 let sk = newSilky(window, "tests/dist/atlas.png")
 
@@ -35,73 +38,72 @@ window.onFrame = proc() =
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)
 
-  const
-    Margin = 20.0f
-    SliderLabelWidth = 60.0f
-    SliderWidth = 300.0f
+  ui:
+    text "title":
+      box Margin, Margin, 700, 24
+      characters "Flow Grid Example - Resize the frame to see elements reflow"
 
-  # Title.
-  sk.at = vec2(Margin, Margin)
-  text("Flow Grid Example - Resize the frame to see elements reflow")
+    text "blurb":
+      box Margin, 50, 700, 24
+      characters "Drag the sliders to resize the frame. Elements wrap automatically."
 
-  # Instructions.
-  sk.at = vec2(Margin, 50)
-  text("Drag the sliders to resize the frame. Elements wrap automatically.")
+    text "width label":
+      box Margin, 80, SliderLabelWidth, 24
+      characters "Width:"
+    group "width slider":
+      box Margin + SliderLabelWidth, 80, SliderWidth, 24
+      scrubber("width", frameWidth, 200.0, 600.0)
 
-  # Width slider with fixed width frame.
-  sk.at = vec2(Margin, 80)
-  text("Width:")
-  sk.pushLayout(vec2(Margin + SliderLabelWidth, 80), vec2(SliderWidth, 24))
-  scrubber("width", frameWidth, 200.0, 600.0)
-  sk.popLayout()
+    text "height label":
+      box Margin, 110, SliderLabelWidth, 24
+      characters "Height:"
+    group "height slider":
+      box Margin + SliderLabelWidth, 110, SliderWidth, 24
+      scrubber("height", frameHeight, 100.0, 500.0)
 
-  # Height slider with fixed width frame.
-  sk.at = vec2(Margin, 110)
-  text("Height:")
-  sk.pushLayout(vec2(Margin + SliderLabelWidth, 110), vec2(SliderWidth, 24))
-  scrubber("height", frameHeight, 100.0, 500.0)
-  sk.popLayout()
-
-  # Scrollable frame with flowing icon buttons.
-  let framePos = vec2(Margin, 150)
-  let frameSize = vec2(frameWidth, frameHeight)
-
-  frame("flowFrame", framePos, frameSize):
     let
-      buttonWidth = 32.0f + sk.padding
-      margin = 12.0f
-      scrollbarWidth = 16.0f
-      startX = sk.at.x
+      framePos = vec2(Margin, 150)
+      frameSize = vec2(frameWidth, frameHeight)
 
+    frame "flowFrame":
+      box framePos.x, framePos.y, frameSize.x, frameSize.y
+      let
+        buttonWidth = 32.0f + sk.padding
+        margin = 12.0f
+        scrollbarWidth = 16.0f
+        startX = sk.at.x
+
+      for i in 0 ..< NumItems:
+        # Check if we need to wrap to the next line, accounting for scrollbar.
+        if sk.at.x + buttonWidth > sk.pos.x + sk.size.x - margin - scrollbarWidth:
+          sk.at.x = startX
+          sk.at.y += 32 + margin
+
+        let icon =
+          if i mod 2 == 0:
+            "heart"
+          else:
+            "cloud"
+        iconButton(icon):
+          clickedItems[i] = not clickedItems[i]
+          echo "Clicked item ", i
+
+    var clickCount = 0
     for i in 0 ..< NumItems:
-      # Check if we need to wrap to the next line, accounting for scrollbar.
-      if sk.at.x + buttonWidth > sk.pos.x + sk.size.x - margin - scrollbarWidth:
-        sk.at.x = startX
-        sk.at.y += 32 + margin
+      if clickedItems[i]:
+        inc clickCount
 
-      let icon =
-        if i mod 2 == 0:
-          "heart"
-        else:
-          "cloud"
-      iconButton(icon):
-        clickedItems[i] = not clickedItems[i]
-        echo "Clicked item ", i
+    text "status label":
+      box framePos.x + frameWidth + 20, 150, 200, 24
+      characters "Click status:"
+    text "status count":
+      box framePos.x + frameWidth + 20, 174, 200, 24
+      characters &"{clickCount} / {NumItems} items clicked"
 
-  # Show click status.
-  sk.at = vec2(framePos.x + frameWidth + 20, 150)
-  text("Click status:")
-  sk.at.y += 24
-  var clickCount = 0
-  for i in 0 ..< NumItems:
-    if clickedItems[i]:
-      inc clickCount
-  text(&"{clickCount} / {NumItems} items clicked")
-
-  # Frame time display.
-  let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, 20, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()

@@ -2,7 +2,7 @@
 ## Hover over each box to see how tooltips clamp to the window.
 
 import
-  windy, bumpy, vmath, chroma,
+  windy, bumpy, pixie, vmath, chroma,
   silky
 
 const
@@ -39,29 +39,27 @@ loadExtensions()
 
 let sk = newSilky(window, "tests/dist/atlas.png")
 
-proc hoverBox(pos: Vec2, size: Vec2, label: string, tip: string) =
+template hoverBox(
+  nodeId: static string,
+  pos: Vec2,
+  size: Vec2,
+  label: string,
+  tip: string
+) =
   ## Draw a labeled box that shows a tooltip when hovered.
-  let
-    boxRect = rect(pos, size)
-    hovered = sk.mouseHover(window, boxRect)
-    color =
-      if hovered:
-        BoxHoverColor
-      else:
-        BoxColor
-  sk.drawRect(pos, size, color)
-  let textSize = sk.getTextSize(sk.textStyle, label)
-  discard sk.drawText(
-    sk.textStyle,
-    label,
-    pos + (size - textSize) * 0.5,
-    sk.theme.defaultTextColor
-  )
-  if hovered:
-    sk.hover = true
-    if sk.shouldShowTooltip:
-      sk.tooltipAnchor = boxRect
-      tooltip(tip)
+  rectangle nodeId:
+    box pos.x, pos.y, size.x, size.y
+    tint BoxColor
+    onHover:
+      tint BoxHoverColor
+      sk.hover = true
+      if sk.shouldShowTooltip:
+        sk.tooltipAnchor = sk.scopeRect()
+        tooltip(tip)
+    text nodeId & ".label":
+      box 0, 0, size.x, size.y
+      characters label
+      textAlign CenterAlign, MiddleAlign
 
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
@@ -73,94 +71,72 @@ window.onFrame = proc() =
     centerY = (winSize.y - BoxSize.y) * 0.5
     edgeMargin = 4.0
 
-  # Top-left corner box.
-  hoverBox(
-    vec2(edgeMargin, edgeMargin),
-    BoxSize,
-    "TL",
-    "Top-left corner tooltip."
-  )
+  ui:
+    hoverBox(
+      "tl",
+      vec2(edgeMargin, edgeMargin),
+      BoxSize,
+      "TL",
+      "Top-left corner tooltip."
+    )
+    hoverBox(
+      "tr",
+      vec2(winSize.x - BoxSize.x - edgeMargin, edgeMargin),
+      BoxSize,
+      "TR",
+      "Top-right corner tooltip."
+    )
+    hoverBox(
+      "bl",
+      vec2(edgeMargin, winSize.y - BoxSize.y - edgeMargin),
+      BoxSize,
+      "BL",
+      "Bottom-left corner tooltip."
+    )
+    hoverBox(
+      "br",
+      vec2(winSize.x - BoxSize.x - edgeMargin, winSize.y - BoxSize.y - edgeMargin),
+      BoxSize,
+      "BR",
+      "Bottom-right corner tooltip."
+    )
+    hoverBox(
+      "top",
+      vec2(centerX, edgeMargin),
+      BoxSize,
+      "Top",
+      "Top edge tooltip."
+    )
+    hoverBox(
+      "bottom",
+      vec2(centerX, winSize.y - BoxSize.y - edgeMargin),
+      BoxSize,
+      "Bottom",
+      "Bottom edge tooltip."
+    )
+    hoverBox(
+      "left",
+      vec2(edgeMargin, centerY),
+      BoxSize,
+      "Left",
+      "Left edge tooltip."
+    )
+    hoverBox(
+      "right",
+      vec2(winSize.x - BoxSize.x - edgeMargin, centerY),
+      BoxSize,
+      "Right",
+      "Right edge tooltip."
+    )
 
-  # Top-right corner box.
-  hoverBox(
-    vec2(winSize.x - BoxSize.x - edgeMargin, edgeMargin),
-    BoxSize,
-    "TR",
-    "Top-right corner tooltip."
-  )
-
-  # Bottom-left corner box.
-  hoverBox(
-    vec2(edgeMargin, winSize.y - BoxSize.y - edgeMargin),
-    BoxSize,
-    "BL",
-    "Bottom-left corner tooltip."
-  )
-
-  # Bottom-right corner box.
-  hoverBox(
-    vec2(winSize.x - BoxSize.x - edgeMargin, winSize.y - BoxSize.y - edgeMargin),
-    BoxSize,
-    "BR",
-    "Bottom-right corner tooltip."
-  )
-
-  # Top edge box, tooltip must flip down or clamp.
-  hoverBox(
-    vec2(centerX, edgeMargin),
-    BoxSize,
-    "Top",
-    "Top edge tooltip."
-  )
-
-  # Bottom edge box, tooltip must flip up above the mouse.
-  hoverBox(
-    vec2(centerX, winSize.y - BoxSize.y - edgeMargin),
-    BoxSize,
-    "Bottom",
-    "Bottom edge tooltip."
-  )
-
-  # Left edge box, tooltip must stay on screen horizontally.
-  hoverBox(
-    vec2(edgeMargin, centerY),
-    BoxSize,
-    "Left",
-    "Left edge tooltip."
-  )
-
-  # Right edge box, tooltip must clamp to the right window edge.
-  hoverBox(
-    vec2(winSize.x - BoxSize.x - edgeMargin, centerY),
-    BoxSize,
-    "Right",
-    "Right edge tooltip."
-  )
-
-  # Center boxes test content that is too wide or too tall.
-  let
-    centerGap = 16.0
-    centerRowY = centerY
-    centerLeftX = centerX - BoxSize.x - centerGap
-    centerRightX = centerX + BoxSize.x + centerGap
-  hoverBox(
-    vec2(centerLeftX, centerRowY),
-    BoxSize,
-    "Wide",
-    LongText
-  )
-  hoverBox(
-    vec2(centerX, centerRowY),
-    BoxSize,
-    "Tall",
-    TallText
-  )
-  hoverBox(
-    vec2(centerRightX, centerRowY),
-    BoxSize,
-    "Huge",
-    HugeText
-  )
+    let
+      centerGap = 16.0
+      centerRowY = centerY
+      centerLeftX = centerX - BoxSize.x - centerGap
+      centerRightX = centerX + BoxSize.x + centerGap
+    hoverBox("wide", vec2(centerLeftX, centerRowY), BoxSize, "Wide", LongText)
+    hoverBox("tall", vec2(centerX, centerRowY), BoxSize, "Tall", TallText)
+    hoverBox("huge", vec2(centerRightX, centerRowY), BoxSize, "Huge", HugeText)
 
   sk.endUi()
   window.swapBuffers()

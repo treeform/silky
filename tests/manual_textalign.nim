@@ -10,7 +10,12 @@ import
 let builder = newAtlasBuilder(1024, 4)
 builder.addDir("tests/data/", "tests/data/")
 builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "H1", 32.0)
-builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Default", 18.0, subpixelSteps = 10)
+builder.addFont(
+  "tests/data/IBMPlexSans-Regular.ttf",
+  "Default",
+  18.0,
+  subpixelSteps = 10
+)
 builder.write("tests/dist/atlas.png")
 
 let window = newWindow(
@@ -26,6 +31,7 @@ const
   AreaBgColor = parseHtmlColor("#2a2a3e").rgbx
   SampleText = "The quick brown fox jumps over the lazy dog."
   MultiLineText = "Left or right,\ncenter if you like.\nThree lines of text."
+  Margin = 20.0f
 
 let sk = newSilky(window, "tests/dist/atlas.png")
 
@@ -37,90 +43,99 @@ window.onFrame = proc() =
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)
 
-  const Margin = 20.0f
+  ui:
+    text "title":
+      box Margin, Margin, window.size.x.float32 - Margin * 2, 40
+      characters "Text Alignment"
+      font "H1"
+      tint sk.theme.textH1Color
+      textAlign CenterAlign, TopAlign
 
-  # Centered title.
-  let titleSize = sk.getTextSize("H1", "Text Alignment")
-  discard sk.drawText(
-    "H1", "Text Alignment",
-    vec2(Margin, Margin),
-    sk.theme.textH1Color,
-    window.size.x.float32 - Margin * 2,
-    hAlign = CenterAlign
-  )
+    group "controls":
+      box Margin, 70, window.size.x.float32 - Margin * 2, 90
+      layout TopToBottom
+      itemSpacing 8
+      text "h label":
+        characters "Horizontal:"
+      group "h radios":
+        box 400, 28
+        layout LeftToRight
+        itemSpacing 12
+        radioButton "Left", hAlignVal, 0
+        radioButton "Center", hAlignVal, 1
+        radioButton "Right", hAlignVal, 2
+      text "v label":
+        characters "Vertical:"
+      group "v radios":
+        box 400, 28
+        layout LeftToRight
+        itemSpacing 12
+        radioButton "Top", vAlignVal, 0
+        radioButton "Middle", vAlignVal, 1
+        radioButton "Bottom", vAlignVal, 2
 
-  # Horizontal alignment radio buttons.
-  sk.at = vec2(Margin, Margin + titleSize.y + 16)
-  text("Horizontal:")
-  group(vec2(0, 0), LeftToRight):
-    radioButton("Left", hAlignVal, 0)
-    radioButton("Center", hAlignVal, 1)
-    radioButton("Right", hAlignVal, 2)
+    let
+      controlsBottom = 180.0f
+      areaPos = vec2(Margin, controlsBottom)
+      areaW = window.size.x.float32 - Margin * 2
+      areaH = window.size.y.float32 - controlsBottom - Margin
+      areaSize = vec2(areaW, areaH)
+      ha =
+        case hAlignVal:
+        of 0:
+          LeftAlign
+        of 1:
+          CenterAlign
+        of 2:
+          RightAlign
+        else:
+          LeftAlign
+      va =
+        case vAlignVal:
+        of 0:
+          TopAlign
+        of 1:
+          MiddleAlign
+        of 2:
+          BottomAlign
+        else:
+          TopAlign
 
-  # Vertical alignment radio buttons.
-  text("Vertical:")
-  group(vec2(0, 0), LeftToRight):
-    radioButton("Top", vAlignVal, 0)
-    radioButton("Middle", vAlignVal, 1)
-    radioButton("Bottom", vAlignVal, 2)
+    sk.drawRect(areaPos, areaSize, AreaBgColor)
 
-  # Text display area.
-  let
-    controlsBottom = sk.at.y + 8
-    areaPos = vec2(Margin, controlsBottom)
-    areaW = window.size.x.float32 - Margin * 2
-    areaH = window.size.y.float32 - controlsBottom - Margin
-    areaSize = vec2(areaW, areaH)
-    ha =
-      case hAlignVal:
-      of 0:
-        LeftAlign
-      of 1:
-        CenterAlign
-      of 2:
-        RightAlign
-      else:
-        LeftAlign
-    va =
-      case vAlignVal:
-      of 0:
-        TopAlign
-      of 1:
-        MiddleAlign
-      of 2:
-        BottomAlign
-      else:
-        TopAlign
+    discard sk.drawText(
+      "Default",
+      SampleText,
+      areaPos + vec2(12, 12),
+      sk.theme.textColor,
+      areaW - 24,
+      (areaH - 24) * 0.4,
+      hAlign = ha,
+      vAlign = va
+    )
 
-  # Draw area background.
-  sk.drawRect(areaPos, areaSize, AreaBgColor)
+    let divY = areaPos.y + areaH * 0.45
+    sk.drawRect(
+      vec2(areaPos.x + 8, divY),
+      vec2(areaW - 16, 1),
+      rgbx(100, 100, 120, 255)
+    )
 
-  # Single line sample.
-  discard sk.drawText(
-    "Default", SampleText,
-    areaPos + vec2(12, 12),
-    sk.theme.textColor,
-    areaW - 24, (areaH - 24) * 0.4,
-    hAlign = ha, vAlign = va
-  )
+    discard sk.drawText(
+      "Default",
+      MultiLineText,
+      vec2(areaPos.x + 12, divY + 12),
+      sk.theme.textColor,
+      areaW - 24,
+      areaH * 0.55 - 24,
+      hAlign = ha,
+      vAlign = va
+    )
 
-  # Divider line.
-  let divY = areaPos.y + areaH * 0.45
-  sk.drawRect(vec2(areaPos.x + 8, divY), vec2(areaW - 16, 1), rgbx(100, 100, 120, 255))
-
-  # Multi-line sample.
-  discard sk.drawText(
-    "Default", MultiLineText,
-    vec2(areaPos.x + 12, divY + 12),
-    sk.theme.textColor,
-    areaW - 24, areaH * 0.55 - 24,
-    hAlign = ha, vAlign = va
-  )
-
-  # Frame time.
-  let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, Margin, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()

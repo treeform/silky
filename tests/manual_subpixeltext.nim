@@ -14,7 +14,12 @@ let builder = newAtlasBuilder(2048, 4)
 builder.addDir("tests/data/", "tests/data/")
 builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Default", 18.0)
 builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Regular", 18.0)
-builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Subpixel", 18.0, subpixelSteps = 10)
+builder.addFont(
+  "tests/data/IBMPlexSans-Regular.ttf",
+  "Subpixel",
+  18.0,
+  subpixelSteps = 10
+)
 builder.write("tests/dist/atlas.png")
 
 let window = newWindow(
@@ -27,6 +32,8 @@ loadExtensions()
 
 const
   BackgroundColor = parseHtmlColor("#1a1a2e").rgbx
+  Margin = 30.0f
+  SliderWidth = 600.0f
 
 let sk = newSilky(window, "tests/dist/atlas.png")
 
@@ -36,52 +43,48 @@ window.onFrame = proc() =
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)
 
-  const
-    Margin = 30.0f
-    SliderWidth = 600.0f
+  ui:
+    text "title":
+      box Margin, Margin, 500, 24
+      characters "Subpixel Text Positioning"
 
-  # Title.
-  sk.at = vec2(Margin, Margin)
-  text("Subpixel Text Positioning")
+    text "blurb":
+      box Margin, 70, 740, 24
+      characters "Drag the slider to move the text. Compare regular vs subpixel rendering."
 
-  # Explanation.
-  sk.at = vec2(Margin, 70)
-  text("Drag the slider to move the text. Compare regular vs subpixel rendering.")
+    text "offset label":
+      box Margin, 110, 300, 24
+      characters &"Offset: {textOffset:>6.2f} px"
 
-  # Big slider.
-  sk.at = vec2(Margin, 110)
-  text(&"Offset: {textOffset:>6.2f} px")
-  sk.pushLayout(vec2(Margin, 140), vec2(SliderWidth, 32))
-  scrubber("offset", textOffset, 0.0, 20.0)
-  sk.popLayout()
+    group "slider":
+      box Margin, 140, SliderWidth, 32
+      scrubber("offset", textOffset, 0.0, 20.0)
 
-  # Pixel-snapped font (snaps to integer pixels).
-  sk.at = vec2(Margin, 200)
-  text("Pixel-snapped:")
-  sk.at = vec2(Margin + textOffset, 225)
-  sk.textStyle = "Regular"
-  text("The quick brown fox jumps over the lazy dog.")
+    text "snapped label":
+      box Margin, 200, 300, 24
+      characters "Pixel-snapped:"
+    text "snapped sample":
+      box Margin + textOffset, 225, 700, 24
+      characters "The quick brown fox jumps over the lazy dog."
+      font "Regular"
 
-  # Bilinear filtered (GPU interpolation causes blur).
-  sk.at = vec2(Margin, 260)
-  sk.textStyle = "Default"
-  text("Bilinear filtered:")
-  sk.drawImage("text", vec2(Margin + textOffset, 285))
+    text "bilinear label":
+      box Margin, 260, 300, 24
+      characters "Bilinear filtered:"
+    sk.drawImage("text", vec2(Margin + textOffset, 285))
 
-  # Subpixel rendered font.
-  sk.at = vec2(Margin, 320)
-  text("Subpixel rendered:")
-  sk.at = vec2(Margin + textOffset, 345)
-  sk.textStyle = "Subpixel"
-  text("The quick brown fox jumps over the lazy dog.")
+    text "subpixel label":
+      box Margin, 320, 300, 24
+      characters "Subpixel rendered:"
+    text "subpixel sample":
+      box Margin + textOffset, 345, 700, 24
+      characters "The quick brown fox jumps over the lazy dog."
+      font "Subpixel"
 
-  # Reset to default font.
-  sk.textStyle = "Default"
-
-  # Frame time display.
-  let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 200, Margin)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 200, Margin, 180, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()

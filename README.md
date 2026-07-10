@@ -41,10 +41,11 @@ let sk = newSilky(window, "dist/atlas.png")
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
 
-  # Your UI code here
-  text("Hello Silky!")
-  button("Click me"):
-    echo "Clicked!"
+  ui:
+    text "hello":
+      characters "Hello Silky!"
+    button "Click me":
+      echo "Clicked!"
 
   sk.endUi()
   window.swapBuffers()
@@ -53,6 +54,8 @@ while not window.closeRequested:
   pollEvents()
 ```
 To run this example, you'll need a `data` directory with a `button.9patch.png` file and an `IBMPlexSans-Regular.ttf` font file in it — both are available in the examples.
+
+See [docs/porting.md](docs/porting.md) for moving older cursor-style Silky UI to this Fidget-style DSL.
 
 ## Supported APIs
 

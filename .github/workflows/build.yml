@@ -49,8 +49,8 @@ jobs:
       - name: Run unit tests
         if: ${{ !matrix.emscripten }}
         run: |
-          nim r tests/test_semantic.nim
           nim r tests/test_textboxes.nim
+          nim r tests/test_atlas_png.nim
 
       - name: Compile examples
         if: ${{ !matrix.emscripten }}
@@ -61,6 +61,7 @@ jobs:
           nim c ${{ matrix.build_flags }} examples/menu/menu.nim
           nim c ${{ matrix.build_flags }} examples/panels/panels.nim
           nim c ${{ matrix.build_flags }} examples/the7gui/the7gui.nim
+          nim c ${{ matrix.build_flags }} examples/todomvc/todomvc.nim
 
       - name: Compile examples (Emscripten)
         if: matrix.emscripten
@@ -72,6 +73,7 @@ jobs:
           (cd examples/menu && nim c -d:emscripten menu.nim)
           (cd examples/panels && nim c -d:emscripten panels.nim)
           (cd examples/the7gui && nim c -d:emscripten the7gui.nim)
+          (cd examples/todomvc && nim c -d:emscripten todomvc.nim)
 
       - name: Run example tests
         if: ${{ !matrix.emscripten }}
@@ -84,6 +86,7 @@ jobs:
           (cd examples/menu && nim r tests/test.nim)
           (cd examples/panels && nim r tests/test.nim)
           (cd examples/the7gui && nim r tests/test.nim)
+          (cd examples/todomvc && nim r tests/test.nim)
 
       - name: Run atlas tests
         if: ${{ !matrix.emscripten }}
