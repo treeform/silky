@@ -83,6 +83,8 @@ type
     textCacheValid: bool
     displayCache: string
     displayCacheValid: bool
+    displayCachePassword: bool
+    displayCachePasswordChar: Rune
 
 var
   textBoxStates*: Table[string, TextBoxState]
@@ -128,7 +130,10 @@ proc getText*(state: TextBoxState): string =
 
 proc displayText*(state: TextBoxState): lent string =
   ## Returns the text to display. In password mode, all chars are masked.
-  if not state.displayCacheValid:
+  if not state.displayCacheValid or
+      state.displayCachePassword != state.password or
+      (state.password and
+        state.displayCachePasswordChar != state.passwordChar):
     if state.password:
       state.displayCache.setLen(0)
       for _ in state.runes:
@@ -136,6 +141,8 @@ proc displayText*(state: TextBoxState): lent string =
     else:
       state.displayCache = state.getText()
     state.displayCacheValid = true
+    state.displayCachePassword = state.password
+    state.displayCachePasswordChar = state.passwordChar
   state.displayCache
 
 proc sameText*(state: TextBoxState, text: string): bool =
@@ -878,7 +885,10 @@ proc textBox*(
     state.password = password
     state.dirty = true
     state.displayCacheValid = false
-  state.passwordChar = passwordChar
+  if state.passwordChar != passwordChar:
+    state.passwordChar = passwordChar
+    state.dirty = true
+    state.displayCacheValid = false
   if state.singleLine != singleLine:
     state.singleLine = singleLine
     state.dirty = true
