@@ -2,50 +2,8 @@ import
   std/math,
   pixie, vmath, windy
 
-when defined(windows):
-  import windy/platforms/win32/windefs
-
 const
   BackendName* = "CPU"
-
-when defined(windows):
-  const
-    BiRgb = 0'i32
-    DibRgbColors = 0'u32
-    SrcCopy = 0x00CC0020'i32
-
-  type
-    BitmapInfoHeader {.pure.} = object
-      biSize: DWORD
-      biWidth: LONG
-      biHeight: LONG
-      biPlanes: WORD
-      biBitCount: WORD
-      biCompression: DWORD
-      biSizeImage: DWORD
-      biXPelsPerMeter: LONG
-      biYPelsPerMeter: LONG
-      biClrUsed: DWORD
-      biClrImportant: DWORD
-
-    BitmapInfo {.pure.} = object
-      bmiHeader: BitmapInfoHeader
-
-  proc StretchDIBits(
-    hdc: HDC,
-    xDest: int32,
-    yDest: int32,
-    destWidth: int32,
-    destHeight: int32,
-    xSrc: int32,
-    ySrc: int32,
-    srcWidth: int32,
-    srcHeight: int32,
-    bits: pointer,
-    bitmapInfo: ptr BitmapInfo,
-    usage: UINT,
-    rop: DWORD
-  ): int32 {.stdcall, dynlib: "Gdi32", importc: "StretchDIBits".}
 
 type
   DrawerVertex* {.packed.} = object
@@ -85,44 +43,10 @@ proc ensureFramebuffer(drawer: Drawer, size: Vec2) =
 
 proc presentFramebuffer(drawer: Drawer) =
   ## Presents the CPU framebuffer when the platform exposes a pixel path.
-  when defined(windows):
+  when defined(windows) or defined(macosx):
     if drawer.framebuffer == nil:
       return
-    var bitmapInfo = BitmapInfo(
-      bmiHeader: BitmapInfoHeader(
-        biSize: DWORD(sizeof(BitmapInfoHeader)),
-        biWidth: LONG(drawer.framebuffer.width),
-        biHeight: LONG(-drawer.framebuffer.height),
-        biPlanes: 1,
-        biBitCount: 32,
-        biCompression: BiRgb,
-        biSizeImage: DWORD(
-          drawer.framebuffer.width * drawer.framebuffer.height * 4
-        ),
-        biXPelsPerMeter: 0,
-        biYPelsPerMeter: 0,
-        biClrUsed: 0,
-        biClrImportant: 0
-      )
-    )
-    let hdc = GetDC(drawer.window.getHWND())
-    if hdc != 0:
-      discard StretchDIBits(
-        hdc,
-        0,
-        0,
-        int32(drawer.framebuffer.width),
-        int32(drawer.framebuffer.height),
-        0,
-        0,
-        int32(drawer.framebuffer.width),
-        int32(drawer.framebuffer.height),
-        cast[pointer](drawer.framebuffer.data[0].addr),
-        bitmapInfo.addr,
-        DibRgbColors,
-        SrcCopy
-      )
-      discard ReleaseDC(drawer.window.getHWND(), hdc)
+    drawer.window.presentPixels(drawer.framebuffer)
   else:
     discard
 
