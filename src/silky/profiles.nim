@@ -63,10 +63,8 @@ when ProfileTracePath.len > 0:
   template profileBlock*(name: string, body: untyped) =
     ## Measures a named block while profiling is enabled.
     measurePush(name)
-    try:
-      body
-    finally:
-      measurePop()
+    body
+    measurePop()
 else:
   macro measure*(fn: untyped): untyped =
     ## Leaves a measured procedure unchanged when profiling is disabled.

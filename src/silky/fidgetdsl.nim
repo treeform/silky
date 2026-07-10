@@ -4,7 +4,7 @@ import
   silky/widgets as baseWidgets
 
 when defined(silkyTesting):
-  import silky/[semantic, testing]
+  import silky/[semantic, testing, profiles]
 else:
   import silky/contexts, windy
 
@@ -117,28 +117,41 @@ proc nodeSemanticText(node: DslNode): string =
 proc beginSemantic(sk: Silky, node: DslNode, r: Rect) =
   if node.kind == nkRoot or node.semanticOpened:
     return
-  sk.beginWidget(node.nodeSemanticKind(), node.nodeSemanticName(), node.nodeSemanticText(), r)
-  sk.setWidgetState(
-    enabled = node.semanticEnabled,
-    focused = node.semanticFocused,
-    pressed = node.semanticPressed,
-    hovered = node.semanticHovered,
-    checked = node.semanticChecked,
-    value = node.semanticValue
-  )
-  node.semanticOpened = true
+  when defined(silkyTesting):
+    sk.beginWidget(
+      node.nodeSemanticKind(),
+      node.nodeSemanticName(),
+      node.nodeSemanticText(),
+      r
+    )
+    sk.setWidgetState(
+      enabled = node.semanticEnabled,
+      focused = node.semanticFocused,
+      pressed = node.semanticPressed,
+      hovered = node.semanticHovered,
+      checked = node.semanticChecked,
+      value = node.semanticValue
+    )
+    node.semanticOpened = true
+  else:
+    discard sk
+    discard r
 
 proc endSemantic(sk: Silky, node: DslNode) =
-  if node != nil and node.semanticOpened:
-    sk.endWidget()
-    node.semanticOpened = false
+  when defined(silkyTesting):
+    if node != nil and node.semanticOpened:
+      sk.endWidget()
+      node.semanticOpened = false
+  else:
+    discard sk
+    discard node
 
 proc resetNodeRect*(node: DslNode) {.inline.} =
   if node != nil:
     node.resolved = false
     node.interactionResolved = false
 
-proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) =
+proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) {.measure.} =
   ## Resets a pooled node for reuse without allocating.
   node.kind = kind
   node.id = id
@@ -186,7 +199,7 @@ proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) =
   else:
     discard
 
-proc acquireDslNode(sk: Silky, kind: DslNodeKind, id: string): DslNode =
+proc acquireDslNode(sk: Silky, kind: DslNodeKind, id: string): DslNode {.measure.} =
   ## Returns a pooled DSL node, growing the pool only on first use.
   if dslNodePoolUsed < dslNodePool.len:
     result = dslNodePool[dslNodePoolUsed]
@@ -196,7 +209,7 @@ proc acquireDslNode(sk: Silky, kind: DslNodeKind, id: string): DslNode =
   inc dslNodePoolUsed
   result.resetDslNode(sk, kind, id)
 
-proc beginDsl*(sk: Silky) =
+proc beginDsl*(sk: Silky) {.measure.} =
   ## Starts a transient authoring stack for the current immediate frame.
   dslNodePoolUsed = 0
   scopeStack.setLen(0)
@@ -209,7 +222,7 @@ proc beginDsl*(sk: Silky) =
   parent = nil
   current = root
 
-proc endDsl*(sk: Silky) =
+proc endDsl*(sk: Silky) {.measure.} =
   ## Clears the transient DSL stack. Pooled nodes are kept for reuse.
   discard sk
   scopeStack.setLen(0)
@@ -287,7 +300,7 @@ proc advanceDsl(sk: Silky, owner: DslNode, amount: Vec2) =
   of RightToLeft:
     sk.at.x -= amount.x + spacing
 
-proc drawNode(sk: Silky, node: DslNode, keepSemanticOpen: bool) =
+proc drawNode(sk: Silky, node: DslNode, keepSemanticOpen: bool) {.measure.} =
   let r = sk.resolveNodeRect(node)
   let color = sk.nodeTint(node)
   sk.beginSemantic(node, r)
@@ -433,7 +446,7 @@ proc pushChildrenLayout(sk: Silky, node: DslNode) =
     sk.pushLayout(childPos, childSize, node.direction)
   node.pushedLayout = true
 
-proc materializeNode(sk: Silky, node: DslNode, forChildren: bool) =
+proc materializeNode(sk: Silky, node: DslNode, forChildren: bool) {.measure.} =
   if not node.materialized:
     if forChildren:
       sk.pushChildrenLayout(node)
@@ -458,7 +471,7 @@ proc closeChildrenLayout(sk: Silky, window: auto, node: DslNode) =
   node.pushedLayout = false
   node.pushedClip = false
 
-proc beginNode*(sk: Silky, kind: DslNodeKind, id: string) {.inline.} =
+proc beginNode*(sk: Silky, kind: DslNodeKind, id: string) {.measure.} =
   sk.ensureDsl()
   let owner = scopeStack[^1]
   sk.startChildren(owner)
@@ -466,7 +479,7 @@ proc beginNode*(sk: Silky, kind: DslNodeKind, id: string) {.inline.} =
   current = acquireDslNode(sk, kind, id)
   scopeStack.add(current)
 
-proc finishNode*(sk: Silky, window: auto) {.inline.} =
+proc finishNode*(sk: Silky, window: auto) {.measure.} =
   if scopeStack.len == 0:
     return
   let node = scopeStack[^1]
@@ -704,67 +717,67 @@ template h1text*(value: string) =
     baseWidgets.h1text(value)
 
 template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
-  block:
+  profileBlock "button":
     sk.startCurrentChildren()
     baseWidgets.button(label, isEnabled, isError):
       body
 
 template button*(label: string, body: untyped) =
-  block:
+  profileBlock "button":
     sk.startCurrentChildren()
     baseWidgets.button(label, true, false):
       body
 
 template button*(label: string, isEnabled: bool, body: untyped) =
-  block:
+  profileBlock "button":
     sk.startCurrentChildren()
     baseWidgets.button(label, isEnabled, false):
       body
 
 template icon*(imageName: string) =
-  block:
+  profileBlock "icon":
     sk.startCurrentChildren()
     baseWidgets.icon(imageName)
 
 template iconButton*(imageName: string, body: untyped) =
-  block:
+  profileBlock "iconButton":
     sk.startCurrentChildren()
     baseWidgets.iconButton(imageName):
       body
 
 template clickableIcon*(imageName: string, on: bool, body: untyped) =
-  block:
+  profileBlock "clickableIcon":
     sk.startCurrentChildren()
     baseWidgets.clickableIcon(imageName, on):
       body
 
 template radioButton*[T](label: string, variable: var T, value: T) =
-  block:
+  profileBlock "radioButton":
     sk.startCurrentChildren()
     baseWidgets.radioButton(label, variable, value)
 
 template checkBox*(label: string, value: var bool) =
-  block:
+  profileBlock "checkBox":
     sk.startCurrentChildren()
     baseWidgets.checkBox(label, value)
 
 template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber) =
-  block:
+  profileBlock "progressBar":
     sk.startCurrentChildren()
     baseWidgets.progressBar(value, minVal, maxVal)
 
 template dropDown*[T](selected: var T, options: openArray[T]) =
-  block:
+  profileBlock "dropDown":
     sk.startCurrentChildren()
     baseWidgets.dropDown(selected, options)
 
 template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
-  block:
+  profileBlock "scrubber":
     sk.startCurrentChildren()
     baseWidgets.scrubber(id, value, minVal, maxVal, label)
 
 template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
-  block:
+  profileBlock "listBox":
     sk.startCurrentChildren()
     baseWidgets.listBox(id, items, selectedIndex)
 

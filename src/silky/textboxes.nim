@@ -30,7 +30,7 @@ import
 ## * Backspace and delete with selected text remove selected text and don't perform their normal action.
 
 when defined(silkyTesting):
-  import silky/semantic, silky/testing
+  import silky/[semantic, testing, profiles]
   proc setClipboardString(value: string) =
     ## Stub for setting clipboard in test mode.
     discard
@@ -79,6 +79,10 @@ type
     password*: bool
     passwordChar*: Rune = Rune('*')
     allowedChars*: seq[Rune]
+    textCache: string
+    textCacheValid: bool
+    displayCache: string
+    displayCacheValid: bool
 
 var
   textBoxStates*: Table[string, TextBoxState]
@@ -105,18 +109,47 @@ proc cursorVisible*(state: TextBoxState): bool =
   ## Blinks 0.5s on, 0.5s off, always starting visible after a reset.
   ((epochTime() - state.blinkTime) * 2).int mod 2 == 0
 
+proc invalidateTextCaches(state: TextBoxState) {.inline.} =
+  ## Marks cached UTF-8 text as stale after rune edits.
+  state.textCacheValid = false
+  state.displayCacheValid = false
+
+proc markTextDirty(state: TextBoxState) {.inline.} =
+  ## Marks layout and UTF-8 caches dirty after content changes.
+  state.dirty = true
+  state.invalidateTextCaches()
+
 proc getText*(state: TextBoxState): string =
   ## Returns the current text content.
-  $state.runes
+  if not state.textCacheValid:
+    state.textCache = $state.runes
+    state.textCacheValid = true
+  state.textCache
 
-proc displayText*(state: TextBoxState): string =
+proc displayText*(state: TextBoxState): lent string =
   ## Returns the text to display. In password mode, all chars are masked.
-  if state.password:
-    result = ""
-    for _ in state.runes:
-      result.add($state.passwordChar)
-  else:
-    result = $state.runes
+  if not state.displayCacheValid:
+    if state.password:
+      state.displayCache.setLen(0)
+      for _ in state.runes:
+        state.displayCache.add($state.passwordChar)
+    else:
+      state.displayCache = state.getText()
+    state.displayCacheValid = true
+  state.displayCache
+
+proc sameText*(state: TextBoxState, text: string): bool =
+  ## Compares rune content to a UTF-8 string without allocating.
+  var
+    i = 0
+    runeIdx = 0
+  while i < text.len and runeIdx < state.runes.len:
+    var rune: Rune
+    fastRuneAt(text, i, rune, true)
+    if rune != state.runes[runeIdx]:
+      return false
+    inc runeIdx
+  result = i == text.len and runeIdx == state.runes.len
 
 proc setText*(state: TextBoxState, text: string) =
   ## Sets the text content and resets cursor to end.
@@ -136,6 +169,7 @@ proc setText*(state: TextBoxState, text: string) =
   state.cursor = state.runes.len
   state.selector = state.cursor
   state.dirty = true
+  state.invalidateTextCaches()
 
 proc selection*(state: TextBoxState): HSlice[int, int] =
   ## Returns the ordered selection range.
@@ -171,27 +205,21 @@ proc computeLayout*(state: TextBoxState, fontData: FontAtlas, maxWidth: float32)
         state.runes[i - 1] == Rune(32) or
         state.runes[i - 1] == LF
       if isWordStart:
-        var wordW = 0.0f
-        var j = i
+        var
+          wordW = 0.0f
+          j = i
         while j < state.runes.len and
             state.runes[j] != Rune(32) and
             state.runes[j] != LF:
-          let gs = $displayRune
-          if gs in fontData.entries:
-            wordW += fontData.entries[gs][0].advance
-          elif "?" in fontData.entries:
-            wordW += fontData.entries["?"][0].advance
+          var wordEntry: ptr LetterEntry
+          if fontData.lookupLetter(state.runes[j], 0, wordEntry):
+            wordW += wordEntry.advance
           inc j
         if currentPos.x + wordW > maxWidth:
           currentPos.x = 0
           currentPos.y += fontData.lineHeight
-    let glyphStr = $displayRune
-    var entry: LetterEntry
-    if glyphStr in fontData.entries:
-      entry = fontData.entries[glyphStr][0]
-    elif "?" in fontData.entries:
-      entry = fontData.entries["?"][0]
-    else:
+    var entry: ptr LetterEntry
+    if not fontData.lookupLetter(displayRune, 0, entry):
       state.layout.add rect(currentPos.x, currentPos.y, 0, fontData.lineHeight)
       inc i
       continue
@@ -206,10 +234,7 @@ proc computeLayout*(state: TextBoxState, fontData: FontAtlas, maxWidth: float32)
     currentPos.x += entry.advance
     # Kerning.
     if i < state.runes.len - 1:
-      let nextGlyphStr = $state.runes[i + 1]
-      if glyphStr in fontData.entries and
-          nextGlyphStr in fontData.entries[glyphStr][0].kerning:
-        currentPos.x += fontData.entries[glyphStr][0].kerning[nextGlyphStr]
+      currentPos.x += fontData.lookupKerning(displayRune, state.runes[i + 1])
     inc i
   state.dirty = false
 
@@ -286,7 +311,7 @@ proc undo*(state: TextBoxState) =
     state.redoStack.add((state.runes, state.cursor))
     (state.runes, state.cursor) = state.undoStack.pop()
     state.selector = state.cursor
-    state.dirty = true
+    state.markTextDirty()
     state.resetBlink()
 
 proc redo*(state: TextBoxState) =
@@ -295,7 +320,7 @@ proc redo*(state: TextBoxState) =
     state.undoStack.add((state.runes, state.cursor))
     (state.runes, state.cursor) = state.redoStack.pop()
     state.selector = state.cursor
-    state.dirty = true
+    state.markTextDirty()
     state.resetBlink()
 
 proc removedSelection*(state: TextBoxState): bool =
@@ -306,7 +331,7 @@ proc removedSelection*(state: TextBoxState): bool =
       state.runes.delete(i)
     state.cursor = sel.a
     state.selector = state.cursor
-    state.dirty = true
+    state.markTextDirty()
     return true
   return false
 
@@ -344,7 +369,7 @@ proc typeCharacter*(state: TextBoxState, rune: Rune) =
     state.runes.insert(rune, state.cursor)
   inc state.cursor
   state.selector = state.cursor
-  state.dirty = true
+  state.markTextDirty()
   state.scrollToCursor()
   state.resetBlink()
 
@@ -369,7 +394,7 @@ proc typeCharacters*(state: TextBoxState, s: string) =
       state.runes.insert(r, state.cursor)
     inc state.cursor
   state.selector = state.cursor
-  state.dirty = true
+  state.markTextDirty()
   state.scrollToCursor()
   state.resetBlink()
 
@@ -410,7 +435,7 @@ proc backspace*(state: TextBoxState) =
     state.runes.delete(state.cursor - 1)
     dec state.cursor
     state.selector = state.cursor
-    state.dirty = true
+    state.markTextDirty()
   state.scrollToCursor()
   state.resetBlink()
 
@@ -426,7 +451,7 @@ proc delete*(state: TextBoxState) =
   if state.cursor < state.runes.len:
     state.undoSave()
     state.runes.delete(state.cursor)
-    state.dirty = true
+    state.markTextDirty()
   state.scrollToCursor()
   state.resetBlink()
 
@@ -452,7 +477,7 @@ proc backspaceWord*(state: TextBoxState) =
       state.runes.delete(state.cursor - 1)
       dec state.cursor
     state.selector = state.cursor
-    state.dirty = true
+    state.markTextDirty()
   state.scrollToCursor()
   state.resetBlink()
 
@@ -473,7 +498,7 @@ proc deleteWord*(state: TextBoxState) =
     while state.cursor < state.runes.len and
         state.runes[state.cursor].isWhiteSpace():
       state.runes.delete(state.cursor)
-    state.dirty = true
+    state.markTextDirty()
   state.scrollToCursor()
   state.resetBlink()
 
@@ -830,14 +855,14 @@ proc textBox*(
   error: bool = false,
   password: bool = false,
   passwordChar: Rune = Rune('*'),
-  allowedChars: seq[Rune] = @[]
-) =
+  allowedChars: seq[Rune] = default(seq[Rune])
+) {.measure.} =
   ## Text box widget with editing, selection, and scroll.
   ## When disabled, text can be selected and copied but not modified.
   ## Error is a visual-only state that changes the border and text color.
   ## Password mode masks displayed characters with the given char.
   ## allowedChars filters which characters can be typed or pasted.
-  # State management.
+  var state: TextBoxState
   let effectiveWrap = if singleLine: false else: wrapWords
   if id notin textBoxStates:
     let newState = TextBoxState(
@@ -846,12 +871,13 @@ proc textBox*(
       allowedChars: allowedChars)
     newState.setText(t)
     textBoxStates[id] = newState
-  let state = textBoxStates[id]
+  state = textBoxStates[id]
   state.enabled = enabled
   state.allowedChars = allowedChars
   if state.password != password:
     state.password = password
     state.dirty = true
+    state.displayCacheValid = false
   state.passwordChar = passwordChar
   if state.singleLine != singleLine:
     state.singleLine = singleLine
@@ -859,21 +885,20 @@ proc textBox*(
   if state.wordWrap != effectiveWrap:
     state.wordWrap = effectiveWrap
     state.dirty = true
-  if not state.focused and state.getText() != t:
+  if not state.focused and not state.sameText(t):
     state.setText(t)
-  # Dimensions.
-  let fontData = sk.atlas.fonts[sk.textStyle]
-  let padding = sk.theme.padding.float32
-  let outerRect = rect(sk.at, vec2(boxWidth, boxHeight))
-  let innerRect = rect(
-    sk.at.x + padding, sk.at.y + padding,
-    boxWidth - padding * 2, boxHeight - padding * 2
-  )
+  let
+    fontData = sk.atlas.fonts[sk.textStyle]
+    padding = sk.theme.padding.float32
+    outerRect = rect(sk.at, vec2(boxWidth, boxHeight))
+    innerRect = rect(
+      sk.at.x + padding, sk.at.y + padding,
+      boxWidth - padding * 2, boxHeight - padding * 2
+    )
   state.boxSize = vec2(innerRect.w, innerRect.h)
   if state.dirty or state.layout.len == 0 or
       state.lastMaxWidth != innerRect.w:
     state.computeLayout(fontData, innerRect.w)
-  # Modifier keys.
   let ctrl = window.buttonDown[KeyLeftControl] or
     window.buttonDown[KeyRightControl] or
     window.buttonDown[KeyLeftSuper] or
@@ -882,12 +907,10 @@ proc textBox*(
     window.buttonDown[KeyRightShift]
   let alt = window.buttonDown[KeyLeftAlt] or
     window.buttonDown[KeyRightAlt]
-  # Mouse state.
   let mouseVec = sk.mousePos
   let mouseInside = mouseVec.overlaps(outerRect) and
     mouseVec.overlaps(sk.clipRect)
   let onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
-  # Focus and click handling.
   if window.buttonPressed[MouseLeft]:
     if mouseInside and not onScrollbar:
       state.focused = true
@@ -907,28 +930,23 @@ proc textBox*(
       else: state.selectAll()
     elif not mouseInside:
       state.focused = false
-  # Mouse drag.
   if state.dragging and not state.scrollingX and not state.scrollingY:
     if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
       state.mouseAction(localMouse, click = false, shift = true)
     if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
       state.dragging = false
-  # Keyboard input. Editing procs check state.enabled internally.
   if state.focused:
     state.handleKeyboard(window, sk.inputRunes, ctrl, shift, alt, state.wordWrap)
     t = state.getText()
-  # Recompute layout after edits.
   if state.dirty:
     state.computeLayout(fontData, innerRect.w)
-  # Clamp scroll.
   let maxScrollY = max(0.0f, state.innerHeight - innerRect.h)
   state.scrollPos.y = clamp(state.scrollPos.y, 0.0f, maxScrollY)
   if state.wordWrap:
     state.scrollPos.x = 0
   else:
     state.scrollPos.x = max(0.0f, state.scrollPos.x)
-  # Draw background.
   let patch =
     if error: "textbox.error.9patch"
     elif not enabled: "textbox.disabled.9patch"
@@ -942,7 +960,6 @@ proc textBox*(
       sk.theme.frameFocusColor)
   else:
     sk.draw9Patch(patch, 6, outerRect.xy, outerRect.wh)
-  # Draw text content.
   sk.pushClipRect(innerRect)
   let textOrigin = innerRect.xy - state.scrollPos
   if state.cursor != state.selector:
@@ -967,11 +984,11 @@ proc textBox*(
       vec2(textOrigin.x + cr.x, textOrigin.y + cr.y),
       vec2(CursorWidth, cr.h), textColor)
   sk.popClipRect()
-  # Scrollbars.
   sk.drawScrollbars(state, window, outerRect, innerRect,
-    mouseVec, sk.clipRect)
-  # Scroll wheel.
-  if mouseInside and window.scrollDelta.y != 0:
+    sk.mousePos, sk.clipRect)
+  if sk.mousePos.overlaps(outerRect) and
+      sk.mousePos.overlaps(sk.clipRect) and
+      window.scrollDelta.y != 0:
     state.scrollBy(
       window.scrollDelta.y * TextBoxScrollSpeed, innerRect.h)
   sk.advance(vec2(boxWidth, boxHeight))
@@ -986,12 +1003,11 @@ template textBox*(
   isError = false,
   isPassword = false,
   passChar: Rune = Rune('*'),
-  chars: seq[Rune] = @[]
+  chars: seq[Rune] = default(seq[Rune])
 ) =
   ## Text box widget. Set singleLine for a single-line input.
-  let tbChars = chars
   sk.textBox(window, id, t, boxWidth, boxHeight, wrapWords, singleLine,
-    isEnabled, isError, isPassword, passChar, tbChars
+    isEnabled, isError, isPassword, passChar, chars
   )
 
 template textInput*(
@@ -999,16 +1015,15 @@ template textInput*(
   t: var string,
   isEnabled: bool = true,
   isError: bool = false,
-  chars: seq[Rune] = @[]
+  chars: seq[Rune] = default(seq[Rune])
 ) =
   ## Single-line text input widget.
   let itFont = sk.atlas.fonts[sk.textStyle]
   let itHeight = itFont.lineHeight + sk.theme.padding.float32 * 2
   let itWidth = sk.size.x - sk.theme.padding.float32 * 3
-  let itChars = chars
   sk.textBox(window, id, t, itWidth, itHeight,
     wrapWords = false, singleLine = true, enabled = isEnabled,
-    error = isError, allowedChars = itChars)
+    error = isError, allowedChars = chars)
 
 template passwordInput*(
   id: string,

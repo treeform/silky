@@ -3,7 +3,7 @@ import
   vmath, bumpy, chroma
 
 when defined(silkyTesting):
-  import silky/semantic, silky/testing
+  import silky/[semantic, testing, profiles]
 else:
   import silky/contexts, windy
 
@@ -52,7 +52,7 @@ var
   subWindowStates*: Table[string, SubWindowState]
   frameStates*: Table[string, FrameState]
   scrubberStates*: Table[string, ScrubberState]
-  dropDownStates*: Table[string, DropDownState]
+  dropDownStates*: Table[uint, DropDownState]
 
 proc mouseHover(
   interactor: var Interactor,
@@ -124,7 +124,7 @@ proc subWindowStart*(
     show: var bool,
     initialOrigin: Option[Vec2],
     initialSize: Option[Vec2]
-  ): SubWindowState =
+  ): SubWindowState {.measure.} =
   ## Begin a subwindow; stores body rect and visibility on the state.
   if title notin subWindowStates:
     let defaultPos = vec2(10 + subWindowStates.len * (300 + sk.theme.spacing), 10)
@@ -430,7 +430,8 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
     buttonSize = textSize + vec2(sk.theme.padding) * 2
     buttonRect = rect(sk.at, buttonSize)
 
-  sk.beginWidget("Button", text = label, rect = buttonRect)
+  when defined(silkyTesting):
+    sk.beginWidget("Button", text = label, rect = buttonRect)
 
   let
     textColor =
@@ -459,14 +460,16 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
   if interaction == Released:
     body
 
-  let
-    pressed = interaction == Pressed or interaction == Held
-    hovered = pressed or interaction == Hovered
-  sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hovered)
+  when defined(silkyTesting):
+    let
+      pressed = interaction == Pressed or interaction == Held
+      hovered = pressed or interaction == Hovered
+    sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hovered)
 
   let at = sk.at + vec2(sk.theme.padding)
   discard sk.drawText(sk.textStyle, label, at, textColor)
-  sk.endWidget()
+  when defined(silkyTesting):
+    sk.endWidget()
   sk.advance(buttonSize + vec2(sk.theme.padding))
 
 template button*(label: string, body: untyped) =
@@ -552,7 +555,8 @@ template radioButton*[T](label: string, variable: var T, value: T) =
     width = iconSize.x.float32 + sk.theme.spacing.float32 + textSize.x
     hitRect = rect(sk.at, vec2(width, height))
 
-  sk.beginWidget("RadioButton", text = label, rect = hitRect)
+  when defined(silkyTesting):
+    sk.beginWidget("RadioButton", text = label, rect = hitRect)
 
   let interaction = sk.interact(hitRect, true)
 
@@ -569,11 +573,12 @@ template radioButton*[T](label: string, variable: var T, value: T) =
   sk.drawImage(if on: "radio.on" else: "radio.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
 
-  let
-    pressed = interaction == Pressed or interaction == Held
-    hovered = pressed or interaction == Hovered
-  sk.setWidgetState(enabled = true #[isEnabled]#, pressed = pressed, hovered = hovered, checked = on)
-  sk.endWidget()
+  when defined(silkyTesting):
+    let
+      pressed = interaction == Pressed or interaction == Held
+      hovered = pressed or interaction == Hovered
+    sk.setWidgetState(enabled = true, pressed = pressed, hovered = hovered, checked = on)
+    sk.endWidget()
 
   sk.advance(vec2(width, height))
 
@@ -586,7 +591,8 @@ template checkBox*(label: string, value: var bool) =
     width = iconSize.x.float32 + sk.theme.spacing.float32 + textSize.x
     hitRect = rect(sk.at, vec2(width, height))
 
-  sk.beginWidget("CheckBox", text = label, rect = hitRect)
+  when defined(silkyTesting):
+    sk.beginWidget("CheckBox", text = label, rect = hitRect)
 
   let interaction = sk.interact(hitRect, true)
 
@@ -602,16 +608,17 @@ template checkBox*(label: string, value: var bool) =
   sk.drawImage(if value: "check.on" else: "check.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
 
-  let
-    pressed = interaction == Pressed or interaction == Held
-    hovered = pressed or interaction == Hovered
-  sk.setWidgetState(enabled = true #[isEnabled]#, pressed = pressed, hovered = hovered, checked = value)
-  sk.endWidget()
+  when defined(silkyTesting):
+    let
+      pressed = interaction == Pressed or interaction == Held
+      hovered = pressed or interaction == Hovered
+    sk.setWidgetState(enabled = true, pressed = pressed, hovered = hovered, checked = value)
+    sk.endWidget()
   sk.advance(vec2(width, height))
 
 template dropDown*[T](selected: var T, options: openArray[T]) =
   ## Dropdown styled like input text; options render in a new layer.
-  let id = "dropdown_" & $cast[uint](addr selected)
+  let id = cast[uint](addr selected)
 
   if id notin dropDownStates:
     dropDownStates[id] = DropDownState()
@@ -623,10 +630,15 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     width = sk.size.x - sk.theme.padding.float32 * 3
     arrowSize = sk.getImageSize("droparrow")
     dropRect = rect(sk.at, vec2(width, height))
-    displayText = $selected
+    displayText =
+      when T is string:
+        selected
+      else:
+        $selected
 
   # Toggle open/close on click.
-  sk.beginWidget("DropDown", text = displayText, rect = dropRect)
+  when defined(silkyTesting):
+    sk.beginWidget("DropDown", text = displayText, rect = dropRect)
 
   let interaction = sk.interact(dropRect, true)
 
@@ -647,7 +659,8 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   sk.popLayout()
   sk.advance(vec2(width, height))
 
-  sk.endWidget()
+  when defined(silkyTesting):
+    sk.endWidget()
 
   if state.open and options.len > 0:
     sk.pushLayer(PopupsLayer)
@@ -680,7 +693,12 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
         sk.drawRect(rowRect.xy, rowRect.wh, sk.theme.menuPopupHoverColor)
       elif isSelected:
         sk.drawRect(rowRect.xy, rowRect.wh, sk.theme.menuPopupSelectedColor)
-      discard sk.drawText(sk.textStyle, $opt, textPos, sk.theme.defaultTextColor)
+      let optText =
+        when T is string:
+          opt
+        else:
+          $opt
+      discard sk.drawText(sk.textStyle, optText, textPos, sk.theme.defaultTextColor)
 
     sk.popLayout()
 
