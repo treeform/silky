@@ -3,7 +3,7 @@ import
   vmath, bumpy, chroma
 
 when defined(silkyTesting):
-  import silky/semantic, silky/testing
+  import silky/[semantics, testing, profiles]
 else:
   import silky/contexts, windy
 
@@ -38,28 +38,6 @@ type
   DropDownState* = ref object
     open*: bool
 
-  MenuState* = ref object
-    ## Tracks which menus are open and their active hit areas.
-    openPath*: seq[string]
-    activeRects: seq[Rect]
-
-  MenuLayout = ref object
-    origin: Vec2
-    width: float32
-    cursorY: float32
-
-  MenuEntryContext* = object
-    path*: seq[string]
-    popupPos*: Vec2
-    popupWidth*: int
-    open*: bool
-    isRoot*: bool
-
-  MenuItemContext* = object
-    layout*: MenuLayout
-    rowH*: float32
-    clicked*: bool
-
   Interaction* = enum
     None,
     Pressed,
@@ -74,13 +52,7 @@ var
   subWindowStates*: Table[string, SubWindowState]
   frameStates*: Table[string, FrameState]
   scrubberStates*: Table[string, ScrubberState]
-  dropDownStates*: Table[string, DropDownState]
-  menuState*: MenuState = MenuState(
-    openPath: @[],
-    activeRects: @[]
-  )
-  menuLayouts: seq[MenuLayout]
-  menuPathStack: seq[string]
+  dropDownStates*: Table[uint, DropDownState]
 
 proc mouseHover(
   interactor: var Interactor,
@@ -134,29 +106,6 @@ proc interact*(
     return Released
   return Hovered
 
-proc menuPathOpen(path: seq[string]): bool =
-  ## Check if the given menu path is currently open.
-  menuState.openPath.len >= path.len and menuState.openPath[0 ..< path.len] == path
-
-proc menuEnsureState() =
-  ## Initialize menu state if not already created.
-  if menuState.isNil:
-    menuState = MenuState(
-      openPath: @[],
-      activeRects: @[]
-    )
-
-proc menuAddActive(rect: Rect) =
-  ## Record a rect so outside-click detection can close menus.
-  menuState.activeRects.add(rect)
-
-proc menuPointInside(rects: seq[Rect], p: Vec2): bool =
-  ## Check if point is inside any of the given rectangles.
-  for r in rects:
-    if p.overlaps(r):
-      return true
-  return false
-
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
   vec2(v.float32, v.float32)
@@ -175,7 +124,7 @@ proc subWindowStart*(
     show: var bool,
     initialOrigin: Option[Vec2],
     initialSize: Option[Vec2]
-  ): SubWindowState =
+  ): SubWindowState {.measure.} =
   ## Begin a subwindow; stores body rect and visibility on the state.
   if title notin subWindowStates:
     let defaultPos = vec2(10 + subWindowStates.len * (300 + sk.theme.spacing), 10)
@@ -481,7 +430,8 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
     buttonSize = textSize + vec2(sk.theme.padding) * 2
     buttonRect = rect(sk.at, buttonSize)
 
-  sk.beginWidget("Button", text = label, rect = buttonRect)
+  when defined(silkyTesting):
+    sk.beginWidget("Button", text = label, rect = buttonRect)
 
   let
     textColor =
@@ -510,14 +460,16 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
   if interaction == Released:
     body
 
-  let
-    pressed = interaction == Pressed or interaction == Held
-    hovered = pressed or interaction == Hovered
-  sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hovered)
+  when defined(silkyTesting):
+    let
+      pressed = interaction == Pressed or interaction == Held
+      hovered = pressed or interaction == Hovered
+    sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hovered)
 
   let at = sk.at + vec2(sk.theme.padding)
   discard sk.drawText(sk.textStyle, label, at, textColor)
-  sk.endWidget()
+  when defined(silkyTesting):
+    sk.endWidget()
   sk.advance(buttonSize + vec2(sk.theme.padding))
 
 template button*(label: string, body: untyped) =
@@ -603,7 +555,8 @@ template radioButton*[T](label: string, variable: var T, value: T) =
     width = iconSize.x.float32 + sk.theme.spacing.float32 + textSize.x
     hitRect = rect(sk.at, vec2(width, height))
 
-  sk.beginWidget("RadioButton", text = label, rect = hitRect)
+  when defined(silkyTesting):
+    sk.beginWidget("RadioButton", text = label, rect = hitRect)
 
   let interaction = sk.interact(hitRect, true)
 
@@ -620,11 +573,12 @@ template radioButton*[T](label: string, variable: var T, value: T) =
   sk.drawImage(if on: "radio.on" else: "radio.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
 
-  let
-    pressed = interaction == Pressed or interaction == Held
-    hovered = pressed or interaction == Hovered
-  sk.setWidgetState(enabled = true #[isEnabled]#, pressed = pressed, hovered = hovered, checked = on)
-  sk.endWidget()
+  when defined(silkyTesting):
+    let
+      pressed = interaction == Pressed or interaction == Held
+      hovered = pressed or interaction == Hovered
+    sk.setWidgetState(enabled = true, pressed = pressed, hovered = hovered, checked = on)
+    sk.endWidget()
 
   sk.advance(vec2(width, height))
 
@@ -637,7 +591,8 @@ template checkBox*(label: string, value: var bool) =
     width = iconSize.x.float32 + sk.theme.spacing.float32 + textSize.x
     hitRect = rect(sk.at, vec2(width, height))
 
-  sk.beginWidget("CheckBox", text = label, rect = hitRect)
+  when defined(silkyTesting):
+    sk.beginWidget("CheckBox", text = label, rect = hitRect)
 
   let interaction = sk.interact(hitRect, true)
 
@@ -653,16 +608,17 @@ template checkBox*(label: string, value: var bool) =
   sk.drawImage(if value: "check.on" else: "check.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
 
-  let
-    pressed = interaction == Pressed or interaction == Held
-    hovered = pressed or interaction == Hovered
-  sk.setWidgetState(enabled = true #[isEnabled]#, pressed = pressed, hovered = hovered, checked = value)
-  sk.endWidget()
+  when defined(silkyTesting):
+    let
+      pressed = interaction == Pressed or interaction == Held
+      hovered = pressed or interaction == Hovered
+    sk.setWidgetState(enabled = true, pressed = pressed, hovered = hovered, checked = value)
+    sk.endWidget()
   sk.advance(vec2(width, height))
 
 template dropDown*[T](selected: var T, options: openArray[T]) =
   ## Dropdown styled like input text; options render in a new layer.
-  let id = "dropdown_" & $cast[uint](addr selected)
+  let id = cast[uint](addr selected)
 
   if id notin dropDownStates:
     dropDownStates[id] = DropDownState()
@@ -674,10 +630,15 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     width = sk.size.x - sk.theme.padding.float32 * 3
     arrowSize = sk.getImageSize("droparrow")
     dropRect = rect(sk.at, vec2(width, height))
-    displayText = $selected
+    displayText =
+      when T is string:
+        selected
+      else:
+        $selected
 
   # Toggle open/close on click.
-  sk.beginWidget("DropDown", text = displayText, rect = dropRect)
+  when defined(silkyTesting):
+    sk.beginWidget("DropDown", text = displayText, rect = dropRect)
 
   let interaction = sk.interact(dropRect, true)
 
@@ -698,7 +659,8 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   sk.popLayout()
   sk.advance(vec2(width, height))
 
-  sk.endWidget()
+  when defined(silkyTesting):
+    sk.endWidget()
 
   if state.open and options.len > 0:
     sk.pushLayer(PopupsLayer)
@@ -731,7 +693,12 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
         sk.drawRect(rowRect.xy, rowRect.wh, sk.theme.menuPopupHoverColor)
       elif isSelected:
         sk.drawRect(rowRect.xy, rowRect.wh, sk.theme.menuPopupSelectedColor)
-      discard sk.drawText(sk.textStyle, $opt, textPos, sk.theme.defaultTextColor)
+      let optText =
+        when T is string:
+          opt
+        else:
+          $opt
+      discard sk.drawText(sk.textStyle, optText, textPos, sk.theme.defaultTextColor)
 
     sk.popLayout()
 
@@ -946,206 +913,6 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
   else:
     sk.drawImage("scrubber.handle", handlePos2)
   sk.advance(vec2(width, height))
-
-proc menuPopupStart*(sk: Silky, path: seq[string], popupAt: Vec2, popupWidth = 200) =
-  ## Begin a popup; caller must call menuPopupEnd.
-  menuEnsureState()
-  sk.pushLayer(PopupsLayer)
-  sk.pushRawClipRect(rect(vec2(0, 0), sk.rootSize))
-  let layout = MenuLayout(
-    origin: popupAt,
-    width: popupWidth.float32,
-    cursorY: sk.theme.menuPadding.float32
-  )
-  menuLayouts.add(layout)
-
-proc menuPopupEnd*(sk: Silky) =
-  ## Finish a popup and record its active area.
-  let layout = menuLayouts[^1]
-  let popupHeight = layout.cursorY + sk.theme.menuPadding.float32
-  menuAddActive(rect(layout.origin, vec2(layout.width, popupHeight)))
-  menuLayouts.setLen(menuLayouts.len - 1)
-  sk.popClipRect()
-  sk.popLayer()
-
-template menuPopup(path: seq[string], popupAt: Vec2, popupWidth = 200, body: untyped) =
-  ## Render a popup in a single pass with caller-provided width.
-  sk.menuPopupStart(path, popupAt, popupWidth)
-  try:
-    body
-  finally:
-    sk.menuPopupEnd()
-
-proc menuBarStart*(sk: Silky, window: Window) =
-  ## Begin the horizontal application menu bar.
-  menuEnsureState()
-  menuState.activeRects.setLen(0)
-  menuPathStack.setLen(0)
-
-  let elevate = menuState.openPath.len > 0
-  discard elevate
-
-  let barHeight = sk.theme.headerHeight.float32
-  sk.pushLayout(vec2(0, 0), vec2(sk.size.x, barHeight))
-  sk.draw9Patch("header.9patch", 6, sk.pos, sk.size, sk.theme.headerBgColor)
-  sk.at = sk.pos + vec2(sk.theme.menuPadding)
-
-proc menuBarEnd*(sk: Silky, window: Window) =
-  ## Finish the menu bar and handle outside-click closing.
-  sk.popLayout()
-  if menuState.openPath.len > 0 and window.buttonPressed[MouseLeft]:
-    if not menuPointInside(menuState.activeRects, sk.mousePos):
-      menuState.openPath.setLen(0)
-
-template menuBar*(body: untyped) =
-  ## Horizontal application menu bar (File, Edit, ...).
-  sk.menuBarStart(window)
-  try:
-    body
-  finally:
-    sk.menuBarEnd(window)
-
-proc subMenuStart*(sk: Silky, window: Window, label: string, menuWidth = 200): MenuEntryContext =
-  ## Begin a submenu entry; returns context describing whether it is open.
-  menuEnsureState()
-  let path = menuPathStack & @[label]
-  let isRoot = menuLayouts.len == 0
-  var ctx = MenuEntryContext(
-    path: path,
-    popupPos: vec2(0),
-    popupWidth: menuWidth,
-    open: false,
-    isRoot: isRoot
-  )
-
-  if isRoot:
-    let textSize = sk.getTextSize(sk.textStyle, label)
-    let size = textSize + vec2(sk.theme.menuPadding.float32 * 2, sk.theme.menuPadding.float32 * 2)
-    let menuRect = rect(sk.at, size)
-    menuAddActive(menuRect)
-
-    let hover = sk.mousePos.overlaps(menuRect)
-    var open = menuPathOpen(path)
-
-    if hover and window.buttonReleased[MouseLeft]:
-      if open:
-        menuState.openPath.setLen(0)
-      else:
-        menuState.openPath = path
-    elif hover and menuState.openPath.len > 0 and not window.buttonDown[MouseLeft]:
-      menuState.openPath = path
-
-    open = menuPathOpen(path)
-    ctx.open = open
-
-    if hover or open:
-      sk.drawRect(menuRect.xy, menuRect.wh, sk.theme.menuRootHoverColor)
-    discard sk.drawText(sk.textStyle, label, menuRect.xy + vec2(sk.theme.menuPadding), sk.theme.defaultTextColor)
-    sk.at.x += size.x + sk.theme.spacing.float32
-
-    if ctx.open:
-      menuPathStack.add(label)
-      ctx.popupPos = vec2(menuRect.x, menuRect.y + menuRect.h)
-  else:
-    var layout = menuLayouts[^1]
-    let textSize = sk.getTextSize(sk.textStyle, label)
-    let rowH = textSize.y + sk.theme.menuPadding.float32 * 2
-    let rowPos = vec2(layout.origin.x + sk.theme.menuPadding.float32, layout.origin.y + layout.cursorY)
-    let rowSize = vec2(layout.width - sk.theme.menuPadding.float32 * 2, rowH)
-    let itemRect = rect(rowPos, rowSize)
-    menuAddActive(itemRect)
-
-    var open = menuPathOpen(path)
-    let hover = sk.mousePos.overlaps(itemRect)
-
-    if hover and menuState.openPath.len >= path.len - 1:
-      menuState.openPath = path
-
-    open = menuPathOpen(path)
-    ctx.open = open
-
-    sk.drawRect(itemRect.xy, itemRect.wh, sk.theme.menuItemBgColor)
-    if hover or open:
-      sk.drawRect(itemRect.xy, itemRect.wh, sk.theme.menuItemHoverColor)
-    discard sk.drawText(
-      sk.textStyle,
-      label,
-      rowPos + vec2(sk.theme.textPadding),
-      sk.theme.defaultTextColor
-    )
-
-    let arrowPos = vec2(itemRect.x + itemRect.w - textSize.y, rowPos.y + sk.theme.textPadding.float32)
-    discard sk.drawText(sk.textStyle, ">", arrowPos, sk.theme.defaultTextColor)
-
-    layout.cursorY += rowH
-
-    if ctx.open:
-      menuPathStack.add(label)
-      ctx.popupPos = vec2(itemRect.x + itemRect.w, itemRect.y)
-
-  return ctx
-
-proc subMenuEnd*(sk: Silky, ctx: MenuEntryContext) =
-  ## Finish a submenu entry and pop path if open.
-  if ctx.open:
-    menuPathStack.setLen(menuPathStack.len - 1)
-
-template subMenu*(label: string, menuWidth = 200, body: untyped) =
-  ## Menu entry that can contain other menu items.
-  let ctx = sk.subMenuStart(window, label, menuWidth)
-  try:
-    if ctx.open:
-      menuPopup(ctx.path, ctx.popupPos, menuWidth):
-        body
-  finally:
-    sk.subMenuEnd(ctx)
-
-proc menuItemStart*(sk: Silky, window: Window, label: string): MenuItemContext =
-  ## Begin a menu item; returns context indicating click state.
-  menuEnsureState()
-  let layout = menuLayouts[^1]
-
-  let textSize = sk.getTextSize(sk.textStyle, label)
-  let rowH = textSize.y + sk.theme.menuPadding.float32 * 2
-  let rowPos = vec2(layout.origin.x + sk.theme.menuPadding.float32, layout.origin.y + layout.cursorY)
-  let rowSize = vec2(layout.width - sk.theme.menuPadding.float32 * 2, rowH)
-  let itemRect = rect(rowPos, rowSize)
-  menuAddActive(itemRect)
-
-  let hover = sk.mousePos.overlaps(itemRect)
-  sk.drawRect(itemRect.xy, itemRect.wh, sk.theme.menuItemBgColor)
-  if hover:
-    sk.drawRect(itemRect.xy, itemRect.wh, sk.theme.menuPopupHoverColor)
-  discard sk.drawText(
-    sk.textStyle,
-    label,
-    rowPos + vec2(sk.theme.textPadding),
-    sk.theme.defaultTextColor
-  )
-
-  var clicked = false
-  if hover and window.buttonReleased[MouseLeft]:
-    menuState.openPath.setLen(0)
-    clicked = true
-
-  return MenuItemContext(
-    layout: layout,
-    rowH: rowH,
-    clicked: clicked
-  )
-
-proc menuItemEnd*(sk: Silky, ctx: MenuItemContext) =
-  ## Finish a menu item and advance layout cursor.
-  ctx.layout.cursorY += ctx.rowH
-
-template menuItem*(label: string, body: untyped) =
-  ## Leaf menu entry that runs `body` on click.
-  let ctx = sk.menuItemStart(window, label)
-  try:
-    if ctx.clicked:
-      body
-  finally:
-    sk.menuItemEnd(ctx)
 
 template tooltip*(text: string) =
   ## Draws a tooltip with fade-in and stem image.

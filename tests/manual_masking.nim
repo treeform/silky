@@ -29,26 +29,29 @@ window.onFrame = proc() =
     Left = 20.0f
     LabelX = 70.0f
     Spacing = 50.0f
-  var y = 20.0f
+    LabelW = 400.0f
+    LabelH = 24.0f
 
-  sk.drawImage("heart", vec2(Left, y))
-  sk.at = vec2(LabelX, y + 6)
-  text("Base image (no mask, no tint)")
-  y += Spacing
+  ui:
+    sk.drawImage("heart", vec2(Left, 20))
+    text "base label":
+      box LabelX, 26, LabelW, LabelH
+      characters "Base image (no mask, no tint)"
 
-  sk.drawImage("heart.mask", vec2(Left, y))
-  sk.at = vec2(LabelX, y + 6)
-  text("Mask image")
-  y += Spacing
+    sk.drawImage("heart.mask", vec2(Left, 20 + Spacing))
+    text "mask label":
+      box LabelX, 26 + Spacing, LabelW, LabelH
+      characters "Mask image"
 
-  sk.drawImage("heart", vec2(Left, y), tintColor, "heart.mask")
-  sk.at = vec2(LabelX, y + 6)
-  text("Masked + tinted")
-  y += Spacing
+    sk.drawImage("heart", vec2(Left, 20 + Spacing * 2), tintColor, "heart.mask")
+    text "masked label":
+      box LabelX, 26 + Spacing * 2, LabelW, LabelH
+      characters "Masked + tinted"
 
-  sk.drawImage("heart", vec2(Left, y), tintColor)
-  sk.at = vec2(LabelX, y + 6)
-  text("Tinted without mask")
+    sk.drawImage("heart", vec2(Left, 20 + Spacing * 3), tintColor)
+    text "tinted label":
+      box LabelX, 26 + Spacing * 3, LabelW, LabelH
+      characters "Tinted without mask"
 
   sk.endUi()
   window.swapBuffers()

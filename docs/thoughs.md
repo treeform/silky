@@ -1,3 +1,7 @@
+# Silky UI notes
+
+Silky uses a Fidget-style nested DSL. Hierarchy shows up in indentation, and layout lives next to the widgets it affects.
+
 Dear ImGui
 ```cpp
 ImGui::Text("Hello, world %d", 123);
@@ -9,13 +13,14 @@ ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
 
 Silky
 ```nim
-text "Hello, world {123}"
-button("Save"):
-  MySaveFunction()
-inputText("string", buf)
-liderFloat("float", f, 0.0, 1.0)
+ui:
+  text "hello":
+    characters &"Hello, world {123}"
+  button "Save":
+    MySaveFunction()
+  textInput "string", buf
+  scrubber "float", f, 0.0, 1.0
 ```
-
 
 Dear ImGui Menu Bar
 ```cpp
@@ -51,29 +56,34 @@ ImGui::EndChild();
 ImGui::End();
 ```
 
-
 Silky Menu Bar
 
 ```nim
-begin("My First Tool", myToolActive, MenuBarFlags):
-  beginMenuBar():
-    menu("File"):
-      menuItem("Open..", "Ctrl+O"):
-        MySaveFunction()
-      menuItem("Save", "Ctrl+S"):
-        MySaveFunction()
-      menuItem("Close", "Ctrl+W"):
+ui:
+  menuBar:
+    menu "File":
+      menuItem "Open..":
+        openFile()
+      menuItem "Save":
+        saveFile()
+      menuItem "Close":
         myToolActive = false
+    menu "Edit":
+      menuItem "Cut":
+        cut()
+      subMenu "More":
+        menuItem "Preferences":
+          openPrefs()
 
-  colorEdit("Color", myColor)
+  text "important":
+    characters "Important Stuff"
+    tint rgbx(255, 255, 0, 255)
 
-  var samples: seq[float32]
-  for n in 0 ..< 100:
-    samples.add(sin(n * 0.2 + getTime() * 1.5))
-  plotLines("Samples", samples, 100)
-
-  text("Important Stuff", rgbx(1, 1, 0, 1))
-  beginChild("Scrolling"):
+  frame "scrolling":
+    box 360, 200
     for n in 0 ..< 50:
-      text(&"{n:04d}: Some text")
+      text "row" & $n:
+        characters &"{n:04d}: Some text"
 ```
+
+See [porting.md](porting.md) for moving older cursor-style Silky code to this DSL.

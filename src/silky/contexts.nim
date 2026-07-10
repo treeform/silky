@@ -1,29 +1,9 @@
 import
   std/[tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/atlas
+  silky/[atlas, profiles]
 
-when defined(profile):
-  import fluffy/measure, std/os
-  export measure
-
-  const
-    SilkyProfileFrames* {.intdefine.} = 0
-    SilkyProfileTracePath* {.strdefine.} = "tmp/trace.json"
-
-  var profileFrameCount*: int
-else:
-  macro measure*(fn: untyped) =
-    ## Passes procedures through unchanged when profiling is off.
-    return fn
-
-  template measurePush*(what: string) =
-    ## No-op profile begin marker.
-    discard
-
-  template measurePop*() =
-    ## No-op profile end marker.
-    discard
+export profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -128,8 +108,6 @@ type
     avgFrameTime*: float64
     interactor*: Interactor
     window: Window
-
-var traceActive*: bool = false
 
 proc currentDrawLayer*(sk: Silky): int =
   sk.drawer.currentLayer
@@ -259,7 +237,7 @@ proc peekRune(text: string, i: int, rune: var Rune): bool {.inline.} =
     return false
   var j = i
   fastRuneAt(text, j, rune, true)
-  return true
+  true
 
 proc shouldShowTooltip*(sk: Silky): bool =
   ## Returns true when a tooltip should be shown.
@@ -273,20 +251,7 @@ proc resetInteractions*(sk: Silky) =
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
-  when defined(profile):
-    if SilkyProfileFrames > 0 and not traceActive:
-      traceActive = true
-      startTrace()
-
-    if window.buttonPressed[KeyF3]:
-      if not traceActive:
-        traceActive = true
-        startTrace()
-      else:
-        traceActive = false
-        endTrace()
-        createDir("tmp")
-        dumpMeasures("tmp/trace.json")
+  beginProfileFrame()
 
   sk.tooltipActive = sk.showTooltip
   sk.showTooltip = false
@@ -339,18 +304,7 @@ proc endUiShared*(sk: Silky) =
   sk.inputRunes.setLen(0)
   sk.inFrame = false
   measurePop()
-
-  when defined(profile):
-    if SilkyProfileFrames > 0 and traceActive:
-      inc profileFrameCount
-      if profileFrameCount >= SilkyProfileFrames:
-        traceActive = false
-        endTrace()
-        let traceDir = splitFile(SilkyProfileTracePath).dir
-        if traceDir.len > 0:
-          createDir(traceDir)
-        dumpMeasures(SilkyProfileTracePath)
-        sk.window.closeRequested = true
+  endProfileFrame()
 
 proc drawQuad*(
   sk: Silky,
@@ -515,22 +469,21 @@ proc drawText*(
   let textStartIdx = sk.drawer.layers[layer].len
   var lineStartIdx = textStartIdx
 
-  proc alignLine(lineWidth: float32) =
+  template alignLine(lineWidth: float32) =
     ## Applies horizontal alignment to the current buffered line.
-    if not needsHAlign:
-      return
-    let dx =
-      case hAlign:
-      of LeftAlign:
-        0.0'f
-      of CenterAlign:
-        floor((maxWidth - lineWidth) * 0.5)
-      of RightAlign:
-        floor(maxWidth - lineWidth)
-    if dx != 0:
-      for j in lineStartIdx ..< sk.drawer.layers[layer].len:
-        sk.drawer.layers[layer][j].pos.x += dx
-    lineStartIdx = sk.drawer.layers[layer].len
+    if needsHAlign:
+      let dx =
+        case hAlign:
+        of LeftAlign:
+          0.0'f
+        of CenterAlign:
+          floor((maxWidth - lineWidth) * 0.5)
+        of RightAlign:
+          floor(maxWidth - lineWidth)
+      if dx != 0:
+        for j in lineStartIdx ..< sk.drawer.layers[layer].len:
+          sk.drawer.layers[layer][j].pos.x += dx
+      lineStartIdx = sk.drawer.layers[layer].len
 
   var
     i = 0
@@ -695,7 +648,7 @@ proc drawImage*(
   pos: Vec2,
   color = rgbx(255, 255, 255, 255),
   mask: string = ""
-) =
+) {.measure.} =
   ## Queues an atlas image draw.
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name
@@ -734,7 +687,7 @@ proc draw9Patch*(
   pos: Vec2,
   size: Vec2,
   color = rgbx(255, 255, 255, 255)
-) =
+) {.measure.} =
   ## Queues a 9-patch image draw with independent border sizes.
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name

@@ -2,7 +2,7 @@
 
 import
   std/[strutils, tables, unicode, times],
-  vmath, bumpy, chroma,
+  vmath, bumpy, chroma, pixie,
   silky/atlas, testwindow
 
 from windy/common import Button, CursorKind, Cursor
@@ -456,7 +456,13 @@ proc drawQuad*(sk: Silky, pos: Vec2, size: Vec2, uvPos: Vec2, uvSize: Vec2, colo
   ## Stub for drawing a textured quad.
   discard
 
-proc drawImage*(sk: Silky, name: string, pos: Vec2, color = rgbx(255, 255, 255, 255)) {.inline.} =
+proc drawImage*(
+  sk: Silky,
+  name: string,
+  pos: Vec2,
+  color = rgbx(255, 255, 255, 255),
+  mask = ""
+) {.inline.} =
   ## Stub for drawing an image from the atlas.
   discard
 
@@ -464,11 +470,29 @@ proc drawRect*(sk: Silky, pos: Vec2, size: Vec2, color: ColorRGBX) {.inline.} =
   ## Stub for drawing a solid rectangle.
   discard
 
-proc drawTriangle*(sk: Silky, positions: array[3, Vec2], uvs: array[3, Vec2], colors: array[3, ColorRGBX]) {.inline.} =
+proc drawTriangle*(
+  sk: Silky,
+  positions: array[3, Vec2],
+  uvs: array[3, Vec2],
+  colors: array[3, ColorRGBX],
+  clipPos = vec2(-1, -1),
+  clipSize = vec2(-1, -1)
+) {.inline.} =
   discard
 
 proc draw9Patch*(sk: Silky, name: string, patch: int, pos: Vec2, size: Vec2, color = rgbx(255, 255, 255, 255)) {.inline.} =
   ## Stub for drawing a 9-patch image.
+  discard
+
+proc draw9Patch*(
+  sk: Silky,
+  name: string,
+  top, right, bottom, left: int,
+  pos: Vec2,
+  size: Vec2,
+  color = rgbx(255, 255, 255, 255)
+) {.inline.} =
+  ## Stub for drawing a 9-patch image with independent border sizes.
   discard
 
 proc drawText*(
@@ -480,7 +504,9 @@ proc drawText*(
   maxWidth = float32.high,
   maxHeight = float32.high,
   clip = true,
-  wordWrap = false
+  wordWrap = false,
+  hAlign: HorizontalAlignment = LeftAlign,
+  vAlign: VerticalAlignment = TopAlign
 ): Vec2 =
   ## Stub for drawing text that returns the text size.
   sk.getTextSize(font, text)

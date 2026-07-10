@@ -2,7 +2,7 @@
 
 import std/unicode
 import vmath, bumpy
-import silky/[semantic, testwindow, atlas]
+import silky/[semantics, testwindow, atlas]
 from windy/common import Button, CursorKind, Cursor
 
 export Button, CursorKind, Cursor, unicode, testwindow

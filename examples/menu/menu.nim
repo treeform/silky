@@ -5,7 +5,6 @@ import
 
 let builder = newAtlasBuilder(1024, 4)
 builder.addDir("data/", "data/")
-builder.addFont("data/IBMPlexSans-Regular.ttf", "H1", 32.0)
 builder.addFont("data/IBMPlexSans-Regular.ttf", "Default", 18.0)
 builder.write("dist/atlas.png")
 
@@ -26,53 +25,58 @@ window.onRune = proc(rune: Rune) =
   sk.inputRunes.add(rune)
 
 window.onFrame = proc() =
-
   sk.beginUI(window, window.size)
-
-  # Clear screen with the selected background color.
   sk.clearScreen(BackgroundColor)
 
-  menuBar:
-    subMenu("File", menuWidth = 200):
-      menuItem("Open"):
-        echo "Open"
-      subMenu("Open Recent", menuWidth = 120):
-        menuItem("File 1"):
-          echo "File 1"
-        menuItem("File 2"):
-          echo "File 2"
-        menuItem("File 3"):
-          echo "File 3"
-        subMenu("Even More", menuWidth = 100):
-          menuItem("Config A"):
+  ui:
+    menuBar:
+      menu "File":
+        menuItem "Open":
+          echo "Open"
+        subMenu "Open Recent":
+          menuItem "File 1":
+            echo "File 1"
+          menuItem "File 2":
+            echo "File 2"
+          menuItem "File 3":
+            echo "File 3"
+        subMenu "Even More":
+          menuItem "Config A":
             echo "Config A"
-          menuItem("Config B"):
+          menuItem "Config B":
             echo "Config B"
-      menuItem("Save"):
-        echo "Save"
-      menuItem("Close"):
-        echo "Close"
-    subMenu("Edit", menuWidth = 150):
-      menuItem("Cut"):
-        echo "Cut"
-      menuItem("Copy"):
-        echo "Copy"
-      menuItem("Paste"):
-        echo "Paste"
-    subMenu("View", menuWidth = 150):
-      menuItem("Fullscreen"):
-        echo "Fullscreen"
-      menuItem("Windowed"):
-        echo "Windowed"
-      menuItem("Maximized"):
-        echo "Maximized"
-    subMenu("Help", menuWidth = 100):
-      menuItem("About"):
-        echo "About"
+        menuItem "Save":
+          echo "Save"
+        menuItem "Close":
+          echo "Close"
+      menu "Edit":
+        menuItem "Cut":
+          echo "Cut"
+        menuItem "Copy":
+          echo "Copy"
+        menuItem "Paste":
+          echo "Paste"
+      menu "View":
+        menuItem "Fullscreen":
+          echo "Fullscreen"
+        menuItem "Windowed":
+          echo "Windowed"
+        menuItem "Maximized":
+          echo "Maximized"
+      menu "Help":
+        menuItem "About":
+          echo "About"
 
-  let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+      let
+        ms = sk.avgFrameTime * 1000
+        label = &"frame time: {ms:>7.3f}ms"
+        labelSize = sk.getTextSize(sk.textStyle, label)
+      discard sk.drawText(
+        sk.textStyle,
+        label,
+        vec2(sk.size.x - labelSize.x - sk.theme.menuPadding.float32, 0),
+        sk.theme.defaultTextColor
+      )
 
   sk.endUi()
   window.swapBuffers()

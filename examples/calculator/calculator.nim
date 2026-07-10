@@ -113,181 +113,140 @@ let sk = newSilky(window, "dist/atlas.png")
 
 var showWindow = true
 
-template calcLabel(displayText: string) =
-  ## Displays a right-aligned label in a dark background box.
-  let
-    labelSize = vec2(sk.size.x - 24, 60)
-    labelRect = rect(sk.at, labelSize)
-
-  sk.beginWidget("Display", name = "display", text = displayText, rect = labelRect)
-  sk.drawRect(sk.at, labelSize, rgbx(50, 50, 50, 255))
-
-  let oldStyle = sk.textStyle
-  sk.textStyle = "H1"
-  let labelTextSize = sk.getTextSize(sk.textStyle, displayText)
-  let textX = sk.at.x + labelSize.x - labelTextSize.x - 10
-  discard sk.drawText(sk.textStyle, displayText, vec2(textX, sk.at.y + 14), rgbx(255, 255, 255, 255))
-  sk.textStyle = oldStyle
-  sk.endWidget()
-
-  sk.advance(vec2(0, 70))
+template calcDisplay(displayText: string) =
+  let displayTextSize = sk.getTextSize("H1", displayText)
+  rectangle "display":
+    box 292, 60
+    tint rgbx(50, 50, 50, 255)
+    text "display text":
+      box max(10.0'f, 282.0'f - displayTextSize.x), 10, displayTextSize.x, 42
+      font "H1"
+      characters displayText
+      tint "#ffffff"
 
 template calcButton(label: string, body: untyped) =
-  let
-    btnSize = vec2(60, 50)
-    startPos = sk.at
-    btnRect = rect(startPos, btnSize)
-
-  sk.beginWidget("Button", text = label, rect = btnRect)
-
-  if sk.mouseHover(window, btnRect):
-    if window.buttonReleased[MouseLeft]:
+  let buttonTextSize = sk.getTextSize("Default", label)
+  rectangle "calc button:" & label:
+    box 60, 50
+    patch "button.9patch", 4
+    onHover:
+      patch "button.hover.9patch", 4
+      tint rgbx(220, 220, 220, 255)
+    onDown:
+      patch "button.down.9patch", 4
+      tint rgbx(200, 200, 200, 255)
+    onClick:
       body
-    elif window.buttonDown[MouseLeft]:
-      sk.draw9Patch("button.down.9patch", 4, startPos, btnSize, rgbx(200, 200, 200, 255))
-    else:
-      sk.draw9Patch("button.hover.9patch", 4, startPos, btnSize, rgbx(220, 220, 220, 255))
-  else:
-    sk.draw9Patch("button.9patch", 4, startPos, btnSize)
+    text "calc label:" & label:
+      box (60.0'f - buttonTextSize.x) * 0.5, 13, buttonTextSize.x, 24
+      characters label
+      tint "#ffffff"
 
-  let oldStyle = sk.textStyle
-  sk.textStyle = "Default"
-  let textSize = sk.getTextSize(sk.textStyle, label)
-  let textPos = startPos + (btnSize - textSize) / 2
-  discard sk.drawText(sk.textStyle, label, textPos, rgbx(255, 255, 255, 255))
-  sk.textStyle = oldStyle
-
-  sk.endWidget()
-
-  sk.at.x += btnSize.x + 10
-  sk.stretchAt.x = max(sk.stretchAt.x, sk.at.x + 10)
-  sk.stretchAt.y = max(sk.stretchAt.y, sk.at.y + 50 + 10)
+template calcRow(id: string, body: untyped) =
+  group "row:" & id:
+    box 292, 54
+    layout LeftToRight
+    itemSpacing 10
+    body
 
 window.onFrame = proc() =
-
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)
 
-  # Draw tiled test texture as the background.
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.at = vec2(x.float32 * 256, y.float32 * 256)
-      image("testTexture", rgbx(30, 30, 30, 255))
+      sk.drawImage("testTexture", vec2(x.float32 * 256, y.float32 * 256), rgbx(30, 30, 30, 255))
 
-  subWindow("Calculator", showWindow, vec2(10, 10), vec2(340, 480)):
+  ui:
+    subWindow("Calculator", showWindow, vec2(10, 10), vec2(340, 480)):
+      var formula = ""
+      for t in symbols:
+        formula.add(t.number)
+        formula.add(t.operator)
+      formula = formula.replace("--", "+").replace("+-", "-")
+      let displayText = if formula == "": "0" else: formula
 
-    # Build the display formula string.
-    var formula = ""
-    for t in symbols:
-      formula.add(t.number)
-      formula.add(t.operator)
-    formula = formula.replace("--", "+").replace("+-", "-")
-    let displayText = if formula == "": "0" else: formula
+      calcDisplay displayText
 
-    # Draw the calculator display.
-    calcLabel(displayText)
+      calcRow "ops":
+        calcButton "C":
+          if symbols.len > 0:
+            repeat.setLen(0)
+            symbols.setLen(symbols.len - 1)
+        calcButton "±":
+          if symbols.len > 0 and symbols[^1].kind == Number:
+            let number = toFloat(symbols[^1].number)
+            symbols[^1].number = fromFloat(number / -1)
+        calcButton "%":
+          if symbols.len > 0 and symbols[^1].kind == Number:
+            let number = toFloat(symbols[^1].number)
+            symbols[^1].number = fromFloat(number / 100)
+        calcButton "÷":
+          if inOperator(): symbols[^1].operator = "÷"
 
-    let rowX = sk.at.x
+      calcRow "789":
+        calcButton "7":
+          inNumber()
+          symbols[^1].number.add("7")
+        calcButton "8":
+          inNumber()
+          symbols[^1].number.add("8")
+        calcButton "9":
+          inNumber()
+          symbols[^1].number.add("9")
+        calcButton "×":
+          if inOperator(): symbols[^1].operator = "×"
 
-    # Row 1: C, +/- (±), %, ÷.
-    calcButton("C"):
-      if symbols.len > 0:
-        repeat.setLen(0)
-        symbols.setLen(symbols.len - 1)
+      calcRow "456":
+        calcButton "4":
+          inNumber()
+          symbols[^1].number.add("4")
+        calcButton "5":
+          inNumber()
+          symbols[^1].number.add("5")
+        calcButton "6":
+          inNumber()
+          symbols[^1].number.add("6")
+        calcButton "-":
+          if inOperator():
+            symbols[^1].operator = "-"
+          else:
+            inNumber()
+            if symbols.len > 0 and symbols[^1].number == "":
+              symbols[^1].number = "-"
 
-    calcButton("±"):
-      if symbols.len > 0 and symbols[^1].kind == Number:
-        var number = toFloat(symbols[^1].number)
-        symbols[^1].number = fromFloat(number / -1)
+      calcRow "123":
+        calcButton "1":
+          inNumber()
+          symbols[^1].number.add("1")
+        calcButton "2":
+          inNumber()
+          symbols[^1].number.add("2")
+        calcButton "3":
+          inNumber()
+          symbols[^1].number.add("3")
+        calcButton "+":
+          if inOperator(): symbols[^1].operator = "+"
 
-    calcButton("%"):
-      if symbols.len > 0 and symbols[^1].kind == Number:
-        var number = toFloat(symbols[^1].number)
-        symbols[^1].number = fromFloat(number / 100)
+      calcRow "0":
+        calcButton "0":
+          inNumber()
+          symbols[^1].number.add("0")
+        calcButton ".":
+          inNumber()
+          if "." notin symbols[^1].number:
+            symbols[^1].number.add(".")
+        calcButton "=":
+          compute()
 
-    calcButton("÷"):
-      if inOperator(): symbols[^1].operator = "÷"
+    if not showWindow:
+      if window.buttonPressed[MouseLeft]:
+        showWindow = true
 
-    sk.at.x = rowX
-    sk.at.y += 60
-
-    # Row 2: 7, 8, 9, ×.
-    calcButton("7"):
-      inNumber()
-      symbols[^1].number.add("7")
-    calcButton("8"):
-      inNumber()
-      symbols[^1].number.add("8")
-    calcButton("9"):
-      inNumber()
-      symbols[^1].number.add("9")
-    calcButton("×"):
-      if inOperator(): symbols[^1].operator = "×"
-
-    sk.at.x = rowX
-    sk.at.y += 60
-
-    # Row 3: 4, 5, 6, -.
-    calcButton("4"):
-      inNumber()
-      symbols[^1].number.add("4")
-    calcButton("5"):
-      inNumber()
-      symbols[^1].number.add("5")
-    calcButton("6"):
-      inNumber()
-      symbols[^1].number.add("6")
-    calcButton("-"):
-      # Minus symbol can be an operator or the start of a negative number.
-      if inOperator():
-        symbols[^1].operator = "-"
-      else:
-        inNumber()
-        if symbols.len > 0 and symbols[^1].number == "":
-          symbols[^1].number = "-"
-
-    sk.at.x = rowX
-    sk.at.y += 60
-
-    # Row 4: 1, 2, 3, +.
-    calcButton("1"):
-      inNumber()
-      symbols[^1].number.add("1")
-    calcButton("2"):
-      inNumber()
-      symbols[^1].number.add("2")
-    calcButton("3"):
-      inNumber()
-      symbols[^1].number.add("3")
-    calcButton("+"):
-      if inOperator(): symbols[^1].operator = "+"
-
-    sk.at.x = rowX
-    sk.at.y += 60
-
-    calcButton("0"):
-      inNumber()
-      symbols[^1].number.add("0")
-
-    calcButton("."):
-      inNumber()
-      if "." notin symbols[^1].number:
-        symbols[^1].number.add(".")
-
-    calcButton("="):
-      compute()
-
-    sk.at.x = rowX
-    sk.at.y += 60
-
-  if not showWindow:
-    if window.buttonPressed[MouseLeft]:
-      showWindow = true
-    sk.at = vec2(100, 100)
-
-  let ms = sk.avgFrameTime * 1000
-  sk.at = sk.pos + vec2(sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, 20, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()
