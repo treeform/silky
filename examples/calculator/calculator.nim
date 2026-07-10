@@ -107,8 +107,6 @@ let window = newWindow(
 makeContextCurrent(window)
 loadExtensions()
 
-const BackgroundColor = parseHtmlColor("#000000").rgbx
-
 let sk = newSilky(window, "dist/atlas.png")
 
 var showWindow = true
@@ -151,11 +149,7 @@ template calcRow(id: string, body: untyped) =
 
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
-  sk.clearScreen(BackgroundColor)
-
-  for x in 0 ..< 16:
-    for y in 0 ..< 10:
-      sk.drawImage("testTexture", vec2(x.float32 * 256, y.float32 * 256), rgbx(30, 30, 30, 255))
+  sk.clearScreen(rgbx(30, 30, 30, 255))
 
   ui:
     subWindow("Calculator", showWindow, vec2(10, 10), vec2(340, 480)):

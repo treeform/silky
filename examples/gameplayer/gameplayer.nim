@@ -215,10 +215,7 @@ template vibeButton(id, imageName: string, x, y: float32) =
 
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
-
-  for x in 0 ..< 16:
-    for y in 0 ..< 10:
-      sk.drawImage("testTexture", vec2(x.float32 * 256, y.float32 * 256), rgbx(30, 30, 30, 255))
+  sk.clearScreen(rgbx(30, 30, 30, 255))
 
   ui:
     ribbon("top ribbon", sk.pos, vec2(sk.size.x, 64), RibbonColor):

@@ -11,9 +11,12 @@ elif defined(useVulkan):
   import silky/drawers/vk14
 elif defined(useMetal4):
   import silky/drawers/metal4
+elif defined(useCpu):
+  import silky/drawers/cpu
 else:
   import opengl
   import silky/drawers/ogl
+
 
 const
   NormalLayer* = 0
@@ -821,7 +824,8 @@ proc buttonReleased*(sk: Silky): ButtonView =
 
 when not defined(useDirectX) and
     not defined(useVulkan) and
-    not defined(useMetal4):
+    not defined(useMetal4) and
+    not defined(useCpu):
   proc atlasTextureId*(sk: Silky): GLuint =
     ## Returns the OpenGL texture id of the atlas.
     sk.drawer.atlasTextureId()

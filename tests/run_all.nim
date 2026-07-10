@@ -20,6 +20,8 @@ const BuildFlags =
     "-d:useVulkan"
   elif defined(useMetal4):
     "-d:useMetal4"
+  elif defined(useCpu):
+    "-d:useCpu"
   else:
     ""
 

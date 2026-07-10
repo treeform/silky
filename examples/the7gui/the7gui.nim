@@ -17,8 +17,6 @@ let window = newWindow(
 makeContextCurrent(window)
 loadExtensions()
 
-const BackgroundColor = parseHtmlColor("#000000").rgbx
-
 let sk = newSilky(window, "dist/atlas.png")
 
 sk.theme.defaultTextColor = parseHtmlColor("#2C3E50").rgbx
@@ -90,16 +88,12 @@ proc isValidFloat(s: string): bool =
 
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
-  sk.clearScreen(BackgroundColor)
+  sk.clearScreen(rgbx(30, 30, 30, 255))
 
   let now = epochTime()
   let dt = now - lastFrameTime
   lastFrameTime = now
   timerElapsed = min(timerElapsed + dt, timerDuration)
-
-  for x in 0 ..< 16:
-    for y in 0 ..< 10:
-      sk.drawImage("testTexture", vec2(x.float32 * 256, y.float32 * 256), rgbx(30, 30, 30, 255))
 
   ui:
     subWindow("Challenges", showChallenges, vec2(10, 10), vec2(300, 450)):

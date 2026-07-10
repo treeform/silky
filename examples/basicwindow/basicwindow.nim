@@ -76,13 +76,7 @@ window.onFrame = proc() =
 
   sk.beginUI(window, window.size)
 
-  for x in 0 ..< 16:
-    for y in 0 ..< 10:
-      sk.drawImage(
-        "testTexture",
-        vec2(x.float32 * 256, y.float32 * 256),
-        rgbx(30, 30, 30, 255)
-      )
+  sk.clearScreen(rgbx(30, 30, 30, 255))
 
   ui:
     subWindow("A SubWindow", showWindow, vec2(100, 100), vec2(400, 700)):
