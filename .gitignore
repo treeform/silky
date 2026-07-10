@@ -34,3 +34,4 @@ examples/*/dist/*.json
 examples/*/dist/*.png
 tests/dist/*.json
 tests/dist/*.png
+examples/todomvc/todos-silky.json
