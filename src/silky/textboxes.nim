@@ -30,7 +30,7 @@ import
 ## * Backspace and delete with selected text remove selected text and don't perform their normal action.
 
 when defined(silkyTesting):
-  import silky/[semantic, testing, profiles]
+  import silky/[semantics, testing, profiles]
   proc setClipboardString(value: string) =
     ## Stub for setting clipboard in test mode.
     discard

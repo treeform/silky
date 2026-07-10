@@ -1,8 +1,8 @@
 import std/[tables]
 
 when defined(silkyTesting):
-  import silky/[semantic, atlas, widgets, textboxes, testing, fidgetdsl, menus, profiles]
-  export semantic, atlas, tables, textboxes, testing, fidgetdsl, menus, profiles
+  import silky/[semantics, atlas, widgets, textboxes, testing, dsl, menus, profiles]
+  export semantics, atlas, tables, textboxes, testing, dsl, menus, profiles
   export widgets except
     button, checkBox, clickableIcon, dropDown, frame, group, h1text, icon,
     iconButton, image, listBox, progressBar, radioButton, ribbon, scrubber, text
@@ -12,12 +12,12 @@ else:
       not defined(useVulkan) and
       not defined(useMetal4):
     import opengl
-  import silky/[contexts, atlas, widgets, textboxes, fidgetdsl, menus, profiles]
+  import silky/[contexts, atlas, widgets, textboxes, dsl, menus, profiles]
   when not defined(useDirectX) and
       not defined(useVulkan) and
       not defined(useMetal4):
     export opengl
-  export windy, contexts, atlas, tables, textboxes, fidgetdsl, menus, profiles
+  export windy, contexts, atlas, tables, textboxes, dsl, menus, profiles
   export widgets except
     button, checkBox, clickableIcon, dropDown, frame, group, h1text, icon,
     iconButton, image, listBox, progressBar, radioButton, ribbon, scrubber, text

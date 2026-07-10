@@ -1,9 +1,8 @@
 import
-  vmath, bumpy, chroma,
-  silky/fidgetdsl
+  vmath, bumpy, chroma
 
 when defined(silkyTesting):
-  import silky/[semantic, testing]
+  import silky/[semantics, testing]
 else:
   import silky/contexts, windy
 

@@ -4,7 +4,7 @@ import
   silky/widgets as baseWidgets
 
 when defined(silkyTesting):
-  import silky/[semantic, testing, profiles]
+  import silky/[semantics, testing, profiles]
 else:
   import silky/contexts, windy
 
