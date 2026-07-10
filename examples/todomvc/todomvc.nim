@@ -189,6 +189,7 @@ loadTodos()
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)
+  var removeId = -1
 
   for x in 0 ..< 16:
     for y in 0 ..< 10:
@@ -292,7 +293,9 @@ window.onFrame = proc() =
                     if todo.completed:
                       tint sk.theme.disabledTextColor
                 button "x":
-                  removeTodo(todoId)
+                  removeId = todoId
+          if removeId >= 0:
+            removeTodo(removeId)
 
     if not showWindow:
       text "closed":

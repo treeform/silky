@@ -68,6 +68,14 @@ suite "TodoMVC - Add and Complete":
     check todos[0].title == "Keep"
     check sk.semantic.root.findByText("Drop") == nil
 
+  test "delete button removes todo after list render":
+    addTodo("Drop")
+    window.pumpFrame(sk)
+    window.clickButton(sk, "x")
+    window.pumpFrame(sk)
+    check todos.len == 0
+    check sk.semantic.root.findByText("Drop") == nil
+
 suite "TodoMVC - Filters":
   setup:
     resetState()
