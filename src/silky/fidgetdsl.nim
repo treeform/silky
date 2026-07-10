@@ -736,17 +736,25 @@ template group*(p: Vec2, direction = TopToBottom, body: untyped) =
     body
 
 template frame*(id: string, framePos, frameSize: Vec2, body: untyped) =
+  ## Absolute framePos/size, matching widgets.frame; box is parent-relative.
   frame(id):
-    box(framePos.x, framePos.y, frameSize.x, frameSize.y)
+    box(
+      framePos.x - sk.pos.x,
+      framePos.y - sk.pos.y,
+      frameSize.x,
+      frameSize.y
+    )
     body
 
 template frame*(p, s: Vec2, body: untyped) =
+  ## Absolute p/s, matching widgets.frame; box is parent-relative.
   frame("frame"):
-    box(p.x, p.y, s.x, s.y)
+    box(p.x - sk.pos.x, p.y - sk.pos.y, s.x, s.y)
     body
 
 template ribbon*(p, s: Vec2, ribbonTint: ColorRGBX, body: untyped) =
+  ## Absolute p/s, matching widgets.ribbon; box is parent-relative.
   rectangle("ribbon"):
-    box(p.x, p.y, s.x, s.y)
+    box(p.x - sk.pos.x, p.y - sk.pos.y, s.x, s.y)
     tint(ribbonTint)
     body
