@@ -209,7 +209,7 @@ text "time line " & $i:
   characters "..."
 ```
 
-`examples/basicwindow/basicwindow_zero.nim` shows a UI that stays at zero steady-state allocs by using only literals and fixed id tables.
+`examples/basicwindow/basicwindow.nim` shows a UI that stays at zero steady-state allocs by using only literals and fixed id tables.
 
 ## Porting checklist
 
@@ -246,8 +246,7 @@ sk.endUi()
 
 | Example | Notes |
 |---|---|
-| `examples/basicwindow/basicwindow.nim` | Full widget tour |
-| `examples/basicwindow/basicwindow_zero.nim` | Same UI, zero-alloc ids |
+| `examples/basicwindow/basicwindow.nim` | Full widget tour, zero-alloc ids |
 | `examples/calculator/calculator.nim` | Custom buttons with `rectangle` |
 | `examples/gameplayer/gameplayer.nim` | Panels and ribbons |
 | `examples/layouts/layouts.nim` | Overlap + foldouts |

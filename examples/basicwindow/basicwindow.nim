@@ -1,5 +1,7 @@
+## Basic window widget tour with zero user-side allocs.
+## Uses only string literals and stable ids so remaining allocs are library-side.
+
 import
-  std/[strformat],
   bumpy, vmath, chroma,
   silky
 
@@ -22,6 +24,22 @@ let sk = newSilky(window, "dist/atlas.png")
 window.runeInputEnabled = true
 window.onRune = proc(rune: Rune) =
   sk.inputRunes.add(rune)
+
+const
+  ElementOptions = ["Fire", "Water", "Earth", "Air"]
+  PowerOptions = ["Low", "Medium", "High"]
+  TimeLineIds = [
+    "time line 0",
+    "time line 1",
+    "time line 2",
+    "time line 3",
+    "time line 4",
+    "time line 5",
+    "time line 6",
+    "time line 7",
+    "time line 8",
+    "time line 9"
+  ]
 
 var
   showWindow = true
@@ -60,7 +78,11 @@ window.onFrame = proc() =
 
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.drawImage("testTexture", vec2(x.float32 * 256, y.float32 * 256), rgbx(30, 30, 30, 255))
+      sk.drawImage(
+        "testTexture",
+        vec2(x.float32 * 256, y.float32 * 256),
+        rgbx(30, 30, 30, 255)
+      )
 
   ui:
     subWindow("A SubWindow", showWindow, vec2(100, 100), vec2(400, 700)):
@@ -84,8 +106,8 @@ window.onFrame = proc() =
 
       text "select label":
         characters "Select an option:"
-      dropDown element, ["Fire", "Water", "Earth", "Air"]
-      dropDown power, ["Low", "Medium", "High"]
+      dropDown element, ElementOptions
+      dropDown power, PowerOptions
 
       text "progress label":
         characters "Progress Bar:"
@@ -95,8 +117,8 @@ window.onFrame = proc() =
         progress = 0.0
 
       text "scrubber label":
-        characters &"How much: {howMuch:.2f}"
-      scrubber "howMuch", howMuch, 0.0, 100.0, &"{howMuch:.0f}"
+        characters "How much:"
+      scrubber "howMuch", howMuch, 0.0, 100.0, ""
 
       group "icons row":
         box 260, 32
@@ -114,8 +136,8 @@ window.onFrame = proc() =
       text "scroll two":
         characters "Does it work?"
 
-      for i in 0 ..< 10:
-        text "time line " & $i:
+      for i in 0 ..< TimeLineIds.len:
+        text TimeLineIds[i]:
           characters "Time will tell..."
 
       returnTest()
@@ -127,13 +149,12 @@ window.onFrame = proc() =
       if window.buttonPressed[MouseLeft]:
         showWindow = true
 
-    let ms = sk.avgFrameTime * 1000
     text "scale readout":
       box sk.size.x - 250, 20, 230, 22
-      characters &"ui scale: {sk.uiScale:>4.2f}x (+/-)"
+      characters "ui scale: (+/-)"
     text "time readout":
       box sk.size.x - 250, 48, 230, 22
-      characters &"frame time: {ms:>7.3f}ms"
+      characters "frame time:"
 
   sk.endUi()
   window.swapBuffers()
