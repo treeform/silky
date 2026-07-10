@@ -407,7 +407,10 @@ proc drawAreaRecursive(area: Area, r: Rect) =
       horizontalPadding 8
       verticalPadding 8
       itemSpacing 8
-      h1text(activePanel.name)
+      text "panel.title:" & $cast[uint](activePanel):
+        characters activePanel.name
+        font "H1"
+        tint sk.theme.textH1Color
       text "panel.body:" & $cast[uint](activePanel):
         characters "This is the content of " & activePanel.name
       for i in 0 ..< 20:

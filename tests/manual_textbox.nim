@@ -12,7 +12,12 @@ import
 let builder = newAtlasBuilder(1024, 4)
 builder.addDir("tests/data/", "tests/data/")
 builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "H1", 32.0)
-builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Default", 18.0, subpixelSteps = 10)
+builder.addFont(
+  "tests/data/IBMPlexSans-Regular.ttf",
+  "Default",
+  18.0,
+  subpixelSteps = 10
+)
 builder.write("tests/dist/atlas.png")
 
 let window = newWindow(
@@ -34,6 +39,7 @@ Word wrap splits text at word boundaries when it would exceed the maximum width.
 Hi.
 Supercalifragilisticexpialidocious is a very long word that tests character-level fallback wrapping.
 Done."""
+  Margin = 20.0f
 
 let sk = newSilky(window, "tests/dist/atlas.png")
 
@@ -57,55 +63,53 @@ window.onFrame = proc() =
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)
 
-  const Margin = 20.0f
+  ui:
+    text "title":
+      box Margin, Margin, 500, 40
+      characters "Text Box Example"
+      font "H1"
+      tint sk.theme.textH1Color
 
-  sk.at = vec2(Margin, Margin)
+    group "controls":
+      box Margin, 70, 600, 280
+      layout TopToBottom
+      itemSpacing 8
+      scrubber("width", boxWidth, 100.0, 800.0, &"{boxWidth:.0f} px")
+      scrubber("height", boxHeight, 50.0, 700.0, &"{boxHeight:.0f} px")
+      checkBox "Word wrap", wordWrapOn
+      checkBox "Disabled", disabledOn
+      checkBox "Error", errorOn
+      checkBox "Password", passwordOn
+      checkBox "Numbers only", numbersOnly
 
-  # Title.
-  h1text("Text Box Example")
+      let digitChars = "0123456789".toRunes
+      if passwordOn:
+        passwordInput("single", singleLineText, not disabledOn, errorOn)
+      elif numbersOnly:
+        textInput(
+          "numbers",
+          numberText,
+          not disabledOn,
+          errorOn,
+          digitChars
+        )
+      else:
+        textInput("single", singleLineText, not disabledOn, errorOn)
 
-  # Size scrubbers.
-  scrubber("width", boxWidth, 100.0, 800.0, &"{boxWidth:.0f} px")
-  scrubber("height", boxHeight, 50.0, 700.0, &"{boxHeight:.0f} px")
+      textBox(
+        "main",
+        sampleText,
+        boxWidth,
+        boxHeight,
+        wrapWords = wordWrapOn,
+        isEnabled = not disabledOn,
+        isError = errorOn
+      )
 
-  # Checkboxes.
-  checkBox("Word wrap", wordWrapOn)
-  checkBox("Disabled", disabledOn)
-  checkBox("Error", errorOn)
-  checkBox("Password", passwordOn)
-  checkBox("Numbers only", numbersOnly)
-
-  let digitChars = "0123456789".toRunes
-
-  # Single line input variants.
-  if passwordOn:
-    passwordInput("single", singleLineText, not disabledOn, errorOn)
-  elif numbersOnly:
-    textInput(
-      "numbers",
-      numberText,
-      not disabledOn,
-      errorOn,
-      digitChars
-    )
-  else:
-    textInput("single", singleLineText, not disabledOn, errorOn)
-
-  # Multi-line text box.
-  textBox(
-    "main",
-    sampleText,
-    boxWidth,
-    boxHeight,
-     wrapWords = wordWrapOn,
-    isEnabled = not disabledOn,
-    isError = errorOn
-  )
-
-  # Frame time display.
-  let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.size.x - 250, Margin)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, Margin, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()

@@ -1,5 +1,5 @@
 import
-  vmath, chroma,
+  pixie, vmath, chroma,
   silky
 
 let builder = newAtlasBuilder(1024, 4)
@@ -18,8 +18,6 @@ loadExtensions()
 
 let sk = newSilky(window, "dist/atlas.png")
 
-let overlap* = vec2(15, -35)
-
 var
   showOverlapWindow = true
   behindClicked = false
@@ -34,48 +32,76 @@ window.onFrame = proc() =
   # Draw tiled test texture as the background.
   for x in 0 ..< 16:
     for y in 0 ..< 10:
-      sk.at = vec2(x.float32 * 256, y.float32 * 256)
-      image("testTexture", rgbx(30, 30, 30, 255))
+      sk.drawImage(
+        "testTexture",
+        vec2(x.float32 * 256, y.float32 * 256),
+        rgbx(30, 30, 30, 255)
+      )
 
-  subWindow("Layouts", showOverlapWindow, vec2(200, 100), vec2(250, 400)):
-    text("Two overlapping buttons:")
+  ui:
+    subWindow("Layouts", showOverlapWindow, vec2(200, 100), vec2(250, 400)):
+      text "overlap label":
+        characters "Two overlapping buttons:"
 
-    var clicked = false
+      group "overlap area":
+        box 160, 55
+        rectangle "behind":
+          box 0, 20, 100, 32
+          patch "button.9patch", 6
+          onHover:
+            tint sk.theme.buttonHoverColor
+          onDown:
+            tint sk.theme.buttonDownColor
+          onClick:
+            behindClicked = true
+          text "behind label":
+            box 8, 6, 84, 20
+            characters "Behind"
+            textAlign CenterAlign, MiddleAlign
+        rectangle "front":
+          box 15, 0, 100, 32
+          patch "button.9patch", 6
+          onHover:
+            tint sk.theme.buttonHoverColor
+          onDown:
+            tint sk.theme.buttonDownColor
+          onClick:
+            inFrontClicked = true
+          text "front label":
+            box 8, 6, 84, 20
+            characters "In Front"
+            textAlign CenterAlign, MiddleAlign
 
-    button("Behind"):
-      clicked = true
+      button(if foldout1Open: "- Section A" else: "+ Section A"):
+        foldout1Open = not foldout1Open
+      if foldout1Open:
+        text "section a 1":
+          characters "  Content of section A"
+        text "section a 2":
+          characters "  More content here"
 
-    behindClicked = clicked
-    sk.at = sk.at + overlap
+      button(if foldout2Open: "- Section B" else: "+ Section B"):
+        foldout2Open = not foldout2Open
+      if foldout2Open:
+        text "section b 1":
+          characters "  Section B item 1"
+        text "section b 2":
+          characters "  Section B item 2"
+        text "section b 3":
+          characters "  Section B item 3"
 
-    button("In Front"):
-      clicked = true
+      button(if foldout3Open: "- Section C" else: "+ Section C"):
+        foldout3Open = not foldout3Open
+      if foldout3Open:
+        text "section c 1":
+          characters "  Section C content"
 
-    inFrontClicked = clicked
-
-    button(if foldout1Open: "- Section A" else: "+ Section A"):
-      foldout1Open = not foldout1Open
-    if foldout1Open:
-      text("  Content of section A")
-      text("  More content here")
-
-    button(if foldout2Open: "- Section B" else: "+ Section B"):
-      foldout2Open = not foldout2Open
-    if foldout2Open:
-      text("  Section B item 1")
-      text("  Section B item 2")
-      text("  Section B item 3")
-
-    button(if foldout3Open: "- Section C" else: "+ Section C"):
-      foldout3Open = not foldout3Open
-    if foldout3Open:
-      text("  Section C content")
-
-  if not showOverlapWindow:
-    if window.buttonPressed[MouseLeft]:
-      showOverlapWindow = true
-    sk.at = vec2(100, 100)
-    text("Click anywhere to show the window")
+    if not showOverlapWindow:
+      text "closed message":
+        box 100, 100, 360, 32
+        characters "Click anywhere to show the window"
+      if window.buttonPressed[MouseLeft]:
+        showOverlapWindow = true
 
   sk.endUi()
   window.swapBuffers()

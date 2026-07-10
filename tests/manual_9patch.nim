@@ -39,90 +39,116 @@ window.onFrame = proc() =
     LabelWidth = 80.0f
     SliderWidth = 300.0f
 
-  sk.at = vec2(Margin, Margin)
-  text("9-Patch Manual Test")
+  ui:
+    text "title":
+      box Margin, Margin, 400, 24
+      characters "9-Patch Manual Test"
 
-  # Original image for reference, drawn to the right of controls.
-  let refX = Margin + LabelWidth + SliderWidth + Margin
-  sk.at = vec2(refX, 55)
-  text("Original:")
-  sk.drawImage("debug.9patch", vec2(refX, 80))
+    let refX = Margin + LabelWidth + SliderWidth + Margin
+    text "original label":
+      box refX, 55, 200, 24
+      characters "Original:"
+    sk.drawImage("debug.9patch", vec2(refX, 80))
 
-  # Toggle between single-int and independent border modes.
-  sk.at = vec2(Margin, 55)
-  checkBox("4-patch (independent borders)", use4Patch)
+    group "controls":
+      box Margin, 55, LabelWidth + SliderWidth, 280
+      layout TopToBottom
+      itemSpacing 12
+      checkBox "4-patch (independent borders)", use4Patch
 
-  # Size and patch border sliders.
-  var y = 90.0f
+      group "width row":
+        box LabelWidth + SliderWidth, 24
+        layout LeftToRight
+        text "width label":
+          box LabelWidth, 24
+          characters "Width:"
+        group "width slider":
+          box SliderWidth, 24
+          scrubber("width", drawWidth, 32.0, 600.0, &"{drawWidth:.0f}")
 
-  sk.at = vec2(Margin, y)
-  text("Width:")
-  sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-  scrubber("width", drawWidth, 32.0, 600.0, &"{drawWidth:.0f}")
-  sk.popLayout()
-  y += 35
+      group "height row":
+        box LabelWidth + SliderWidth, 24
+        layout LeftToRight
+        text "height label":
+          box LabelWidth, 24
+          characters "Height:"
+        group "height slider":
+          box SliderWidth, 24
+          scrubber("height", drawHeight, 32.0, 600.0, &"{drawHeight:.0f}")
 
-  sk.at = vec2(Margin, y)
-  text("Height:")
-  sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-  scrubber("height", drawHeight, 32.0, 600.0, &"{drawHeight:.0f}")
-  sk.popLayout()
-  y += 45
+      if use4Patch:
+        group "top row":
+          box LabelWidth + SliderWidth, 24
+          layout LeftToRight
+          text "top label":
+            box LabelWidth, 24
+            characters "Top:"
+          group "top slider":
+            box SliderWidth, 24
+            scrubber("top", patchTop, 0.0, 32.0, &"{patchTop:.0f}")
 
-  if use4Patch:
-    sk.at = vec2(Margin, y)
-    text("Top:")
-    sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-    scrubber("top", patchTop, 0.0, 32.0, &"{patchTop:.0f}")
-    sk.popLayout()
-    y += 35
+        group "right row":
+          box LabelWidth + SliderWidth, 24
+          layout LeftToRight
+          text "right label":
+            box LabelWidth, 24
+            characters "Right:"
+          group "right slider":
+            box SliderWidth, 24
+            scrubber("right", patchRight, 0.0, 32.0, &"{patchRight:.0f}")
 
-    sk.at = vec2(Margin, y)
-    text("Right:")
-    sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-    scrubber("right", patchRight, 0.0, 32.0, &"{patchRight:.0f}")
-    sk.popLayout()
-    y += 35
+        group "bottom row":
+          box LabelWidth + SliderWidth, 24
+          layout LeftToRight
+          text "bottom label":
+            box LabelWidth, 24
+            characters "Bottom:"
+          group "bottom slider":
+            box SliderWidth, 24
+            scrubber("bottom", patchBottom, 0.0, 32.0, &"{patchBottom:.0f}")
 
-    sk.at = vec2(Margin, y)
-    text("Bottom:")
-    sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-    scrubber("bottom", patchBottom, 0.0, 32.0, &"{patchBottom:.0f}")
-    sk.popLayout()
-    y += 35
+        group "left row":
+          box LabelWidth + SliderWidth, 24
+          layout LeftToRight
+          text "left label":
+            box LabelWidth, 24
+            characters "Left:"
+          group "left slider":
+            box SliderWidth, 24
+            scrubber("left", patchLeft, 0.0, 32.0, &"{patchLeft:.0f}")
+      else:
+        group "patch row":
+          box LabelWidth + SliderWidth, 24
+          layout LeftToRight
+          text "patch label":
+            box LabelWidth, 24
+            characters "Patch:"
+          group "patch slider":
+            box SliderWidth, 24
+            scrubber("patch", patchTop, 0.0, 32.0, &"{patchTop:.0f}")
 
-    sk.at = vec2(Margin, y)
-    text("Left:")
-    sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-    scrubber("left", patchLeft, 0.0, 32.0, &"{patchLeft:.0f}")
-    sk.popLayout()
-    y += 45
-  else:
-    sk.at = vec2(Margin, y)
-    text("Patch:")
-    sk.pushLayout(vec2(Margin + LabelWidth, y), vec2(SliderWidth, 24))
-    scrubber("patch", patchTop, 0.0, 32.0, &"{patchTop:.0f}")
-    sk.popLayout()
-    y += 45
+    # Draw the 9-patch below the controls.
+    let
+      drawPos = vec2(Margin, 360)
+      drawSize = vec2(drawWidth, drawHeight)
 
-  # Draw the 9-patch with current settings.
-  let
-    drawPos = vec2(Margin, y)
-    drawSize = vec2(drawWidth, drawHeight)
+    if use4Patch:
+      sk.draw9Patch(
+        "debug.9patch",
+        patchTop.int,
+        patchRight.int,
+        patchBottom.int,
+        patchLeft.int,
+        drawPos,
+        drawSize
+      )
+    else:
+      sk.draw9Patch("debug.9patch", patchTop.int, drawPos, drawSize)
 
-  if use4Patch:
-    sk.draw9Patch(
-      "debug.9patch",
-      patchTop.int, patchRight.int, patchBottom.int, patchLeft.int,
-      drawPos, drawSize
-    )
-  else:
-    sk.draw9Patch("debug.9patch", patchTop.int, drawPos, drawSize)
-
-  # Frame time display.
-  let ms = sk.avgFrameTime * 1000
-  sk.at = vec2(sk.pos.x + sk.size.x - 250, 20)
-  text(&"frame time: {ms:>7.3f}ms")
+    let ms = sk.avgFrameTime * 1000
+    text "frame time":
+      box sk.size.x - 250, 20, 230, 22
+      characters &"frame time: {ms:>7.3f}ms"
 
   sk.endUi()
   window.swapBuffers()
