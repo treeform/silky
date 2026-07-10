@@ -774,7 +774,7 @@ proc clearScreen*(sk: Silky, color: ColorRGBX) {.measure.} =
   ## Clears or updates the frame clear color through the drawer.
   sk.drawer.clearScreen(color)
 
-proc endUi*(sk: Silky) {.measure.} =
+proc endUi*(sk: Silky) =
   ## Flushes the queued draws through the active drawer.
   for i in 1 ..< sk.drawer.layers.len:
     sk.drawer.layers[NormalLayer].add(sk.drawer.layers[i])
