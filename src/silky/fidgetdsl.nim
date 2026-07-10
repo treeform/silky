@@ -66,6 +66,8 @@ var
   parent*: DslNode
   current*: DslNode
   scopeStack*: seq[DslNode]
+  dslNodePool: seq[DslNode]
+  dslNodePoolUsed: int
 
 proc dslVec2(v: SomeNumber): Vec2 {.inline.} =
   vec2(v.float32, v.float32)
@@ -136,45 +138,82 @@ proc resetNodeRect*(node: DslNode) {.inline.} =
     node.resolved = false
     node.interactionResolved = false
 
-proc newDslNode(sk: Silky, kind: DslNodeKind, id: string): DslNode =
-  result = DslNode(
-    kind: kind,
-    id: id,
-    boxRect: rect(0'f, 0'f, 0'f, 0'f),
-    resolvedRect: rect(0'f, 0'f, 0'f, 0'f),
-    fontName: sk.textStyle,
-    tintColor: white(),
-    direction: TopToBottom,
-    itemSpacing: sk.theme.spacing.float32,
-    hAlign: LeftAlign,
-    vAlign: TopAlign,
-    semanticEnabled: true
-  )
+proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) =
+  ## Resets a pooled node for reuse without allocating.
+  node.kind = kind
+  node.id = id
+  node.boxRect = rect(0'f, 0'f, 0'f, 0'f)
+  node.resolvedRect = rect(0'f, 0'f, 0'f, 0'f)
+  node.hasBox = false
+  node.resolved = false
+  node.materialized = false
+  node.startedChildren = false
+  node.pushedLayout = false
+  node.pushedClip = false
+  node.patch = PatchSpec()
+  node.imageName = ""
+  node.characters = ""
+  node.fontName = sk.textStyle
+  node.tintColor = white()
+  node.hasTint = false
+  node.clipContent = false
+  node.direction = TopToBottom
+  node.horizontalPadding = 0
+  node.verticalPadding = 0
+  node.itemSpacing = sk.theme.spacing.float32
+  node.hAlign = LeftAlign
+  node.vAlign = TopAlign
+  node.frameState = nil
+  node.frameOrigin = vec2(0)
+  node.interactionResolved = false
+  node.interaction = None
+  node.semanticOpened = false
+  node.semanticKind = ""
+  node.semanticName = ""
+  node.semanticText = ""
+  node.semanticEnabled = true
+  node.semanticFocused = false
+  node.semanticPressed = false
+  node.semanticHovered = false
+  node.semanticChecked = false
+  node.semanticValue = ""
   case kind
   of nkFrame:
-    result.patch = patchSpec("frame.9patch", 6)
-    result.clipContent = true
-    result.horizontalPadding = sk.theme.padding.float32
-    result.verticalPadding = sk.theme.padding.float32
+    node.patch = patchSpec("frame.9patch", 6)
+    node.clipContent = true
+    node.horizontalPadding = sk.theme.padding.float32
+    node.verticalPadding = sk.theme.padding.float32
   else:
     discard
 
+proc acquireDslNode(sk: Silky, kind: DslNodeKind, id: string): DslNode =
+  ## Returns a pooled DSL node, growing the pool only on first use.
+  if dslNodePoolUsed < dslNodePool.len:
+    result = dslNodePool[dslNodePoolUsed]
+  else:
+    result = DslNode()
+    dslNodePool.add(result)
+  inc dslNodePoolUsed
+  result.resetDslNode(sk, kind, id)
+
 proc beginDsl*(sk: Silky) =
   ## Starts a transient authoring stack for the current immediate frame.
-  root = newDslNode(sk, nkRoot, "root")
+  dslNodePoolUsed = 0
+  scopeStack.setLen(0)
+  root = acquireDslNode(sk, nkRoot, "root")
   root.resolvedRect = rect(dslVec2(0, 0), sk.rootSize)
   root.resolved = true
   root.materialized = true
   root.startedChildren = true
-  scopeStack.setLen(0)
   scopeStack.add(root)
   parent = nil
   current = root
 
 proc endDsl*(sk: Silky) =
-  ## Clears the transient DSL stack. No nodes are retained.
+  ## Clears the transient DSL stack. Pooled nodes are kept for reuse.
   discard sk
   scopeStack.setLen(0)
+  dslNodePoolUsed = 0
   root = nil
   parent = nil
   current = nil
@@ -424,7 +463,7 @@ proc beginNode*(sk: Silky, kind: DslNodeKind, id: string) {.inline.} =
   let owner = scopeStack[^1]
   sk.startChildren(owner)
   parent = owner
-  current = newDslNode(sk, kind, id)
+  current = acquireDslNode(sk, kind, id)
   scopeStack.add(current)
 
 proc finishNode*(sk: Silky, window: auto) {.inline.} =

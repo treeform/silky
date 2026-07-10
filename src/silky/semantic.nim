@@ -7,6 +7,9 @@ import
 
 from windy/common import Button, CursorKind, Cursor
 
+const
+  LineFeedRune = Rune(10)
+
 type
   WidgetState* = object
     ## Stores the interactive state of a widget.
@@ -402,35 +405,42 @@ proc getImageSize*(sk: Silky, image: string): Vec2 =
   let uv = sk.atlas.entries[image]
   vec2(uv.width.float32, uv.height.float32)
 
+proc nextRune(text: string, i: var int): Rune {.inline.} =
+  ## Reads one UTF-8 rune and advances the byte index.
+  fastRuneAt(text, i, result, true)
+
+proc peekRune(text: string, i: int, rune: var Rune): bool {.inline.} =
+  ## Reads one UTF-8 rune without changing the caller's byte index.
+  if i >= text.len:
+    return false
+  var j = i
+  fastRuneAt(text, j, rune, true)
+  true
+
 proc getTextSize*(sk: Silky, font: string, text: string): Vec2 =
   ## Calculates the rendered size of text in a given font.
   if font notin sk.atlas.fonts:
     return vec2(0, 0)
   let fontData = sk.atlas.fonts[font]
-  var currentPos = vec2(0, fontData.lineHeight)
-  let runedText = text.toRunes
+  var
+    i = 0
+    currentPos = vec2(0, fontData.lineHeight)
 
-  for i in 0 ..< runedText.len:
-    let rune = runedText[i]
-    if rune == Rune(10):
+  while i < text.len:
+    let rune = text.nextRune(i)
+    if rune == LineFeedRune:
       currentPos.x = 0
       currentPos.y += fontData.lineHeight
       continue
 
-    let glyphStr = $rune
-    var entry: LetterEntry
-    if glyphStr in fontData.entries:
-      entry = fontData.entries[glyphStr][0]
-    elif "?" in fontData.entries:
-      entry = fontData.entries["?"][0]
-    else:
+    var entry: ptr LetterEntry
+    if not fontData.lookupLetter(rune, 0, entry):
       continue
 
     currentPos.x += entry.advance
-    if i < runedText.len - 1:
-      let nextGlyphStr = $runedText[i+1]
-      if nextGlyphStr in entry.kerning:
-        currentPos.x += entry.kerning[nextGlyphStr]
+    var next: Rune
+    if text.peekRune(i, next):
+      currentPos.x += fontData.lookupKerning(rune, next)
 
   return currentPos
 
