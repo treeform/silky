@@ -142,7 +142,12 @@ rectangle "badge":
 group "tree":
   indent 16:             # T4
     text "child": ...
-```
+
+rectangle "log":
+  size 400, 200
+  scrollable()           # T7: independent of sizing — scrolling is a
+  ...                    # ramification of clipping, legal on any
+```                      # known-size node (not hug, A8)
 
 Defaults stay compatible: `frame`/`group` keep today's
 fill-remaining-space behavior unless told otherwise; `text`/`image` stay

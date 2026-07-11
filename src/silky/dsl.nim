@@ -42,6 +42,7 @@ type
     fixedSize*: Vec2
     centerXFlag*: bool
     centerYFlag*: bool
+    scrollableFlag*: bool
     chromeMark*: int
     chromeLayer*: int
     materialized*: bool
@@ -179,6 +180,7 @@ proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) {.mea
   node.fixedSize = vec2(0, 0)
   node.centerXFlag = false
   node.centerYFlag = false
+  node.scrollableFlag = false
   node.chromeMark = 0
   node.chromeLayer = 0
   node.materialized = false
@@ -415,6 +417,10 @@ proc pushChildrenLayout(sk: Silky, node: DslNode) =
   if node.isHug and node.kind != nkFrame and not node.hasBox:
     # T2: chrome is deferred to close; children draw first while the
     # stretch pen measures them. Record where this span begins.
+    when defined(silkyLayoutDebug):
+      if node.scrollableFlag:
+        echo "[silky] scrollable needs a known region, not hug (A8): ",
+          node.id
     let r = sk.resolveNodeRect(node)
     sk.beginSemantic(node, r)
     node.chromeLayer = sk.currentDrawLayer
@@ -436,7 +442,7 @@ proc pushChildrenLayout(sk: Silky, node: DslNode) =
     return
   sk.drawNode(node, keepSemanticOpen = true)
   let r = node.resolvedRect
-  if node.kind == nkFrame:
+  if node.kind == nkFrame or node.scrollableFlag:
     if node.id notin frameStates:
       frameStates[node.id] = FrameState()
     node.frameState = frameStates[node.id]
@@ -546,7 +552,7 @@ proc closeChildrenLayout(sk: Silky, window: auto, node: DslNode) =
     sk.closeHugLayout(node)
     node.pushedLayout = false
     return
-  if node.kind == nkFrame:
+  if node.frameState != nil:
     sk.finishFrameScrollbars(window, node)
   sk.popLayout()
   if node.pushedClip:
@@ -782,6 +788,13 @@ template indent*(amount: SomeNumber, body: untyped) =
     body
   finally:
     sk.currentScope.indent -= amount.float32
+
+proc scrollable*(enabled = true) {.inline.} =
+  ## T7: clip this node and scroll its overflow. Scrolling is a
+  ## ramification of clipping, independent of sizing — legal on any
+  ## node whose region is known (fixed or fill; not hug, A8).
+  if current != nil:
+    current.scrollableFlag = enabled
 
 proc clipContent*(enabled = true) {.inline.} =
   if current != nil:

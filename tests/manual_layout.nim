@@ -69,6 +69,7 @@ var
   showIndent = false
   showCenter = false
   showWidgets = false
+  showScroll = false
   clickCount = 0
 
 window.onFrame = proc() =
@@ -99,11 +100,11 @@ window.onFrame = proc() =
       radioButton("Fixed region", parentMode, 0)
       radioButton("Hug children (T2)", parentMode, 1)
       radioButton("Fill cross axis (T3)", parentMode, 2)
-      radioButton("Scroll frame (T7)", parentMode, 3)
 
     group "toggleRow":
       hug()
       layout LeftToRight
+      checkBox("Scrollable (T7)", showScroll)
       checkBox("Indent (T4)", showIndent)
       checkBox("Centered box (T5)", showCenter)
       checkBox("Widgets in flow", showWidgets)
@@ -129,6 +130,10 @@ window.onFrame = proc() =
       horizontalPadding pad
       verticalPadding pad
       itemSpacing spacing
+      if showScroll:
+        # T7: scrolling is an independent property — a ramification of
+        # clipping — orthogonal to how children are sized.
+        scrollable()
 
       template demoBoxes() =
         for i in 0 ..< n:
@@ -159,19 +164,6 @@ window.onFrame = proc() =
         group "hugger":
           hug()
           patch "frame.9patch", 6
-          layout dir
-          horizontalPadding pad
-          verticalPadding pad
-          itemSpacing spacing
-          demoBoxes()
-      elif parentMode == 3:
-        # T7: the scroll origin is the layout origin. A BottomToTop
-        # frame rests scrolled to the bottom and its thumb rests at
-        # the bottom of the track; RightToLeft rests at the right.
-        # The frame fills the demo area (T3) and clips its overflow.
-        frame "scroller":
-          fillWidth()
-          fillHeight()
           layout dir
           horizontalPadding pad
           verticalPadding pad

@@ -81,6 +81,17 @@ proc layoutUI(sk: Silky, window: Window) =
           rectangle "sb" & $i:
             size 40, 40
             tint "#2ecc71"
+      # T7: scrollable() on a plain rectangle — no padding, so the
+      # inner region is the full box; bottom edge y = 350.
+      rectangle "sr":
+        box 660, 200, 200, 150
+        scrollable()
+        layout dir
+        tint "#333344"
+        for i in 0 ..< 8:
+          rectangle "sc" & $i:
+            size 40, 40
+            tint "#9b59b6"
 
 proc rectOf(h: TestHarness, name: string): Rect =
   let node = h.sk.semantic.root.findByName(name, "Rectangle")
@@ -114,8 +125,9 @@ suite "Two-pen layout":
     indentSecond = false
     centered = false
     scrollFrame = false
-    if frameStates.contains("sf"):
-      frameStates["sf"].scrollPos = vec2(0, 0)
+    for id in ["sf", "sr"]:
+      if frameStates.contains(id):
+        frameStates[id].scrollPos = vec2(0, 0)
 
   test "T1 TopToBottom: pen walks down from the top-left":
     pump()
@@ -209,5 +221,15 @@ suite "Two-pen layout":
     pump()
     # Content = 8 * (40 + 8) + 16 = 400; overflow = 400 - 150 = 250.
     check abs(frameStates["sf"].scrollPos.y - 250) < 0.5
+
+  test "T7 scrollable(): a plain rectangle scrolls like a frame":
+    scrollFrame = true
+    dir = BottomToTop
+    pump()
+    # No padding: first box sits on the box's own bottom edge (350).
+    checkRect(h.rectOf("sc0"), 660, 310, 40, 40)
+    frameStates["sr"].scrollPos = vec2(0, 30)
+    pump()
+    checkRect(h.rectOf("sc0"), 660, 340, 40, 40)
 
 echo "All layout tests done."
