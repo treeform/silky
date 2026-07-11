@@ -80,7 +80,7 @@ window.onFrame = proc() =
 
   scrubber("padding", layoutPadding, 0.0, 60.0, &"Padding: {layoutPadding:0.0f}")
   scrubber("spacing", layoutSpacing, 0.0, 40.0, &"Spacing: {layoutSpacing:0.0f}")
-  scrubber("numBoxes", numBoxes, 1.0, 10.0, &"Boxes: {numBoxes.int}")
+  scrubber("numBoxes", numBoxes, 1.0, 30.0, &"Boxes: {numBoxes.int}")
 
   ui:
     text("Stack direction (A2: pick the origin corner):")
@@ -135,18 +135,18 @@ window.onFrame = proc() =
           if showIndent and i >= 2 and i <= 3:
             indent 24:
               rectangle "box" & $i:
-                size BoxSizes[i].x, BoxSizes[i].y
-                tint BoxColors[i]
+                size BoxSizes[i mod 10].x, BoxSizes[i mod 10].y
+                tint BoxColors[i mod 10]
           else:
             rectangle "box" & $i:
-              size BoxSizes[i].x, BoxSizes[i].y
+              size BoxSizes[i mod 10].x, BoxSizes[i mod 10].y
               if parentMode == 2:
                 # T3: stretch the cross axis into the known region.
                 if vertical:
                   fillWidth()
                 else:
                   fillHeight()
-              tint BoxColors[i]
+              tint BoxColors[i mod 10]
           if showWidgets and i == 1:
             button("Click " & $clickCount):
               inc clickCount
@@ -168,8 +168,10 @@ window.onFrame = proc() =
         # T7: the scroll origin is the layout origin. A BottomToTop
         # frame rests scrolled to the bottom and its thumb rests at
         # the bottom of the track; RightToLeft rests at the right.
+        # The frame fills the demo area (T3) and clips its overflow.
         frame "scroller":
-          size 340, 300
+          fillWidth()
+          fillHeight()
           layout dir
           horizontalPadding pad
           verticalPadding pad
