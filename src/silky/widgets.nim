@@ -304,20 +304,29 @@ proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): tuple[state:
   sk.at -= frameState.scrollPos
   return (frameState, originPos)
 
-proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec2) =
-  ## Finish a scrollable frame and handle scrollbars.
-  if frameState.scrollingY and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+proc frameScrollbars*(
+  sk: Silky,
+  window: Window,
+  frameState: FrameState,
+  frameRect: Rect,
+  contentSize: Vec2,
+  signs: Vec2
+) =
+  ## T7: scrolling is the natural ramification of clipping. scrollPos is
+  ## the distance t from the origin corner per axis, clamped to the
+  ## overflow. At rest (t = 0) the origin edge is pinned: a bottom-origin
+  ## frame rests scrolled to the bottom, and its thumb rests at the
+  ## bottom of the track, moving away from the origin as t grows.
+  if frameState.scrollingY and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
     frameState.scrollingY = false
-  if frameState.scrollingX and (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+  if frameState.scrollingX and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
     frameState.scrollingX = false
 
-  # Calculate content size from stretchAt (add padding for last element).
-  # Add scrollPos back because stretchAt is in scrolled coordinates but we need unscrolled.
-  sk.stretchAt += vec2(16)
-  let contentSize = (sk.stretchAt + frameState.scrollPos) - originPos
-  let scrollMax = max(contentSize - sk.size, vec2(0, 0))
+  let scrollMax = max(contentSize - frameRect.wh, vec2(0, 0))
 
-  # Clamp scroll position to valid range (handles resize making content smaller).
+  # Clamp t to the overflow (handles resize making content smaller).
   if scrollMax.y > 0:
     frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
   else:
@@ -327,89 +336,101 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
   else:
     frameState.scrollPos.x = 0
 
-  # Scroll wheel handling (only when mouse over frame).
-  if sk.mouseOverlap(window, rect(sk.pos, sk.size)):
+  # Scroll wheel: the same gesture moves content the same way on screen
+  # in every direction, so the wheel sign maps through σ.
+  if sk.mouseOverlap(window, frameRect):
     if not frameState.scrollingY and window.scrollDelta.y != 0:
-      frameState.scrollPos.y += window.scrollDelta.y * ScrollSpeed
-      frameState.scrollPos.y = clamp(frameState.scrollPos.y, 0.0, scrollMax.y)
+      frameState.scrollPos.y = clamp(
+        frameState.scrollPos.y + signs.y * window.scrollDelta.y * ScrollSpeed,
+        0.0, scrollMax.y
+      )
     if not frameState.scrollingX and window.scrollDelta.x != 0:
-      frameState.scrollPos.x += window.scrollDelta.x * ScrollSpeed
-      frameState.scrollPos.x = clamp(frameState.scrollPos.x, 0.0, scrollMax.x)
-
-  # Draw Y scrollbar.
-  if contentSize.y > sk.size.y:
-    let
-      scrollSize = contentSize.y
-      scrollbarTrackRect = rect(
-        sk.pos.x + sk.size.x - 10,
-        sk.pos.y + 2,
-        8,
-        sk.size.y - 4 - 10
+      frameState.scrollPos.x = clamp(
+        frameState.scrollPos.x + signs.x * window.scrollDelta.x * ScrollSpeed,
+        0.0, scrollMax.x
       )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
 
+  # Y scrollbar.
+  if contentSize.y > frameRect.h:
     let
-      scrollPosPercent = if scrollMax.y > 0: frameState.scrollPos.y / scrollMax.y else: 0.0
-      scrollSizePercent = sk.size.y / scrollSize
-      scrollbarHandleRect = rect(
-        scrollbarTrackRect.x,
-        scrollbarTrackRect.y + (scrollbarTrackRect.h - (scrollbarTrackRect.h * scrollSizePercent)) * scrollPosPercent,
+      track = rect(
+        frameRect.x + frameRect.w - 10,
+        frameRect.y + 2,
         8,
-        scrollbarTrackRect.h * scrollSizePercent
+        frameRect.h - 4 - 10
       )
-      scrollbarHandleInteraction = sk.interact(scrollbarHandleRect, true)
+      thumbH = track.h * (frameRect.h / contentSize.y)
+      travel = track.h - thumbH
+    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
 
-    # Handle scrollbar Y dragging.
+    proc thumbRectY(): Rect =
+      let
+        frac =
+          if scrollMax.y > 0: frameState.scrollPos.y / scrollMax.y
+          else: 0.0'f
+        offsetFrac = if signs.y >= 0: frac else: 1.0'f - frac
+      rect(track.x, track.y + travel * offsetFrac, 8, thumbH)
+
     if frameState.scrollingY:
+      if travel > 0:
+        let rel = sk.mousePos.y - frameState.scrollDragOffset.y - track.y
+        var frac = clamp(rel / travel, 0.0, 1.0)
+        if signs.y < 0:
+          frac = 1.0 - frac
+        frameState.scrollPos.y = frac * scrollMax.y
+    else:
+      let thumb = thumbRectY()
+      if sk.interact(thumb, true) == Pressed:
+        frameState.scrollingY = true
+        frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
+    let thumb = thumbRectY()
+    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
+
+  # X scrollbar.
+  if contentSize.x > frameRect.w:
+    let
+      track = rect(
+        frameRect.x + 2,
+        frameRect.y + frameRect.h - 10,
+        frameRect.w - 4 - 10,
+        8
+      )
+      thumbW = track.w * (frameRect.w / contentSize.x)
+      travel = track.w - thumbW
+    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
+
+    proc thumbRectX(): Rect =
       let
-        relativeY = sk.mousePos.y - frameState.scrollDragOffset.y - scrollbarTrackRect.y
-        availableTrackHeight = scrollbarTrackRect.h - scrollbarHandleRect.h
-      if availableTrackHeight > 0:
-        let newScrollPosPercent = clamp(relativeY / availableTrackHeight, 0.0, 1.0)
-        frameState.scrollPos.y = newScrollPosPercent * scrollMax.y
-    elif scrollbarHandleInteraction == Pressed:
-      frameState.scrollingY = true
-      frameState.scrollDragOffset.y = sk.mousePos.y - scrollbarHandleRect.y
+        frac =
+          if scrollMax.x > 0: frameState.scrollPos.x / scrollMax.x
+          else: 0.0'f
+        offsetFrac = if signs.x >= 0: frac else: 1.0'f - frac
+      rect(track.x + travel * offsetFrac, track.y, thumbW, 8)
 
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
-
-  # Draw X scrollbar.
-  if contentSize.x > sk.size.x:
-    let
-      scrollSize = contentSize.x
-      scrollbarTrackRect = rect(
-        sk.pos.x + 2,
-        sk.pos.y + sk.size.y - 10,
-        sk.size.x - 4 - 10,
-        8
-      )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
-
-    let
-      scrollPosPercent = if scrollMax.x > 0: frameState.scrollPos.x / scrollMax.x else: 0.0
-      scrollSizePercent = sk.size.x / scrollSize
-      scrollbarHandleRect = rect(
-        scrollbarTrackRect.x + (scrollbarTrackRect.w - (scrollbarTrackRect.w * scrollSizePercent)) * scrollPosPercent,
-        scrollbarTrackRect.y,
-        scrollbarTrackRect.w * scrollSizePercent,
-        8
-      )
-      scrollbarHandleInteraction = sk.interact(scrollbarHandleRect, true)
-
-    # Handle scrollbar X dragging.
     if frameState.scrollingX:
-      let
-        relativeX = sk.mousePos.x - frameState.scrollDragOffset.x - scrollbarTrackRect.x
-        availableTrackWidth = scrollbarTrackRect.w - scrollbarHandleRect.w
-      if availableTrackWidth > 0:
-        let newScrollPosPercent = clamp(relativeX / availableTrackWidth, 0.0, 1.0)
-        frameState.scrollPos.x = newScrollPosPercent * scrollMax.x
-    elif scrollbarHandleInteraction == Pressed:
-      frameState.scrollingX = true
-      frameState.scrollDragOffset.x = sk.mousePos.x - scrollbarHandleRect.x
+      if travel > 0:
+        let rel = sk.mousePos.x - frameState.scrollDragOffset.x - track.x
+        var frac = clamp(rel / travel, 0.0, 1.0)
+        if signs.x < 0:
+          frac = 1.0 - frac
+        frameState.scrollPos.x = frac * scrollMax.x
+    else:
+      let thumb = thumbRectX()
+      if sk.interact(thumb, true) == Pressed:
+        frameState.scrollingX = true
+        frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
+    let thumb = thumbRectX()
+    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
 
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
-
+proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec2) =
+  ## Finish a scrollable frame and handle scrollbars.
+  # stretchAt is in scrolled coordinates; add scrollPos back and 16 for
+  # the last element, matching the historical content measurement.
+  sk.stretchAt += vec2(16)
+  let
+    contentSize = (sk.stretchAt + frameState.scrollPos) - originPos
+    frameRect = rect(sk.pos, sk.size)
+  sk.frameScrollbars(window, frameState, frameRect, contentSize, vec2(1, 1))
   sk.popLayout()
   sk.popClipRect()
 
@@ -428,7 +449,8 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
   let
     textSize = sk.getTextSize(sk.textStyle, label)
     buttonSize = textSize + vec2(sk.theme.padding) * 2
-    buttonRect = rect(sk.at, buttonSize)
+    buttonOrigin = sk.placedAt(buttonSize)
+    buttonRect = rect(buttonOrigin, buttonSize)
 
   when defined(silkyTesting):
     sk.beginWidget("Button", text = label, rect = buttonRect)
@@ -455,7 +477,7 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
     of Hovered, Released:
       "button.hover.9patch"
 
-  sk.draw9Patch(patch, sk.theme.buttonPatch, sk.at, buttonSize)
+  sk.draw9Patch(patch, sk.theme.buttonPatch, buttonOrigin, buttonSize)
 
   if interaction == Released:
     body
@@ -466,7 +488,7 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
       hovered = pressed or interaction == Hovered
     sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hovered)
 
-  let at = sk.at + vec2(sk.theme.padding)
+  let at = buttonOrigin + vec2(sk.theme.padding)
   discard sk.drawText(sk.textStyle, label, at, textColor)
   when defined(silkyTesting):
     sk.endWidget()
@@ -483,7 +505,7 @@ template button*(label: string, isEnabled: bool, body: untyped) =
 template icon*(image: string) =
   ## Draw an icon.
   let imageSize = sk.getImageSize(image)
-  sk.drawImage(image, sk.at)
+  sk.drawImage(image, sk.placedAt(imageSize))
   sk.advance(vec2(imageSize.x, imageSize.y))
 
 template iconButton*(image: string, body) =
@@ -553,7 +575,8 @@ template radioButton*[T](label: string, variable: var T, value: T) =
     textSize = sk.getTextSize(sk.textStyle, label)
     height = max(iconSize.y.float32, textSize.y)
     width = iconSize.x.float32 + sk.theme.spacing.float32 + textSize.x
-    hitRect = rect(sk.at, vec2(width, height))
+    radioOrigin = sk.placedAt(vec2(width, height))
+    hitRect = rect(radioOrigin, vec2(width, height))
 
   when defined(silkyTesting):
     sk.beginWidget("RadioButton", text = label, rect = hitRect)
@@ -565,10 +588,13 @@ template radioButton*[T](label: string, variable: var T, value: T) =
 
   let
     on = variable == value
-    iconPos = vec2(sk.at.x, sk.at.y + (height - iconSize.y.float32) * 0.5)
+    iconPos = vec2(
+      radioOrigin.x,
+      radioOrigin.y + (height - iconSize.y.float32) * 0.5
+    )
     textPos = vec2(
       iconPos.x + iconSize.x.float32 + sk.theme.spacing.float32,
-      sk.at.y + (height - textSize.y) * 0.5
+      radioOrigin.y + (height - textSize.y) * 0.5
     )
   sk.drawImage(if on: "radio.on" else: "radio.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
@@ -589,7 +615,8 @@ template checkBox*(label: string, value: var bool) =
     textSize = sk.getTextSize(sk.textStyle, label)
     height = max(iconSize.y.float32, textSize.y)
     width = iconSize.x.float32 + sk.theme.spacing.float32 + textSize.x
-    hitRect = rect(sk.at, vec2(width, height))
+    checkOrigin = sk.placedAt(vec2(width, height))
+    hitRect = rect(checkOrigin, vec2(width, height))
 
   when defined(silkyTesting):
     sk.beginWidget("CheckBox", text = label, rect = hitRect)
@@ -600,10 +627,13 @@ template checkBox*(label: string, value: var bool) =
     value = not value
 
   let
-    iconPos = vec2(sk.at.x, sk.at.y + (height - iconSize.y.float32) * 0.5)
+    iconPos = vec2(
+      checkOrigin.x,
+      checkOrigin.y + (height - iconSize.y.float32) * 0.5
+    )
     textPos = vec2(
       iconPos.x + iconSize.x.float32 + sk.theme.spacing.float32,
-      sk.at.y + (height - textSize.y) * 0.5
+      checkOrigin.y + (height - textSize.y) * 0.5
     )
   sk.drawImage(if value: "check.on" else: "check.off", iconPos)
   discard sk.drawText(sk.textStyle, label, textPos, sk.theme.defaultTextColor)
@@ -629,7 +659,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     height = font.lineHeight + sk.theme.padding.float32 * 2
     width = sk.size.x - sk.theme.padding.float32 * 3
     arrowSize = sk.getImageSize("droparrow")
-    dropRect = rect(sk.at, vec2(width, height))
+    dropRect = rect(sk.placedAt(vec2(width, height)), vec2(width, height))
     displayText =
       when T is string:
         selected
@@ -646,7 +676,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     state.open = not state.open
 
   # Draw control body.
-  sk.pushLayout(sk.at, vec2(width, height))
+  sk.pushLayout(dropRect.xy, vec2(width, height))
   let hovered = interaction in [Pressed, Held, Hovered]
   let bgColor = if state.open or hovered: sk.theme.dropdownHoverBgColor else: sk.theme.dropdownBgColor
   sk.draw9Patch("dropdown.9patch", sk.theme.dropdownPatch, sk.pos, sk.size, bgColor)
@@ -719,7 +749,7 @@ template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
   # Use a fixed height or calculate based on items, but capped at 4 items.
   let listHeight = min(rowHeight * 4.float32, rowHeight * max(1, items.len).float32) + sk.theme.padding.float32 * 2
 
-  frame(id, sk.at, vec2(outerWidth, listHeight)):
+  frame(id, sk.placedAt(vec2(outerWidth, listHeight)), vec2(outerWidth, listHeight)):
     let itemWidth = sk.size.x - sk.theme.padding.float32 * 3
     for i, item in items:
       let
@@ -751,7 +781,7 @@ template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber)
     bodySize = sk.getImageSize("progressBar.body.9patch")
     height = bodySize.y.float32
     width = max(bodySize.x.float32, sk.size.x - sk.theme.padding.float32 * 3)
-    barRect = rect(sk.at, vec2(width, height))
+    barRect = rect(sk.placedAt(vec2(width, height)), vec2(width, height))
 
   sk.draw9Patch("progressBar.body.9patch", sk.theme.progressBarPatch, barRect.xy, barRect.wh)
 
@@ -827,15 +857,19 @@ template image*(imageName: string) =
 
 template text*(t: string) =
   ## Draw text.
-  let textRect = rect(sk.at, sk.getTextSize(sk.textStyle, t))
+  let
+    textMeasured = sk.getTextSize(sk.textStyle, t)
+    textOrigin = sk.placedAt(textMeasured)
+    textRect = rect(textOrigin, textMeasured)
   sk.beginWidget("Text", text = t, rect = textRect)
-  let textSize = sk.drawText(sk.textStyle, t, sk.at, sk.theme.textColor)
+  let textSize = sk.drawText(sk.textStyle, t, textOrigin, sk.theme.textColor)
   sk.endWidget()
   sk.advance(textSize)
 
 template h1text*(t: string) =
   ## Draw H1 text.
-  let textSize = sk.drawText("H1", t, sk.at, sk.theme.textH1Color)
+  let h1Origin = sk.placedAt(sk.getTextSize("H1", t))
+  let textSize = sk.drawText("H1", t, h1Origin, sk.theme.textH1Color)
   sk.advance(textSize)
 
 template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: string = "") =
@@ -865,7 +899,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     handleSize = vec2(handleWidth, handleHeight)
     height = handleSize.y
     width = sk.size.x - sk.theme.padding.float32 * 3
-    controlRect = rect(sk.at, vec2(width, height))
+    controlRect = rect(sk.placedAt(vec2(width, height)), vec2(width, height))
     trackStart = controlRect.x + handleSize.x / 2
     trackEnd = controlRect.x + width - handleSize.x / 2
     travel = max(0f, trackEnd - trackStart)
