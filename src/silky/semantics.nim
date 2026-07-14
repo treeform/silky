@@ -243,11 +243,11 @@ type
     textH1Color*: ColorRGBX = rgbx(255, 255, 255, 255)
     frameFocusColor*: ColorRGBX = rgbx(220, 220, 255, 255)
     headerBgColor*: ColorRGBX = rgbx(30, 30, 40, 255)
-    menuRootHoverColor*: ColorRGBX = rgbx(70, 70, 90, 200)
-    menuItemHoverColor*: ColorRGBX = rgbx(70, 70, 90, 180)
-    menuItemBgColor*: ColorRGBX = rgbx(40, 40, 50, 140)
-    menuPopupHoverColor*: ColorRGBX = rgbx(80, 80, 100, 180)
-    menuPopupSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 120)
+    menuRootHoverColor*: ColorRGBX = rgbx(70, 70, 90, 255)
+    menuItemHoverColor*: ColorRGBX = rgbx(70, 70, 90, 255)
+    menuItemBgColor*: ColorRGBX = rgbx(40, 40, 50, 255)
+    menuPopupHoverColor*: ColorRGBX = rgbx(80, 80, 100, 255)
+    menuPopupSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 255)
 
   SilkyVertex* {.packed.} = object
     ## Vertex data for GPU rendering.
