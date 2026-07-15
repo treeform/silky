@@ -463,6 +463,23 @@ proc bindUniforms*(shader: Shader) =
 
     uniform.changed = false
 
+proc uploadAtlas*(drawer: Drawer, image: Image) =
+  ## Replace the GPU atlas texture from a CPU image.
+  glActiveTexture(GL_TEXTURE0)
+  glBindTexture(GL_TEXTURE_2D, drawer.atlasTexture)
+  glTexImage2D(
+    GL_TEXTURE_2D,
+    0,
+    GL_RGBA8.GLint,
+    image.width.GLint,
+    image.height.GLint,
+    0,
+    GL_RGBA,
+    GL_UNSIGNED_BYTE,
+    cast[pointer](image.data[0].addr)
+  )
+  glGenerateMipmap(GL_TEXTURE_2D)
+
 proc newDrawer*(window: Window, image: Image): Drawer =
   ## Creates a new OpenGL drawer and eagerly uploads its resources.
   discard window
@@ -486,17 +503,6 @@ proc newDrawer*(window: Window, image: Image): Drawer =
   glGenTextures(1, result.atlasTexture.addr)
   glActiveTexture(GL_TEXTURE0)
   glBindTexture(GL_TEXTURE_2D, result.atlasTexture)
-  glTexImage2D(
-    GL_TEXTURE_2D,
-    0,
-    GL_RGBA8.GLint,
-    image.width.GLint,
-    image.height.GLint,
-    0,
-    GL_RGBA,
-    GL_UNSIGNED_BYTE,
-    cast[pointer](image.data[0].addr)
-  )
   glTexParameteri(
     GL_TEXTURE_2D,
     GL_TEXTURE_MIN_FILTER,
@@ -517,7 +523,7 @@ proc newDrawer*(window: Window, image: Image): Drawer =
     GL_TEXTURE_WRAP_T,
     GL_CLAMP_TO_EDGE.GLint
   )
-  glGenerateMipmap(GL_TEXTURE_2D)
+  result.uploadAtlas(image)
 
   glGenVertexArrays(1, result.vao.addr)
   glBindVertexArray(result.vao)

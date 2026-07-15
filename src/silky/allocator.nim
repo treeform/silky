@@ -115,6 +115,12 @@ proc addToSkyline(allocator: SkylineAllocator, x, y, width, height: int) =
 
   allocator.skyline = mergedSkyline
 
+proc markRegion*(allocator: SkylineAllocator, x, y, width, height: int) =
+  ## Mark an already-drawn rectangle as used (no margin padding).
+  if width <= 0 or height <= 0:
+    return
+  allocator.addToSkyline(x, y, width, height)
+
 proc allocate*(allocator: SkylineAllocator, width, height: int): AllocationResult =
   ## Allocate a rectangle using skyline algorithm with margin.
   let

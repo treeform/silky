@@ -104,6 +104,8 @@ type
     tooltipThreshold*: float64 = 0
     atlas*: SilkyAtlas
     image*: Image
+    ## Live packer for runtime atlas extension; nil until first add.
+    builder*: AtlasBuilder
     drawer*: Drawer
     clipStack: seq[Rect]
     frameStartTime*: float64
@@ -637,6 +639,7 @@ proc newSilky*(
   result = Silky()
   result.image = image
   result.atlas = atlas
+  result.builder = newAtlasBuilderFromAtlas(atlas, image)
   result.window = window
   result.drawer = newDrawer(window, image)
 
@@ -644,6 +647,33 @@ proc newSilky*(window: Window, atlasPngPath: string): Silky {.measure.} =
   ## Creates a new Silky from one atlas PNG file.
   let atlasData = readAtlas(atlasPngPath)
   newSilky(window, atlasData.image, atlasData.atlas)
+
+proc uploadAtlas*(sk: Silky) =
+  ## Push the current CPU atlas image to the GPU drawer.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useMetal4) and
+      not defined(useCpu):
+    sk.drawer.uploadAtlas(sk.image)
+
+proc addAtlasImage*(sk: Silky, name: string, image: Image) =
+  ## Pack an image into the runtime atlas and reupload the GPU texture.
+  if sk.builder == nil:
+    sk.builder = newAtlasBuilderFromAtlas(sk.atlas, sk.image)
+  if not sk.builder.addImage(name, image):
+    var size = max(sk.builder.size * 2, 64)
+    let need = max(image.width, image.height) + sk.builder.margin * 4
+    while size < need:
+      size *= 2
+    sk.builder.growAtlas(size)
+    if not sk.builder.addImage(name, image):
+      raise newException(
+        SilkyAtlasError,
+        "Failed to pack atlas image: " & name
+      )
+  sk.image = sk.builder.atlasImage
+  sk.atlas = sk.builder.atlas
+  sk.uploadAtlas()
 
 proc drawImage*(
   sk: Silky,

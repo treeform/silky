@@ -1,5 +1,5 @@
 import
-  std/[os, strutils, tables, unicode],
+  std/[math, os, strutils, tables, unicode],
   pixie, jsony, vmath, crunchy,
   pixie/fileformats/png,
   flatty/binny,
@@ -288,35 +288,93 @@ proc writePng*(path, json: string, image: Image) =
   except IOError as e:
     raise newException(SilkyAtlasError, e.msg, e)
 
+proc addImage*(
+  builder: AtlasBuilder,
+  name: string,
+  image: Image
+): bool =
+  ## Pack one image into the atlas. False when the atlas is full.
+  let allocation = builder.allocator.allocate(image.width, image.height)
+  if not allocation.success:
+    return false
+  builder.atlasImage.draw(
+    image,
+    translate(vec2(allocation.x.float32, allocation.y.float32)),
+    OverwriteBlend
+  )
+  builder.atlas.entries[name] = Entry(
+    x: allocation.x,
+    y: allocation.y,
+    width: image.width,
+    height: image.height
+  )
+  true
+
+proc markOccupiedEntry(builder: AtlasBuilder, x, y, width, height: int) =
+  ## Mark a drawn sprite rect as used in the skyline (with margin).
+  let
+    m = builder.margin
+    px = max(x - m, 0)
+    py = max(y - m, 0)
+    pw = width + m * 2
+    ph = height + m * 2
+  builder.allocator.markRegion(px, py, pw, ph)
+
+proc newAtlasBuilderFromAtlas*(
+  atlas: SilkyAtlas,
+  image: Image,
+  margin = 1
+): AtlasBuilder =
+  ## Live builder seeded from a loaded atlas image and entries.
+  result = AtlasBuilder(
+    size: image.width,
+    margin: margin,
+    allocator: newSkylineAllocator(image.width, margin),
+    atlasImage: image,
+    atlas: atlas
+  )
+  result.atlas.size = image.width
+  for _, e in atlas.entries:
+    result.markOccupiedEntry(e.x, e.y, e.width, e.height)
+  for fontAtlas in atlas.fonts.values:
+    for variants in fontAtlas.entries.values:
+      for letter in variants:
+        let
+          w = letter.boundsWidth.ceil.int
+          h = letter.boundsHeight.ceil.int
+        if w > 0 and h > 0:
+          result.markOccupiedEntry(letter.x, letter.y, w, h)
+
+proc growAtlas*(builder: AtlasBuilder, newSize: int) =
+  ## Enlarge the atlas image and free the new border for packing.
+  if newSize <= builder.size:
+    return
+  let
+    oldImage = builder.atlasImage
+    oldSize = builder.size
+  let newImage = newImage(newSize, newSize)
+  newImage.draw(oldImage, translate(vec2(0, 0)), OverwriteBlend)
+  builder.atlasImage = newImage
+  builder.size = newSize
+  builder.atlas.size = newSize
+  builder.allocator = newSkylineAllocator(newSize, builder.margin)
+  builder.allocator.markRegion(0, 0, oldSize, oldSize)
+
 proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
   ## Add all images in the given directory to the atlas.
   for file in walkDir(path):
     if file.path.endsWith(".png"):
       let image = readImage(file.path)
-      let allocation = builder.allocator.allocate(image.width, image.height)
-      if allocation.success:
-        builder.atlasImage.draw(
-          image,
-          translate(vec2(allocation.x.float32, allocation.y.float32)),
-          OverwriteBlend
-        )
-      else:
+      var key = file.path.replace("\\", "/")
+      if removePrefix.len > 0:
+        key.removePrefix(removePrefix)
+      key.removeSuffix(".png")
+      if not builder.addImage(key, image):
         raise newException(
           ValueError,
           "Failed to allocate space for " & file.path & "\n" &
           "You need to increase the size of the atlas"
         )
-      let entry = Entry(
-        x: allocation.x,
-        y: allocation.y,
-        width: image.width,
-        height: image.height
-      )
-      var key = file.path.replace("\\", "/")
-      if removePrefix.len > 0:
-        key.removePrefix(removePrefix)
-      key.removeSuffix(".png")
-      builder.atlas.entries[key] = entry
 
 proc addDirRecursive*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
   ## Add all images in the given directory and its subdirectories to the atlas.
