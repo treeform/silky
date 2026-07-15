@@ -233,7 +233,12 @@ template menu*(label: string, body: untyped) =
   subMenu(label):
     body
 
-proc menuItemStart*(sk: Silky, window: Window, label: string): MenuItemContext =
+proc menuItemStart*(
+  sk: Silky,
+  window: Window,
+  label: string,
+  enabled = true
+): MenuItemContext =
   ## Begin a menu item; returns context indicating click state.
   menuEnsureState()
   doAssert menuLayouts.len > 0, "menuItem must be inside menuBar / subMenu"
@@ -246,7 +251,7 @@ proc menuItemStart*(sk: Silky, window: Window, label: string): MenuItemContext =
   let itemRect = rect(rowPos, rowSize)
   menuAddActive(itemRect)
 
-  let hover = sk.mousePos.overlaps(itemRect)
+  let hover = enabled and sk.mousePos.overlaps(itemRect)
   sk.drawRect(itemRect.xy, itemRect.wh, sk.theme.menuItemBgColor)
   if hover:
     sk.drawRect(itemRect.xy, itemRect.wh, sk.theme.menuPopupHoverColor)
@@ -254,7 +259,8 @@ proc menuItemStart*(sk: Silky, window: Window, label: string): MenuItemContext =
     sk.textStyle,
     label,
     rowPos + vec2(sk.theme.textPadding),
-    sk.theme.defaultTextColor
+    if enabled: sk.theme.defaultTextColor
+    else: sk.theme.disabledTextColor
   )
 
   var clicked = false
@@ -274,7 +280,12 @@ proc menuItemEnd*(sk: Silky, ctx: MenuItemContext) =
 
 template menuItem*(label: string, body: untyped) =
   ## Leaf menu entry that runs `body` on click.
-  let ctx = sk.menuItemStart(window, label)
+  menuItem(label, true):
+    body
+
+template menuItem*(label: string, enabled: bool, body: untyped) =
+  ## Leaf menu entry that runs `body` on click when enabled.
+  let ctx = sk.menuItemStart(window, label, enabled)
   try:
     if ctx.clicked:
       body
