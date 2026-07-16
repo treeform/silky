@@ -68,6 +68,16 @@ proc menuPointInside(rects: seq[Rect], p: Vec2): bool =
       return true
   return false
 
+proc menuOpen*(): bool =
+  ## True when any menu popup path is open.
+  menuEnsureState()
+  menuState.openPath.len > 0
+
+proc menuCapturesMouse*(pos: Vec2): bool =
+  ## True when an open menu owns this point; UI below should ignore it.
+  menuEnsureState()
+  menuState.openPath.len > 0 and menuPointInside(menuState.activeRects, pos)
+
 proc menuPopupStart*(sk: Silky, path: seq[string], popupAt: Vec2, popupWidth = 200) =
   ## Begin a popup; caller must call menuPopupEnd.
   menuEnsureState()
@@ -111,8 +121,11 @@ proc menuBarStart*(sk: Silky, window: Window) =
 proc menuBarEnd*(sk: Silky, window: Window) =
   ## Finish the menu bar and handle outside-click closing.
   sk.popLayout()
-  if menuState.openPath.len > 0 and window.buttonPressed[MouseLeft]:
-    if not menuPointInside(menuState.activeRects, sk.mousePos):
+  if menuState.openPath.len > 0:
+    if menuPointInside(menuState.activeRects, sk.mousePos):
+      ## Block widgets drawn after the menu from seeing this click.
+      sk.mouseConsumed = true
+    elif window.buttonPressed[MouseLeft]:
       menuState.openPath.setLen(0)
 
 template menuBar*(body: untyped) =
