@@ -9,6 +9,7 @@ const Examples = [
   "layouts",
   "menu",
   "panels",
+  "patterns",
   "the7gui",
   "todomvc",
 ]
