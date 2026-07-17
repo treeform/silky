@@ -270,6 +270,8 @@ type
     ## Main Silky context for testing mode without GPU.
     inFrame: bool = false
     uiScale*: float32 = 1.0
+    ## Multiplies 9-patch slice borders when the atlas is baked denser (e.g. 2).
+    sliceScale*: int = 1
     at*: Vec2
     atStack: seq[Vec2]
     posStack: seq[Vec2]

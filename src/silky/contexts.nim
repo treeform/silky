@@ -75,6 +75,8 @@ type
     ## Main Silky context shared across rendering backends.
     inFrame: bool = false
     uiScale*: float32 = 1.0
+    ## Multiplies 9-patch slice borders when the atlas is baked denser (e.g. 2).
+    sliceScale*: int = 1
     at*: Vec2
     atStack: seq[Vec2]
     posStack: seq[Vec2]
@@ -726,15 +728,20 @@ proc draw9Patch*(
     echo "[Warning] Sprite not found in atlas: " & name
     return
   let
+    scale = max(sk.sliceScale, 1)
+    topS = top * scale
+    rightS = right * scale
+    bottomS = bottom * scale
+    leftS = left * scale
     uv = sk.atlas.entries[name]
-    l = left.float32
-    r = right.float32
-    u = top.float32
-    d = bottom.float32
-    srcXOffsets = [0.int, left, uv.width - right]
-    srcWidths = [left, uv.width - left - right, right]
-    srcYOffsets = [0.int, top, uv.height - bottom]
-    srcHeights = [top, uv.height - top - bottom, bottom]
+    l = leftS.float32
+    r = rightS.float32
+    u = topS.float32
+    d = bottomS.float32
+    srcXOffsets = [0.int, leftS, uv.width - rightS]
+    srcWidths = [leftS, uv.width - leftS - rightS, rightS]
+    srcYOffsets = [0.int, topS, uv.height - bottomS]
+    srcHeights = [topS, uv.height - topS - bottomS, bottomS]
     dstXOffsets = [0.0'f, l, size.x - r]
     dstWidths = [l, size.x - l - r, r]
     dstYOffsets = [0.0'f, u, size.y - d]
