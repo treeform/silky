@@ -3,8 +3,6 @@ import
   pixie, vmath, windy, bumpy,
   silky/[atlas, profiles]
 
-export profiles
-
 when defined(useDirectX):
   import silky/drawers/dx12
 elif defined(useVulkan):

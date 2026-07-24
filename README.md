@@ -94,6 +94,24 @@ sk.theme.buttonDownColor = rgbx(180, 180, 180, 255)
 sk.theme.frameFocusColor = parseHtmlColor("#D5DBDB").rgbx
 ```
 
+## Profiling
+
+Profile helpers stay in `silky/profiles` and are not re-exported from `import silky`.
+Import them when you want runtime start/stop:
+
+```nim
+import silky/profiles
+
+startRuntimeProfileTrace("tmp/perf.json")
+# ... work measured by profileBlock / {.measure.} ...
+discard finishProfileTrace()
+# or:
+discard toggleRuntimeProfileTrace("tmp/perf.json")
+```
+
+Compile-time static capture still works with `-d:ProfileTracePath=...` and
+`-d:ProfileNumFrames=N`.
+
 ## License
 
 MIT License
