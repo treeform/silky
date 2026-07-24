@@ -13,13 +13,13 @@ else:
       not defined(useMetal4) and
       not defined(useCpu):
     import opengl
-  import silky/[contexts, atlas, widgets, textboxes, dsl, menus, profiles]
+  import silky/[contexts, atlas, widgets, textboxes, dsl, menus]
   when not defined(useDirectX) and
       not defined(useVulkan) and
       not defined(useMetal4) and
       not defined(useCpu):
     export opengl
-  export windy, contexts, atlas, tables, textboxes, dsl, menus, profiles
+  export windy, contexts, atlas, tables, textboxes, dsl, menus
   export widgets except
     button, checkBox, clickableIcon, dropDown, frame, group, h1text, icon,
     iconButton, image, listBox, progressBar, radioButton, ribbon, scrubber, text

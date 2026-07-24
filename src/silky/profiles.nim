@@ -1,103 +1,159 @@
+## Fluffy profile helpers for Silky.
+##
+## Compile-time static capture (existing):
+##   nim r -d:ProfileTracePath=tmp/perf.json -d:ProfileNumFrames=100 ...
+##
+## Runtime start/stop (for games and interactive tools):
+##   startRuntimeProfileTrace("tmp/perf.json")
+##   finishProfileTrace()
+##   toggleRuntimeProfileTrace("tmp/perf.json")
+
+import
+  std/os,
+  fluffy/measure
+
+export measure
+
 const
   ProfileTracePath* {.strdefine.} = ""
   ProfileNumFrames* {.intdefine.} = 100
+  DefaultRuntimeProfileTracePath* = "perf.json"
 
-when ProfileTracePath.len > 0:
-  import
-    std/os,
-    fluffy/measure
+var
+  profileStarted = false
+  profileDumped = false
+  profileQuitAfter = false
+  profileTracePath = ""
+  profileFrameLimit = 0
+  profileFrameCount = 0
 
-  export measure
+proc profileTraceActive*(): bool =
+  ## Returns true while a profile trace is actively recording.
+  profileStarted and not profileDumped
 
-  var
-    profileStarted = false
-    profileDumped = false
-    profileFrameCount = 0
+proc ensureProfileDir(path: string) =
+  ## Creates the parent directory for the profile trace.
+  let dir = path.parentDir()
+  if dir.len > 0:
+    createDir(dir)
 
-  proc ensureProfileDir() =
-    ## Creates the parent directory for the profile trace.
-    let dir = ProfileTracePath.parentDir()
-    if dir.len > 0:
-      createDir(dir)
+proc startProfileTraceAt(
+  path: string,
+  frameLimit = 0,
+  quitAfter = false
+) =
+  ## Starts one Fluffy capture at a concrete path.
+  if profileStarted:
+    return
+  if path.len == 0:
+    echo "Profile trace path is empty"
+    return
+  profileStarted = true
+  profileDumped = false
+  profileQuitAfter = quitAfter
+  profileTracePath = path
+  profileFrameLimit = max(0, frameLimit)
+  profileFrameCount = 0
+  ensureProfileDir(path)
+  echo "Profile trace enabled: ", profileTracePath
+  if profileFrameLimit > 0:
+    echo "Profile frames: ", profileFrameLimit
+  startTrace()
 
-  proc startProfileTrace*() =
-    ## Starts the Fluffy trace capture once.
-    if profileStarted:
-      return
-    profileStarted = true
-    ensureProfileDir()
-    echo "Profile trace enabled: ", ProfileTracePath
-    echo "Profile frames: ", ProfileNumFrames
-    startTrace()
+proc startProfileTrace*() =
+  ## Starts a compile-time configured static capture when ProfileTracePath is set.
+  when ProfileTracePath.len > 0:
+    startProfileTraceAt(
+      ProfileTracePath,
+      frameLimit = ProfileNumFrames,
+      quitAfter = true
+    )
 
-  proc finishProfileTrace*() =
-    ## Stops and writes the Fluffy trace capture once.
-    if not profileStarted or profileDumped:
-      return
-    profileDumped = true
-    endTrace()
-    ensureProfileDir()
-    dumpMeasures(ProfileTracePath)
-    echo "Profile trace written: ", ProfileTracePath
+proc startRuntimeProfileTrace*(
+  path = DefaultRuntimeProfileTracePath,
+  frameLimit = 0,
+  quitAfter = false
+) =
+  ## Starts a Fluffy capture at runtime without requiring ProfileTracePath.
+  let tracePath =
+    if path.len > 0:
+      path
+    else:
+      DefaultRuntimeProfileTracePath
+  startProfileTraceAt(
+    tracePath,
+    frameLimit = frameLimit,
+    quitAfter = quitAfter
+  )
 
-  proc profileShouldDump*(): bool =
-    ## Returns true when the profile frame budget has elapsed.
-    ProfileNumFrames > 0 and
-      profileFrameCount >= ProfileNumFrames and
-      not profileDumped
+proc finishProfileTrace*(): string =
+  ## Stops and writes the active trace. Returns the written path, or "".
+  if not profileStarted or profileDumped:
+    return ""
+  let
+    path = profileTracePath
+    shouldQuit = profileQuitAfter
+  profileDumped = true
+  endTrace()
+  ensureProfileDir(path)
+  try:
+    dumpMeasures(path)
+  except Exception as error:
+    echo "Profile trace dump failed: ", error.msg
+  profileStarted = false
+  profileQuitAfter = false
+  profileFrameLimit = 0
+  profileFrameCount = 0
+  profileTracePath = ""
+  if fileExists(path):
+    echo "Profile trace written: ", path
+    result = path
+  if shouldQuit:
+    quit(0)
 
-  proc beginProfileFrame*() =
-    ## Starts profiling on the first measured UI frame.
+proc toggleRuntimeProfileTrace*(
+  path = DefaultRuntimeProfileTracePath
+): string =
+  ## Toggles runtime capture. Returns the written path when stopping, else "".
+  if profileTraceActive():
+    result = finishProfileTrace()
+  else:
+    startRuntimeProfileTrace(path)
+    result = ""
+
+proc profileShouldDump*(): bool =
+  ## Returns true when the profile frame budget has elapsed.
+  profileFrameLimit > 0 and
+    profileFrameCount >= profileFrameLimit and
+    profileTraceActive()
+
+proc beginProfileFrame*() =
+  ## Auto-starts a compile-time static capture on the first measured UI frame.
+  when ProfileTracePath.len > 0:
     if not profileStarted:
       startProfileTrace()
 
-  proc endProfileFrame*() =
-    ## Counts one UI frame and dumps/exits when the budget elapses.
-    if not profileStarted or profileDumped:
-      return
-    inc profileFrameCount
-    if profileShouldDump():
-      finishProfileTrace()
-      quit(0)
+proc endProfileFrame*() =
+  ## Counts one UI frame and finishes when a frame budget elapses.
+  if not profileTraceActive():
+    return
+  inc profileFrameCount
+  if profileShouldDump():
+    discard finishProfileTrace()
 
-  template profileBlock*(name: string, body: untyped) =
-    ## Measures a named block while profiling is enabled.
-    measurePush(name)
-    body
-    measurePop()
-else:
-  macro measure*(fn: untyped): untyped =
-    ## Leaves a measured procedure unchanged when profiling is disabled.
-    fn
+proc profileFrameTick*(): string =
+  ## Advances one rendered frame for runtime captures without quitting.
+  ## Returns the written path when this tick finishes a bounded capture.
+  result = ""
+  if not profileTraceActive():
+    return
+  inc profileFrameCount
+  if profileFrameLimit > 0 and profileFrameCount >= profileFrameLimit:
+    profileQuitAfter = false
+    result = finishProfileTrace()
 
-  template measurePush*(what: string) =
-    ## No-op profile begin marker.
-    discard
-
-  template measurePop*() =
-    ## No-op profile end marker.
-    discard
-
-  proc startProfileTrace*() =
-    ## Leaves profiling disabled.
-    discard
-
-  proc finishProfileTrace*() =
-    ## Leaves profiling disabled.
-    discard
-
-  proc profileShouldDump*(): bool =
-    ## Returns false when profiling is disabled.
-    false
-
-  proc beginProfileFrame*() =
-    ## Leaves profiling disabled.
-    discard
-
-  proc endProfileFrame*() =
-    ## Leaves profiling disabled.
-    discard
-
-  template profileBlock*(name: string, body: untyped) =
-    ## Runs a block without profiling.
-    body
+template profileBlock*(name: string, body: untyped) =
+  ## Measures a named block while Fluffy tracing is enabled.
+  measurePush(name)
+  body
+  measurePop()
