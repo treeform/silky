@@ -236,8 +236,8 @@ proc subWindowEnd*(sk: Silky, window: Window, subWindowState: SubWindowState) =
   let
     resizeHandleSize = sk.getImageSize("resize")
     resizeHandleRect = rect(
-      sk.at.x + sk.size.x - resizeHandleSize.x.float32 - sk.theme.border.float32,
-      sk.at.y + sk.size.y - resizeHandleSize.y.float32 - sk.theme.border.float32,
+      sk.pos.x + sk.size.x - resizeHandleSize.x.float32 - sk.theme.border.float32,
+      sk.pos.y + sk.size.y - resizeHandleSize.y.float32 - sk.theme.border.float32,
       resizeHandleSize.x.float32,
       resizeHandleSize.y.float32
     )
