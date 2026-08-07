@@ -613,6 +613,13 @@ proc endFrame*(
   if quadCount == 0:
     return
 
+  # Own the viewport: the shader maps quads to clip space assuming
+  # the viewport covers the whole framebuffer. A host that rendered
+  # its own passes first may have left a smaller viewport bound,
+  # which would draw the UI offset and scaled while hit testing
+  # stays in window space.
+  glViewport(0, 0, GLsizei(size.x), GLsizei(size.y))
+
   glEnable(GL_BLEND)
   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
 
