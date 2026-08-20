@@ -383,6 +383,16 @@ proc addDirRecursive*(builder: AtlasBuilder, path: string, removePrefix: string 
     if entry.kind == pcDir:
       builder.addDirRecursive(entry.path, removePrefix)
 
+proc finiteBounds(bounds: Rect): Rect =
+  ## Glyphs with no outline (such as space) compute to infinite/NaN bounds,
+  ## which poison the layout math later, so treat them as empty instead.
+  const Finite = {fcNormal, fcSubnormal, fcZero, fcNegZero}
+  if bounds.x.classify in Finite and bounds.y.classify in Finite and
+    bounds.w.classify in Finite and bounds.h.classify in Finite:
+    bounds
+  else:
+    rect(0, 0, 0, 0)
+
 proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, chars: seq[string] = AsciiGlyphs, subpixelSteps: int = 0) =
   ## Add a font to the atlas.
   let fontAtlas = FontAtlas()
@@ -405,7 +415,7 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
       glyphPath = typeface.getGlyphPath(rune)
       scale = fontObj.scale
       scaleMat = scale(vec2(scale))
-      baseBounds = glyphPath.computeBounds(scaleMat).snapToPixels()
+      baseBounds = glyphPath.computeBounds(scaleMat).snapToPixels().finiteBounds()
       advance = typeface.getAdvance(rune) * scale
     fontAtlas.entries[glyphStr] = @[]
     for variant in 0 ..< numVariants:
