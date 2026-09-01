@@ -780,6 +780,78 @@ proc draw9Patch*(
   ## Queues a 9-patch image draw.
   sk.draw9Patch(name, patch, patch, patch, patch, pos, size, color)
 
+proc drawRoundedImage*(
+  sk: Silky,
+  name: string,
+  pos: Vec2,
+  size: Vec2,
+  radius: float32,
+  color = rgbx(255, 255, 255, 255)
+) {.measure.} =
+  ## Queues an atlas image draw stretched to size with rounded corners.
+  ## Builds the shape from an inner rect, four edge rects and four
+  ## triangle fans, keeping UVs mapped to the destination rect throughout.
+  if name notin sk.atlas.entries:
+    echo "[Warning] Sprite not found in atlas: " & name
+    return
+  if size.x <= 0.001 or size.y <= 0.001:
+    return
+  let
+    entry = sk.atlas.entries[name]
+    uvOrigin = vec2(entry.x.float32, entry.y.float32)
+    uvScale = vec2(
+      entry.width.float32 / size.x,
+      entry.height.float32 / size.y
+    )
+    r = clamp(radius, 0.0'f, min(size.x, size.y) / 2)
+
+  template uvAt(p: Vec2): Vec2 =
+    uvOrigin + (p - pos) * uvScale
+
+  template piece(piecePos, pieceSize: Vec2) =
+    if pieceSize.x > 0.001 and pieceSize.y > 0.001:
+      sk.drawQuad(
+        piecePos,
+        pieceSize,
+        uvAt(piecePos),
+        pieceSize * uvScale,
+        color
+      )
+
+  if r < 0.5:
+    piece(pos, size)
+    return
+
+  # Inner rect plus the four edge rects between the corners.
+  piece(pos + vec2(r, r), size - vec2(r, r) * 2)
+  piece(pos + vec2(r, 0), vec2(size.x - r * 2, r))
+  piece(pos + vec2(r, size.y - r), vec2(size.x - r * 2, r))
+  piece(pos + vec2(0, r), vec2(r, size.y - r * 2))
+  piece(pos + vec2(size.x - r, r), vec2(r, size.y - r * 2))
+
+  # Quarter-circle fans, one segment per ~2px of arc on screen.
+  let
+    arcLength = r * PI.float32 / 2 * max(sk.uiScale, 1.0'f)
+    segments = max(4, ceil(arcLength / 2).int)
+    corners = [
+      (pos + vec2(r, r), PI.float32),
+      (pos + vec2(size.x - r, r), PI.float32 * 1.5),
+      (pos + vec2(size.x - r, size.y - r), 0.0'f),
+      (pos + vec2(r, size.y - r), PI.float32 * 0.5)
+    ]
+  for (pivot, startAngle) in corners:
+    var previous = pivot + vec2(cos(startAngle), sin(startAngle)) * r
+    for i in 1 .. segments:
+      let
+        angle = startAngle + PI.float32 / 2 * i.float32 / segments.float32
+        current = pivot + vec2(cos(angle), sin(angle)) * r
+      sk.drawTriangle(
+        [pivot, previous, current],
+        [uvAt(pivot), uvAt(previous), uvAt(current)],
+        [color, color, color]
+      )
+      previous = current
+
 proc contains*(sk: Silky, name: string): bool =
   ## Returns true if the atlas contains one image entry.
   name in sk.atlas.entries
