@@ -788,7 +788,9 @@ proc drawRoundedImage*(
   radius: float32,
   color = rgbx(255, 255, 255, 255)
 ) {.measure.} =
-  ## Queues an atlas image draw stretched to size with rounded corners.
+  ## Queues an atlas image draw filling size with rounded corners.
+  ## The image keeps its aspect ratio: it is scaled uniformly to cover
+  ## the destination rect, centered, and the overflow is cropped.
   ## Builds the shape from an inner rect, four edge rects and four
   ## triangle fans, keeping UVs mapped to the destination rect throughout.
   if name notin sk.atlas.entries:
@@ -798,11 +800,12 @@ proc drawRoundedImage*(
     return
   let
     entry = sk.atlas.entries[name]
-    uvOrigin = vec2(entry.x.float32, entry.y.float32)
-    uvScale = vec2(
-      entry.width.float32 / size.x,
-      entry.height.float32 / size.y
-    )
+    entrySize = vec2(entry.width.float32, entry.height.float32)
+    cover = max(size.x / entrySize.x, size.y / entrySize.y)
+    uvOrigin =
+      vec2(entry.x.float32, entry.y.float32) +
+      (entrySize - size / cover) / 2
+    uvScale = vec2(1 / cover, 1 / cover)
     r = clamp(radius, 0.0'f, min(size.x, size.y) / 2)
 
   template uvAt(p: Vec2): Vec2 =
