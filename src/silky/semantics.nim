@@ -482,6 +482,17 @@ proc drawTriangle*(
 ) {.inline.} =
   discard
 
+proc drawRoundedImage*(
+  sk: Silky,
+  name: string,
+  pos: Vec2,
+  size: Vec2,
+  radius: float32,
+  color = rgbx(255, 255, 255, 255)
+) {.inline.} =
+  ## Stub for drawing an image with rounded corners.
+  discard
+
 proc draw9Patch*(sk: Silky, name: string, patch: int, pos: Vec2, size: Vec2, color = rgbx(255, 255, 255, 255)) {.inline.} =
   ## Stub for drawing a 9-patch image.
   discard
