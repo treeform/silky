@@ -225,6 +225,17 @@ type
     border*: int = 10
     textPadding*: int = 4
     headerHeight*: int = 32
+    windowPatch*: int = 14
+    headerPatch*: int = 6
+    framePatch*: int = 6
+    buttonPatch*: int = 8
+    dropdownPatch*: int = 6
+    textboxPatch*: int = 6
+    tooltipPatch*: int = 6
+    scrollbarPatch*: int = 4
+    scrollbarTrackPatch*: int = 4
+    progressBarPatch*: int = 6
+    scrubberPatch*: int = 4
     defaultTextColor*: ColorRGBX = rgbx(255, 255, 255, 255)
     disabledTextColor*: ColorRGBX = rgbx(150, 150, 150, 255)
     errorTextColor*: ColorRGBX = rgbx(255, 100, 100, 255)
