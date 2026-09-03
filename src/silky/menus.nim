@@ -115,7 +115,7 @@ proc menuBarStart*(sk: Silky, window: Window) =
 
   let barHeight = sk.theme.headerHeight.float32
   sk.pushLayout(vec2(0, 0), vec2(sk.size.x, barHeight))
-  sk.draw9Patch("header.9patch", 6, sk.pos, sk.size, sk.theme.headerBgColor)
+  sk.draw9Patch("header.9patch", sk.theme.headerPatch, sk.pos, sk.size, sk.theme.headerBgColor)
   sk.at = sk.pos + vec2(sk.theme.menuPadding)
 
 proc menuBarEnd*(sk: Silky, window: Window) =

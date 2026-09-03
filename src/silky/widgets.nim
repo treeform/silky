@@ -147,7 +147,7 @@ proc subWindowStart*(
     else:
       subWindowState.size
   sk.pushLayout(subWindowState.pos, size)
-  sk.draw9Patch("window.9patch", 14, sk.pos, sk.size)
+  sk.draw9Patch("window.9patch", sk.theme.windowPatch, sk.pos, sk.size)
 
   # Draw the header.
   sk.pushLayout(
@@ -162,16 +162,16 @@ proc subWindowStart*(
 
   case titleBarInteraction
   of Disabled, None, Error, ReleasedOutside:
-    sk.draw9Patch("header.9patch", 6, sk.pos, sk.size)
+    sk.draw9Patch("header.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Pressed:
     subWindowState.dragOffset = sk.mousePos - subWindowState.pos
     subWindowState.dragging = true
-    sk.draw9Patch("header.dragging.9patch", 6, sk.pos, sk.size)
+    sk.draw9Patch("header.dragging.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Held:
     discard
   of Hovered, Released:
     subWindowState.dragging = false
-    sk.draw9Patch("header.hover.9patch", 6, sk.pos, sk.size)
+    sk.draw9Patch("header.hover.9patch", sk.theme.headerPatch, sk.pos, sk.size)
 
   if subWindowState.dragging:
     subWindowState.pos = sk.mousePos - subWindowState.dragOffset
@@ -292,7 +292,7 @@ proc frameStart*(sk: Silky, id: string, framePos, frameSize: Vec2): tuple[state:
     frameStates[id] = FrameState()
   let frameState = frameStates[id]
   sk.pushLayout(framePos, frameSize)
-  sk.draw9Patch("frame.9patch", 6, sk.pos, sk.size)
+  sk.draw9Patch("frame.9patch", sk.theme.framePatch, sk.pos, sk.size)
   sk.pushClipRect(rect(
     sk.pos.x + 1,
     sk.pos.y + 1,
@@ -346,7 +346,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
         8,
         sk.size.y - 4 - 10
       )
-    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
 
     let
       scrollPosPercent = if scrollMax.y > 0: frameState.scrollPos.y / scrollMax.y else: 0.0
@@ -371,7 +371,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
       frameState.scrollingY = true
       frameState.scrollDragOffset.y = sk.mousePos.y - scrollbarHandleRect.y
 
-    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
   # Draw X scrollbar.
   if contentSize.x > sk.size.x:
@@ -383,7 +383,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
         sk.size.x - 4 - 10,
         8
       )
-    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
 
     let
       scrollPosPercent = if scrollMax.x > 0: frameState.scrollPos.x / scrollMax.x else: 0.0
@@ -408,7 +408,7 @@ proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec
       frameState.scrollingX = true
       frameState.scrollDragOffset.x = sk.mousePos.x - scrollbarHandleRect.x
 
-    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
   sk.popLayout()
   sk.popClipRect()
@@ -455,7 +455,7 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
     of Hovered, Released:
       "button.hover.9patch"
 
-  sk.draw9Patch(patch, 8, sk.at, buttonSize)
+  sk.draw9Patch(patch, sk.theme.buttonPatch, sk.at, buttonSize)
 
   if interaction == Released:
     body
@@ -511,7 +511,7 @@ template iconButton*(image: string, body) =
   else:
     sk.hover = false
 
-  sk.draw9Patch(patch, 8, sk.at - m2, s2, sk.theme.iconButtonDownColor)
+  sk.draw9Patch(patch, sk.theme.buttonPatch, sk.at - m2, s2, sk.theme.iconButtonDownColor)
   sk.drawImage(image, sk.at)
   sk.stretchAt = max(sk.stretchAt, sk.at + s2)
   sk.at += vec2(32 + sk.padding, 0)
@@ -649,7 +649,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   sk.pushLayout(sk.at, vec2(width, height))
   let hovered = interaction in [Pressed, Held, Hovered]
   let bgColor = if state.open or hovered: sk.theme.dropdownHoverBgColor else: sk.theme.dropdownBgColor
-  sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, bgColor)
+  sk.draw9Patch("dropdown.9patch", sk.theme.dropdownPatch, sk.pos, sk.size, bgColor)
   discard sk.drawText(sk.textStyle, displayText, sk.at + vec2(sk.theme.padding), sk.theme.defaultTextColor)
   let arrowPos = vec2(
     sk.pos.x + sk.size.x - arrowSize.x.float32 - sk.theme.padding.float32,
@@ -673,7 +673,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
       popupRect = rect(popupPos, popupSize)
 
     sk.pushLayout(popupPos, popupSize)
-    sk.draw9Patch("dropdown.9patch", 6, sk.pos, sk.size, sk.theme.dropdownPopupBgColor)
+    sk.draw9Patch("dropdown.9patch", sk.theme.dropdownPatch, sk.pos, sk.size, sk.theme.dropdownPopupBgColor)
 
     for i, opt in options:
       let
@@ -753,7 +753,7 @@ template progressBar*(value: SomeNumber, minVal: SomeNumber, maxVal: SomeNumber)
     width = max(bodySize.x.float32, sk.size.x - sk.theme.padding.float32 * 3)
     barRect = rect(sk.at, vec2(width, height))
 
-  sk.draw9Patch("progressBar.body.9patch", 6, barRect.xy, barRect.wh)
+  sk.draw9Patch("progressBar.body.9patch", sk.theme.progressBarPatch, barRect.xy, barRect.wh)
 
   let scrubberPadding = 4
   let fillWidth = scrubberPadding.float32 * 2 + (width - scrubberPadding.float32 * 2) * t
@@ -783,7 +783,7 @@ template group*(p: Vec2, direction = TopToBottom, body) =
 proc frameStart*(sk: Silky, p, s: Vec2) =
   ## Begin a simple frame.
   sk.pushLayout(p, s)
-  sk.draw9Patch("window.9patch", 14, sk.pos, sk.size)
+  sk.draw9Patch("window.9patch", sk.theme.windowPatch, sk.pos, sk.size)
 
 proc frameEnd*(sk: Silky) =
   ## Finish a simple frame.
@@ -872,7 +872,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     travelSafe = if travel <= 0: 1f else: travel
 
   # Draw track.
-  sk.draw9Patch("scrubber.body.9patch", 4, controlRect.xy, controlRect.wh)
+  sk.draw9Patch("scrubber.body.9patch", sk.theme.scrubberPatch, controlRect.xy, controlRect.wh)
 
   let
     # Normalize current value.
@@ -904,7 +904,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
   let handlePos2 = vec2(trackStart + norm2 * travel - handleSize.x * 0.5, controlRect.y + (height - handleSize.y) * 0.5)
 
   if label.len > 0:
-    sk.draw9Patch("button.9patch", 8, handlePos2, handleSize)
+    sk.draw9Patch("button.9patch", sk.theme.buttonPatch, handlePos2, handleSize)
     let textPos = vec2(
       handlePos2.x + (handleSize.x - labelSize.x) * 0.5,
       handlePos2.y + (handleSize.y - labelSize.y) * 0.5
@@ -965,7 +965,7 @@ template tooltip*(text: string) =
     fadeColor = rgbx(fadeByte, fadeByte, fadeByte, fadeByte)
   sk.pushLayout(sk.tooltipPos, tooltipSize)
   sk.draw9Patch(
-    "tooltip.9patch", 6, sk.pos, sk.size, fadeColor
+    "tooltip.9patch", sk.theme.tooltipPatch, sk.pos, sk.size, fadeColor
   )
 
   # Draw stem on top, pointing toward anchor.

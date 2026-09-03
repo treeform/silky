@@ -193,7 +193,7 @@ proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) {.mea
   node.semanticValue = ""
   case kind
   of nkFrame:
-    node.patch = patchSpec("frame.9patch", 6)
+    node.patch = patchSpec("frame.9patch", sk.theme.framePatch)
     node.clipContent = true
     node.horizontalPadding = sk.theme.padding.float32
     node.verticalPadding = sk.theme.padding.float32
@@ -369,7 +369,7 @@ proc finishFrameScrollbars(sk: Silky, window: auto, node: DslNode) =
 
   if contentSize.y > r.h:
     let scrollbarTrackRect = rect(r.x + r.w - 10, r.y + 2, 8, r.h - 14)
-    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
     let
       scrollPosPercent = if scrollMax.y > 0: frameState.scrollPos.y / scrollMax.y else: 0.0
       scrollSizePercent = r.h / contentSize.y
@@ -390,11 +390,11 @@ proc finishFrameScrollbars(sk: Silky, window: auto, node: DslNode) =
     elif sk.interact(scrollbarHandleRect, true) == Pressed:
       frameState.scrollingY = true
       frameState.scrollDragOffset.y = sk.mousePos.y - scrollbarHandleRect.y
-    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
   if contentSize.x > r.w:
     let scrollbarTrackRect = rect(r.x + 2, r.y + r.h - 10, r.w - 14, 8)
-    sk.draw9Patch("scrollbar.track.9patch", 4, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
+    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, scrollbarTrackRect.xy, scrollbarTrackRect.wh)
     let
       scrollPosPercent = if scrollMax.x > 0: frameState.scrollPos.x / scrollMax.x else: 0.0
       scrollSizePercent = r.w / contentSize.x
@@ -415,7 +415,7 @@ proc finishFrameScrollbars(sk: Silky, window: auto, node: DslNode) =
     elif sk.interact(scrollbarHandleRect, true) == Pressed:
       frameState.scrollingX = true
       frameState.scrollDragOffset.x = sk.mousePos.x - scrollbarHandleRect.x
-    sk.draw9Patch("scrollbar.9patch", 4, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
+    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, scrollbarHandleRect.xy, scrollbarHandleRect.wh)
 
 proc pushChildrenLayout(sk: Silky, node: DslNode) =
   if node.pushedLayout:
