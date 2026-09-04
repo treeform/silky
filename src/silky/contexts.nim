@@ -1,7 +1,9 @@
 import
-  std/[tables, unicode, times],
+  std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, profiles]
+  silky/[atlas, clips, layout, profiles]
+
+export layout, profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -23,13 +25,6 @@ const
   SpaceRune = Rune(32)
 
 type
-  StackDirection* = enum
-    ## Direction of the current layout flow.
-    TopToBottom
-    BottomToTop
-    LeftToRight
-    RightToLeft
-
   Theme* = object
     ## Theme for the Silky UI.
     padding*: int = 8
@@ -84,14 +79,9 @@ type
     ## Main Silky context shared across rendering backends.
     inFrame: bool = false
     uiScale*: float32 = 1.0
-    ## Multiplies 9-patch slice borders when the atlas is baked denser (e.g. 2).
+    ## Multiplies 9-patch borders for a denser atlas.
     sliceScale*: int = 1
-    at*: Vec2
-    atStack: seq[Vec2]
-    posStack: seq[Vec2]
-    sizeStack: seq[Vec2]
-    stretchAt*: Vec2
-    directionStack: seq[StackDirection]
+    layoutStack*: seq[LayoutScope]
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
@@ -118,7 +108,8 @@ type
     ## Live packer for runtime atlas extension; nil until first add.
     builder*: AtlasBuilder
     drawer*: Drawer
-    clipStack: seq[Rect]
+    clipStack: ClipStack
+    vertexClips: array[2, seq[int]]
     frameStartTime*: float64
     frameTime*: float64
     avgFrameTime*: float64
@@ -137,103 +128,144 @@ proc popLayer*(sk: Silky) =
   ## Pops the current rendering layer from the stack.
   sk.drawer.currentLayer = sk.drawer.layerStack.pop()
 
+proc currentScope*(sk: Silky): var LayoutScope =
+  ## Returns the active layout scope.
+  sk.layoutStack[^1]
+
+proc at*(sk: Silky): var Vec2 =
+  ## The pen P of the active scope.
+  sk.layoutStack[^1].pen
+
+proc `at=`*(sk: Silky, value: Vec2) =
+  sk.layoutStack[^1].pen = value
+
+proc stretchAt*(sk: Silky): var Vec2 =
+  ## The stretch pen S of the active scope.
+  sk.layoutStack[^1].stretch
+
+proc `stretchAt=`*(sk: Silky, value: Vec2) =
+  sk.layoutStack[^1].stretch = value
+
 proc pushLayout*(
   sk: Silky,
   pos: Vec2,
   size: Vec2,
-  direction: StackDirection = TopToBottom
+  direction: StackDirection = TopToBottom,
+  knownW = true,
+  knownH = true
 ) =
   ## Pushes a new layout region onto the stack.
-  sk.atStack.add(sk.at)
-  sk.posStack.add(pos)
-  sk.at = pos
-  sk.sizeStack.add(size)
-  sk.directionStack.add(direction)
-  sk.stretchAt = sk.at
-  case direction:
-  of TopToBottom:
-    sk.at = pos
-  of BottomToTop:
-    sk.at = pos + vec2(0, size.y)
-  of LeftToRight:
-    sk.at = pos
-  of RightToLeft:
-    sk.at = pos + vec2(size.x, 0)
+  var scope = initLayoutScope(pos, size, direction, knownW, knownH)
+  scope.vertexLayer = sk.drawer.currentLayer
+  scope.vertexMark = sk.drawer.layers[scope.vertexLayer].len
+  sk.layoutStack.add(scope)
 
 proc popLayout*(sk: Silky) =
-  ## Pops the current layout region from the stack.
-  sk.at = sk.atStack.pop()
-  discard sk.posStack.pop()
-  discard sk.sizeStack.pop()
-  discard sk.directionStack.pop()
+  ## Pops the current layout region, folding its stretch pen into the
+  ## parent so overflow keeps propagating like the old global stretchAt.
+  let child = sk.layoutStack.pop()
+  if sk.layoutStack.len > 0:
+    let parent = addr sk.layoutStack[^1]
+    parent.stretch = farthest(parent.signs, parent.stretch, child.stretch)
 
 proc pos*(sk: Silky): Vec2 =
   ## Returns the current layout position.
-  sk.posStack[^1]
+  sk.layoutStack[^1].regionPos
 
 proc size*(sk: Silky): Vec2 =
   ## Returns the current layout size.
-  sk.sizeStack[^1]
+  sk.layoutStack[^1].regionSize
 
 proc rootSize*(sk: Silky): Vec2 =
   ## Returns the root layout size.
-  sk.sizeStack[0]
+  sk.layoutStack[0].regionSize
 
 proc stackDirection*(sk: Silky): StackDirection =
   ## Returns the current stack direction.
-  sk.directionStack[^1]
+  sk.layoutStack[^1].direction
 
 proc pushRawClipRect*(sk: Silky, rect: Rect) =
-  ## Pushes a clip rectangle without intersection.
-  sk.clipStack.add(rect)
+  ## Pushes fixed clip bounds without intersection with ancestors.
+  sk.clipStack.pushClip(rect, raw = true)
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
-  ## Pushes a clip rectangle intersected with the parent clip.
-  if sk.clipStack.len == 0:
-    sk.pushRawClipRect(rect)
-    return
-
-  let
-    parentClip = sk.clipStack[^1]
-    x1 = max(parentClip.x, rect.x)
-    y1 = max(parentClip.y, rect.y)
-    x2 = min(parentClip.x + parentClip.w, rect.x + rect.w)
-    y2 = min(parentClip.y + parentClip.h, rect.y + rect.h)
-  sk.pushRawClipRect(rect(
-    x1,
-    y1,
-    max(0.0'f, x2 - x1),
-    max(0.0'f, y2 - y1)
-  ))
+  ## Pushes local clip bounds intersected with the parent clip.
+  sk.clipStack.pushClip(rect)
 
 proc popClipRect*(sk: Silky) =
   ## Pops the current clip rectangle.
-  discard sk.clipStack.pop()
+  sk.clipStack.popClip()
 
 proc clipRect*(sk: Silky): Rect =
-  ## Returns the current clip rectangle.
-  sk.clipStack[^1]
+  ## Returns the current clip intersection.
+  sk.clipStack.clipRect()
 
 proc instanceCount*(sk: Silky): int =
   ## Returns the number of queued drawer vertices.
   for i in 0 ..< sk.drawer.layers.len:
     result += sk.drawer.layers[i].len
 
+proc advance*(sk: Silky, amount: Vec2, spacing: float32) =
+  ## Advances the current layout cursor with explicit spacing.
+  sk.layoutStack[^1].advancePen(amount, spacing)
+
 proc advance*(sk: Silky, amount: Vec2) =
   ## Advances the current layout cursor.
-  sk.stretchAt = max(
-    sk.stretchAt,
-    sk.at + amount + vec2(sk.theme.spacing.float32)
-  )
-  case sk.stackDirection:
-  of TopToBottom:
-    sk.at.y += amount.y + sk.theme.spacing.float32
-  of BottomToTop:
-    sk.at.y -= amount.y + sk.theme.spacing.float32
-  of LeftToRight:
-    sk.at.x += amount.x + sk.theme.spacing.float32
-  of RightToLeft:
-    sk.at.x -= amount.x + sk.theme.spacing.float32
+  sk.advance(amount, sk.theme.spacing.float32)
+
+proc placedAt*(sk: Silky, size: Vec2): Vec2 =
+  ## Returns where a box of this size lands under the current scope
+  ## (A3) without moving the pen. Pair with advance().
+  sk.layoutStack[^1].placedPos(size)
+
+proc place*(sk: Silky, size: Vec2): Vec2 =
+  ## Places a box: returns its top-left corner and advances the pen.
+  result = sk.placedAt(size)
+  sk.advance(size)
+
+proc vertexMark*(sk: Silky): int =
+  ## Current vertex count on the active layer, for later patching.
+  sk.drawer.layers[sk.drawer.currentLayer].len
+
+proc beginVertexSpan*(sk: Silky): VertexSpan =
+  ## Captures vertices and original clips until a layout is placed.
+  result.clipMark = sk.clipStack.regions.len
+  for layer in 0 ..< result.marks.len:
+    result.marks[layer] = sk.drawer.layers[layer].len
+    sk.vertexClips[layer].setLen(result.marks[layer])
+  inc sk.clipStack.captures
+
+proc endVertexSpan*(sk: Silky, span: VertexSpan, offset: Vec2) =
+  ## Places a deferred span and resolves clips against fixed ancestors.
+  sk.clipStack.translateClips(span.clipMark, offset)
+  for layer in 0 ..< span.marks.len:
+    for i in span.marks[layer] ..< sk.drawer.layers[layer].len:
+      let clip = sk.clipStack.regions[sk.vertexClips[layer][i]].visible
+      sk.drawer.layers[layer][i].pos += offset
+      sk.drawer.layers[layer][i].clipPos = clip.xy
+      sk.drawer.layers[layer][i].clipSize = clip.wh
+  dec sk.clipStack.captures
+
+proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
+  ## Rotates vertices emitted after chromeStart to the front of the
+  ## span so late-drawn parent chrome renders behind its children (T2).
+  let total = sk.drawer.layers[layer].len
+  if chromeStart > spanStart and chromeStart < total:
+    sk.drawer.layers[layer].rotateLeft(
+      spanStart ..< total, chromeStart - spanStart
+    )
+    if sk.clipStack.captures > 0:
+      sk.vertexClips[layer].rotateLeft(
+        spanStart ..< total, chromeStart - spanStart
+      )
+
+proc translateVertices*(sk: Silky, layer, spanStart: int, offset: Vec2) =
+  ## Shifts vertices emitted since spanStart; realizes A6 for boxes
+  ## whose position is only known at scope close (T6).
+  if offset == vec2(0, 0):
+    return
+  for i in spanStart ..< sk.drawer.layers[layer].len:
+    sk.drawer.layers[layer][i].pos += offset
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
   ## Returns the size of an atlas image in pixels.
@@ -322,6 +354,23 @@ proc endUiShared*(sk: Silky) =
   measurePop()
   endProfileFrame()
 
+proc recordVertexClip(
+  sk: Silky,
+  layer, count: int,
+  bounds: Rect,
+  inherited: bool
+) =
+  ## Records clip ownership only while a layout awaits placement.
+  if sk.clipStack.captures == 0:
+    return
+  let index =
+    if inherited:
+      sk.clipStack.stack[^1]
+    else:
+      sk.clipStack.addClip(bounds)
+  for i in 0 ..< count:
+    sk.vertexClips[layer].add(index)
+
 proc drawQuad*(
   sk: Silky,
   pos: Vec2,
@@ -356,6 +405,12 @@ proc drawQuad*(
     m3 = maskUvPos + vec2(0, maskUvSize.y)
     layer = sk.drawer.currentLayer
 
+  sk.recordVertexClip(
+    layer,
+    6,
+    rect(cPos, cSize),
+    clipPos.x < 0 and clipSize.x < 0
+  )
   sk.drawer.layers[layer].add(DrawerVertex(
     pos: pos0,
     uv: uv0,
@@ -422,6 +477,12 @@ proc drawTriangle*(
       if clipSize.x < 0: sk.clipRect.wh
       else: clipSize
     layer = sk.drawer.currentLayer
+  sk.recordVertexClip(
+    layer,
+    3,
+    rect(cPos, cSize),
+    clipPos.x < 0 and clipSize.x < 0
+  )
   for i in 0 ..< 3:
     sk.drawer.layers[layer].add(DrawerVertex(
       pos: positions[i],
@@ -466,21 +527,11 @@ proc drawText*(
     needsVAlign = vAlign != TopAlign
   var currentPos = pos + vec2(0, fontData.ascent)
 
-  let
-    parentClip = sk.clipRect
-    textClip =
-      if clip:
-        let
-          cx1 = max(pos.x, parentClip.x)
-          cy1 = max(pos.y, parentClip.y)
-          cx2 = min(maxPos.x, parentClip.x + parentClip.w)
-          cy2 = min(maxPos.y, parentClip.y + parentClip.h)
-        (
-          vec2(cx1, cy1),
-          vec2(max(0.0'f, cx2 - cx1), max(0.0'f, cy2 - cy1))
-        )
-      else:
-        (parentClip.xy, parentClip.wh)
+  if clip:
+    sk.pushClipRect(rect(pos, vec2(maxWidth, maxHeight)))
+  defer:
+    if clip:
+      sk.popClipRect()
 
   let textStartIdx = sk.drawer.layers[layer].len
   var lineStartIdx = textStartIdx
@@ -577,9 +628,7 @@ proc drawText*(
         vec2(entry.boundsWidth, entry.boundsHeight),
         vec2(entry.x.float32, entry.y.float32),
         vec2(entry.boundsWidth, entry.boundsHeight),
-        color,
-        textClip[0],
-        textClip[1]
+        color
       )
 
     currentPos.x += entry.advance
@@ -887,6 +936,8 @@ proc clear*(sk: Silky) =
   sk.drawer.layers[PopupsLayer].setLen(0)
   sk.drawer.currentLayer = NormalLayer
   sk.drawer.layerStack.setLen(0)
+  for layer in 0 ..< sk.vertexClips.len:
+    sk.vertexClips[layer].setLen(0)
 
 proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   ## Begins a new UI frame.

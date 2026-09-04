@@ -56,6 +56,9 @@ jobs:
         run: |
           nim r tests/test_textboxes.nim
           nim r tests/test_atlas_png.nim
+          nim r -d:silkyTesting tests/test_layout.nim
+          nim r -d:silkyTesting tests/test_layout_regressions.nim
+          nim r ${{ matrix.build_flags }} tests/test_layout_clips.nim
 
       - name: Compile examples
         if: ${{ !matrix.emscripten }}

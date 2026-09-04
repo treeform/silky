@@ -20,6 +20,7 @@ proc newTestHarness*(atlas: SilkyAtlas, width = 800, height = 600): TestHarness 
   result.window = newWindow(width, height)
   result.frameCount = 0
   result.sk = Silky()
+  result.sk.window = result.window
   result.sk.atlas = atlas
   result.sk.layers[NormalLayer] = @[]
   result.sk.layers[PopupsLayer] = @[]
