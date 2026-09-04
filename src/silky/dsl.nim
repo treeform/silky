@@ -1,6 +1,7 @@
 import
   std/tables,
   bumpy, chroma, pixie, vmath,
+  silky/clips,
   silky/widgets as baseWidgets
 
 when defined(silkyTesting):
@@ -45,6 +46,7 @@ type
     scrollableFlag*: bool
     chromeMark*: int
     chromeLayer*: int
+    vertexSpan: VertexSpan
     materialized*: bool
     startedChildren*: bool
     pushedLayout*: bool
@@ -183,6 +185,7 @@ proc resetDslNode(node: DslNode, sk: Silky, kind: DslNodeKind, id: string) {.mea
   node.scrollableFlag = false
   node.chromeMark = 0
   node.chromeLayer = 0
+  node.vertexSpan = VertexSpan()
   node.materialized = false
   node.startedChildren = false
   node.pushedLayout = false
@@ -335,6 +338,65 @@ proc resolveNodeRect(sk: Silky, node: DslNode): Rect =
   node.resolved = true
   node.resolvedRect
 
+proc measureHug(
+  node: DslNode,
+  scope, parentScope: LayoutScope
+): tuple[bounds: Rect, shift: Vec2] =
+  ## Resolves the current content extent without closing the layout.
+  let
+    content = scope.contentBox()
+    childPos = scope.regionPos
+    signs = dirSigns(node.direction)
+  var r = node.resolvedRect
+  # The stretch pen includes one trailing item spacing per axis
+  # (advancePen's legacy inflation); hug shouldn't.
+  let extent = vec2(
+    max(0.0'f, content.w - node.itemSpacing),
+    max(0.0'f, content.h - node.itemSpacing)
+  )
+  var contentMin = content.xy
+  if signs.x < 0:
+    contentMin.x += min(node.itemSpacing, content.w)
+  if signs.y < 0:
+    contentMin.y += min(node.itemSpacing, content.h)
+  if node.widthMode == smHug:
+    r.w = extent.x + node.horizontalPadding * 2
+  if node.heightMode == smHug:
+    r.h = extent.y + node.verticalPadding * 2
+  # Reverse-direction hug: children grew away from the provisional
+  # origin; pull the whole rigid box back into place.
+  var shift = vec2(0, 0)
+  if node.widthMode == smHug:
+    shift.x = childPos.x - contentMin.x
+  if node.heightMode == smHug:
+    shift.y = childPos.y - contentMin.y
+  # The box's own position may move now that its size is known:
+  # reverse-direction parents place against the pen (A3), centered
+  # nodes re-center with the final size (T5).
+  if not node.hasBox:
+    var finalPos = parentScope.placedPos(r.wh)
+    if node.centerXFlag and parentScope.knownW:
+      finalPos.x = parentScope.regionPos.x +
+        (parentScope.regionSize.x - r.w) * 0.5
+    if node.centerYFlag and parentScope.knownH:
+      finalPos.y = parentScope.regionPos.y +
+        (parentScope.regionSize.y - r.h) * 0.5
+    shift += finalPos - r.xy
+    r.x = finalPos.x
+    r.y = finalPos.y
+  (r, shift)
+
+proc measuredNodeRect(sk: Silky, node: DslNode): Rect =
+  ## Measures an active hug for handlers placed after its children.
+  if node.isHug and node.pushedLayout and
+    node.kind != nkFrame and not node.hasBox:
+      return measureHug(
+        node,
+        sk.currentScope,
+        sk.layoutStack[^2]
+      ).bounds
+  sk.resolveNodeRect(node)
+
 proc setInteractionState(node: DslNode, interaction: Interaction) =
   node.semanticHovered = interaction in [Pressed, Held, Released, Hovered]
   node.semanticPressed = interaction in [Pressed, Held]
@@ -344,7 +406,7 @@ proc nodeInteraction*(sk: Silky, node: DslNode, isEnabled = true, isError = fals
     return None
   if not node.interactionResolved:
     node.semanticEnabled = isEnabled
-    let r = sk.resolveNodeRect(node)
+    let r = sk.measuredNodeRect(node)
     node.interaction = sk.interact(r, isEnabled, isError)
     node.setInteractionState(node.interaction)
     node.interactionResolved = true
@@ -405,7 +467,10 @@ proc finishFrameScrollbars(sk: Silky, window: auto, node: DslNode) =
   if frameState == nil:
     return
   let
-    contentSize = sk.currentScope.contentBox().wh + dslVec2(16)
+    contentSize = sk.currentScope.contentBox().wh + dslVec2(
+      node.horizontalPadding * 2,
+      node.verticalPadding * 2
+    )
     signs = sk.currentScope.signs
   baseWidgets.frameScrollbars(
     sk, window, frameState, node.resolvedRect, contentSize, signs
@@ -425,6 +490,7 @@ proc pushChildrenLayout(sk: Silky, node: DslNode) =
     sk.beginSemantic(node, r)
     node.chromeLayer = sk.currentDrawLayer
     node.chromeMark = sk.vertexMark()
+    node.vertexSpan = sk.beginVertexSpan()
     let
       childPos = r.xy + dslVec2(node.horizontalPadding, node.verticalPadding)
       childSize = dslVec2(
@@ -486,54 +552,10 @@ proc startChildren(sk: Silky, node: DslNode) =
   sk.pushChildrenLayout(node)
 
 proc closeHugLayout(sk: Silky, node: DslNode) =
-  ## Closes a hug scope: measure the content box, translate the span
-  ## into final position (A6/T6), size the node, then emit its chrome
-  ## behind the children (T2).
-  let
-    scope = sk.currentScope
-    content = scope.contentBox()
-    childPos = scope.regionPos
-    signs = dirSigns(node.direction)
+  ## Places measured children and draws the final chrome behind them.
+  let (r, shift) = measureHug(node, sk.currentScope, sk.layoutStack[^2])
   sk.popLayout()
-  var r = node.resolvedRect
-  # The stretch pen includes one trailing item spacing per axis
-  # (advancePen's legacy inflation); hug shouldn't.
-  let extent = vec2(
-    max(0.0'f, content.w - node.itemSpacing),
-    max(0.0'f, content.h - node.itemSpacing)
-  )
-  var contentMin = content.xy
-  if signs.x < 0:
-    contentMin.x += min(node.itemSpacing, content.w)
-  if signs.y < 0:
-    contentMin.y += min(node.itemSpacing, content.h)
-  if node.widthMode == smHug:
-    r.w = extent.x + node.horizontalPadding * 2
-  if node.heightMode == smHug:
-    r.h = extent.y + node.verticalPadding * 2
-  # Reverse-direction hug: children grew away from the provisional
-  # origin; pull the whole rigid box back into place.
-  var shift = vec2(0, 0)
-  if node.widthMode == smHug:
-    shift.x = childPos.x - contentMin.x
-  if node.heightMode == smHug:
-    shift.y = childPos.y - contentMin.y
-  # The box's own position may move now that its size is known:
-  # reverse-direction parents place against the pen (A3), centered
-  # nodes re-center with the final size (T5).
-  if not node.hasBox:
-    var finalPos = sk.currentScope.placedPos(r.wh)
-    let parentScope = sk.currentScope
-    if node.centerXFlag and parentScope.knownW:
-      finalPos.x = parentScope.regionPos.x +
-        (parentScope.regionSize.x - r.w) * 0.5
-    if node.centerYFlag and parentScope.knownH:
-      finalPos.y = parentScope.regionPos.y +
-        (parentScope.regionSize.y - r.h) * 0.5
-    shift += finalPos - r.xy
-    r.x = finalPos.x
-    r.y = finalPos.y
-  sk.translateVertices(node.chromeLayer, node.chromeMark, shift)
+  sk.endVertexSpan(node.vertexSpan, shift)
   node.resolvedRect = r
   node.resolved = true
   let chromeStart = sk.vertexMark()
@@ -604,7 +626,7 @@ proc scopeRect*(sk: Silky): Rect {.inline.} =
   ## Returns the current node rect, resolving it without retaining anything.
   if current == nil or current.kind == nkRoot:
     return rect(0'f, 0'f, 0'f, 0'f)
-  sk.resolveNodeRect(current)
+  sk.measuredNodeRect(current)
 
 proc startCurrentChildren*(sk: Silky) {.inline.} =
   ## Lets direct immediate widgets participate inside the active DSL scope.
@@ -782,12 +804,14 @@ proc centerY*() {.inline.} =
 
 template indent*(amount: SomeNumber, body: untyped) =
   ## T4: nudge the cross-axis start of children placed in this block.
-  sk.startCurrentChildren()
-  sk.currentScope.indent += amount.float32
-  try:
-    body
-  finally:
-    sk.currentScope.indent -= amount.float32
+  block:
+    sk.startCurrentChildren()
+    let offset = amount.float32
+    sk.currentScope.indent += offset
+    try:
+      body
+    finally:
+      sk.currentScope.indent -= offset
 
 proc scrollable*(enabled = true) {.inline.} =
   ## T7: clip this node and scroll its overflow. Scrolling is a

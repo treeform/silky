@@ -1,7 +1,7 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, layout, profiles]
+  silky/[atlas, clips, layout, profiles]
 
 export layout, profiles
 
@@ -108,7 +108,8 @@ type
     ## Live packer for runtime atlas extension; nil until first add.
     builder*: AtlasBuilder
     drawer*: Drawer
-    clipStack: seq[Rect]
+    clipStack: ClipStack
+    vertexClips: array[2, seq[int]]
     frameStartTime*: float64
     frameTime*: float64
     avgFrameTime*: float64
@@ -184,35 +185,20 @@ proc stackDirection*(sk: Silky): StackDirection =
   sk.layoutStack[^1].direction
 
 proc pushRawClipRect*(sk: Silky, rect: Rect) =
-  ## Pushes a clip rectangle without intersection.
-  sk.clipStack.add(rect)
+  ## Pushes fixed clip bounds without intersection with ancestors.
+  sk.clipStack.pushClip(rect, raw = true)
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
-  ## Pushes a clip rectangle intersected with the parent clip.
-  if sk.clipStack.len == 0:
-    sk.pushRawClipRect(rect)
-    return
-
-  let
-    parentClip = sk.clipStack[^1]
-    x1 = max(parentClip.x, rect.x)
-    y1 = max(parentClip.y, rect.y)
-    x2 = min(parentClip.x + parentClip.w, rect.x + rect.w)
-    y2 = min(parentClip.y + parentClip.h, rect.y + rect.h)
-  sk.pushRawClipRect(rect(
-    x1,
-    y1,
-    max(0.0'f, x2 - x1),
-    max(0.0'f, y2 - y1)
-  ))
+  ## Pushes local clip bounds intersected with the parent clip.
+  sk.clipStack.pushClip(rect)
 
 proc popClipRect*(sk: Silky) =
   ## Pops the current clip rectangle.
-  discard sk.clipStack.pop()
+  sk.clipStack.popClip()
 
 proc clipRect*(sk: Silky): Rect =
-  ## Returns the current clip rectangle.
-  sk.clipStack[^1]
+  ## Returns the current clip intersection.
+  sk.clipStack.clipRect()
 
 proc instanceCount*(sk: Silky): int =
   ## Returns the number of queued drawer vertices.
@@ -241,6 +227,25 @@ proc vertexMark*(sk: Silky): int =
   ## Current vertex count on the active layer, for later patching.
   sk.drawer.layers[sk.drawer.currentLayer].len
 
+proc beginVertexSpan*(sk: Silky): VertexSpan =
+  ## Captures vertices and original clips until a layout is placed.
+  result.clipMark = sk.clipStack.regions.len
+  for layer in 0 ..< result.marks.len:
+    result.marks[layer] = sk.drawer.layers[layer].len
+    sk.vertexClips[layer].setLen(result.marks[layer])
+  inc sk.clipStack.captures
+
+proc endVertexSpan*(sk: Silky, span: VertexSpan, offset: Vec2) =
+  ## Places a deferred span and resolves clips against fixed ancestors.
+  sk.clipStack.translateClips(span.clipMark, offset)
+  for layer in 0 ..< span.marks.len:
+    for i in span.marks[layer] ..< sk.drawer.layers[layer].len:
+      let clip = sk.clipStack.regions[sk.vertexClips[layer][i]].visible
+      sk.drawer.layers[layer][i].pos += offset
+      sk.drawer.layers[layer][i].clipPos = clip.xy
+      sk.drawer.layers[layer][i].clipSize = clip.wh
+  dec sk.clipStack.captures
+
 proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
   ## Rotates vertices emitted after chromeStart to the front of the
   ## span so late-drawn parent chrome renders behind its children (T2).
@@ -249,6 +254,10 @@ proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
     sk.drawer.layers[layer].rotateLeft(
       spanStart ..< total, chromeStart - spanStart
     )
+    if sk.clipStack.captures > 0:
+      sk.vertexClips[layer].rotateLeft(
+        spanStart ..< total, chromeStart - spanStart
+      )
 
 proc translateVertices*(sk: Silky, layer, spanStart: int, offset: Vec2) =
   ## Shifts vertices emitted since spanStart; realizes A6 for boxes
@@ -345,6 +354,23 @@ proc endUiShared*(sk: Silky) =
   measurePop()
   endProfileFrame()
 
+proc recordVertexClip(
+  sk: Silky,
+  layer, count: int,
+  bounds: Rect,
+  inherited: bool
+) =
+  ## Records clip ownership only while a layout awaits placement.
+  if sk.clipStack.captures == 0:
+    return
+  let index =
+    if inherited:
+      sk.clipStack.stack[^1]
+    else:
+      sk.clipStack.addClip(bounds)
+  for i in 0 ..< count:
+    sk.vertexClips[layer].add(index)
+
 proc drawQuad*(
   sk: Silky,
   pos: Vec2,
@@ -379,6 +405,12 @@ proc drawQuad*(
     m3 = maskUvPos + vec2(0, maskUvSize.y)
     layer = sk.drawer.currentLayer
 
+  sk.recordVertexClip(
+    layer,
+    6,
+    rect(cPos, cSize),
+    clipPos.x < 0 and clipSize.x < 0
+  )
   sk.drawer.layers[layer].add(DrawerVertex(
     pos: pos0,
     uv: uv0,
@@ -445,6 +477,12 @@ proc drawTriangle*(
       if clipSize.x < 0: sk.clipRect.wh
       else: clipSize
     layer = sk.drawer.currentLayer
+  sk.recordVertexClip(
+    layer,
+    3,
+    rect(cPos, cSize),
+    clipPos.x < 0 and clipSize.x < 0
+  )
   for i in 0 ..< 3:
     sk.drawer.layers[layer].add(DrawerVertex(
       pos: positions[i],
@@ -489,21 +527,11 @@ proc drawText*(
     needsVAlign = vAlign != TopAlign
   var currentPos = pos + vec2(0, fontData.ascent)
 
-  let
-    parentClip = sk.clipRect
-    textClip =
-      if clip:
-        let
-          cx1 = max(pos.x, parentClip.x)
-          cy1 = max(pos.y, parentClip.y)
-          cx2 = min(maxPos.x, parentClip.x + parentClip.w)
-          cy2 = min(maxPos.y, parentClip.y + parentClip.h)
-        (
-          vec2(cx1, cy1),
-          vec2(max(0.0'f, cx2 - cx1), max(0.0'f, cy2 - cy1))
-        )
-      else:
-        (parentClip.xy, parentClip.wh)
+  if clip:
+    sk.pushClipRect(rect(pos, vec2(maxWidth, maxHeight)))
+  defer:
+    if clip:
+      sk.popClipRect()
 
   let textStartIdx = sk.drawer.layers[layer].len
   var lineStartIdx = textStartIdx
@@ -600,9 +628,7 @@ proc drawText*(
         vec2(entry.boundsWidth, entry.boundsHeight),
         vec2(entry.x.float32, entry.y.float32),
         vec2(entry.boundsWidth, entry.boundsHeight),
-        color,
-        textClip[0],
-        textClip[1]
+        color
       )
 
     currentPos.x += entry.advance
@@ -910,6 +936,8 @@ proc clear*(sk: Silky) =
   sk.drawer.layers[PopupsLayer].setLen(0)
   sk.drawer.currentLayer = NormalLayer
   sk.drawer.layerStack.setLen(0)
+  for layer in 0 ..< sk.vertexClips.len:
+    sk.vertexClips[layer].setLen(0)
 
 proc beginUi*(sk: Silky, window: Window, size: IVec2) =
   ## Begins a new UI frame.

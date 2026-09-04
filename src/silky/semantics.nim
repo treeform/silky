@@ -3,7 +3,7 @@
 import
   std/[algorithm, strutils, tables, unicode, times],
   vmath, bumpy, chroma, pixie,
-  silky/[atlas, layout], testwindow
+  silky/[atlas, clips, layout], testwindow
 
 from windy/common import Button, CursorKind, Cursor
 
@@ -305,7 +305,7 @@ type
     layers*: array[2, seq[SilkyVertex]]
     currentLayer*: int
     layerStack*: seq[int]
-    clipStack: seq[Rect]
+    clipStack: ClipStack
     frameStartTime*: float64
     frameTime*: float64
     avgFrameTime*: float64
@@ -385,6 +385,16 @@ proc vertexMark*(sk: Silky): int =
   ## Current vertex count on the active layer, for later patching.
   sk.layers[sk.currentLayer].len
 
+proc beginVertexSpan*(sk: Silky): VertexSpan =
+  ## Captures clip bounds while a semantic layout awaits placement.
+  result.clipMark = sk.clipStack.regions.len
+  inc sk.clipStack.captures
+
+proc endVertexSpan*(sk: Silky, span: VertexSpan, offset: Vec2) =
+  ## Places captured clip bounds without emitting GPU vertices.
+  sk.clipStack.translateClips(span.clipMark, offset)
+  dec sk.clipStack.captures
+
 proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
   ## Rotates vertices emitted after chromeStart to the front of the
   ## span so late-drawn parent chrome renders behind its children (T2).
@@ -403,35 +413,20 @@ proc translateVertices*(sk: Silky, layer, spanStart: int, offset: Vec2) =
     sk.layers[layer][i].pos += offset
 
 proc pushRawClipRect*(sk: Silky, rect: Rect) =
-  ## Pushes a clipping rectangle onto the stack without intersection.
-  sk.clipStack.add(rect)
+  ## Pushes fixed clip bounds without intersection with ancestors.
+  sk.clipStack.pushClip(rect, raw = true)
 
 proc pushClipRect*(sk: Silky, rect: Rect) =
-  ## Pushes a clipping rectangle intersected with the current clip rectangle.
-  if sk.clipStack.len == 0:
-    sk.pushRawClipRect(rect)
-    return
-
-  let
-    parentClip = sk.clipStack[^1]
-    x1 = max(parentClip.x, rect.x)
-    y1 = max(parentClip.y, rect.y)
-    x2 = min(parentClip.x + parentClip.w, rect.x + rect.w)
-    y2 = min(parentClip.y + parentClip.h, rect.y + rect.h)
-  sk.pushRawClipRect(rect(
-    x1,
-    y1,
-    max(0.0'f, x2 - x1),
-    max(0.0'f, y2 - y1)
-  ))
+  ## Pushes local clip bounds intersected with the parent clip.
+  sk.clipStack.pushClip(rect)
 
 proc popClipRect*(sk: Silky) =
-  ## Pops the current clipping rectangle from the stack.
-  discard sk.clipStack.pop()
+  ## Pops the current clip rectangle.
+  sk.clipStack.popClip()
 
 proc clipRect*(sk: Silky): Rect =
-  ## Returns the current clipping rectangle.
-  sk.clipStack[^1]
+  ## Returns the current clip intersection.
+  sk.clipStack.clipRect()
 
 proc advance*(sk: Silky, amount: Vec2, spacing: float32) =
   ## Advances the current layout cursor with explicit spacing.

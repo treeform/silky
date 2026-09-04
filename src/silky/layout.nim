@@ -97,7 +97,9 @@ proc advancePen*(scope: var LayoutScope, size: Vec2, spacing: float32) =
   ## A4 + A5: move the pen along the main axis, absorb the far corner
   ## into the stretch pen. The stretch pen includes the trailing spacing
   ## on both axes to match the historical stretchAt behavior.
-  let far = scope.pen + scope.signs * (size + vec2(spacing, spacing))
+  let cross = 1 - scope.direction.mainAxis
+  var far = scope.pen + scope.signs * (size + vec2(spacing, spacing))
+  far[cross] += scope.signs[cross] * scope.indent
   scope.stretch = farthest(scope.signs, scope.stretch, far)
   let m = scope.direction.mainAxis
   scope.pen[m] += scope.signs[m] * (size[m] + spacing)
