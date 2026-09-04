@@ -65,6 +65,7 @@ jobs:
           nim c ${{ matrix.build_flags }} examples/gameplayer/gameplayer.nim
           nim c ${{ matrix.build_flags }} examples/menu/menu.nim
           nim c ${{ matrix.build_flags }} examples/panels/panels.nim
+          nim c ${{ matrix.build_flags }} examples/patterns/patterns.nim
           nim c ${{ matrix.build_flags }} examples/the7gui/the7gui.nim
           nim c ${{ matrix.build_flags }} examples/todomvc/todomvc.nim
 
@@ -77,6 +78,7 @@ jobs:
           (cd examples/gameplayer && nim c -d:emscripten gameplayer.nim)
           (cd examples/menu && nim c -d:emscripten menu.nim)
           (cd examples/panels && nim c -d:emscripten panels.nim)
+          (cd examples/patterns && nim c -d:emscripten patterns.nim)
           (cd examples/the7gui && nim c -d:emscripten the7gui.nim)
           (cd examples/todomvc && nim c -d:emscripten todomvc.nim)
 
@@ -90,6 +92,7 @@ jobs:
           (cd examples/gameplayer && nim r tests/test.nim)
           (cd examples/menu && nim r tests/test.nim)
           (cd examples/panels && nim r tests/test.nim)
+          (cd examples/patterns && nim r tests/test.nim)
           (cd examples/the7gui && nim r tests/test.nim)
           (cd examples/todomvc && nim r tests/test.nim)
 
