@@ -23,8 +23,3 @@ else:
   export widgets except
     button, checkBox, clickableIcon, dropDown, frame, group, h1text, icon,
     iconButton, image, listBox, progressBar, radioButton, ribbon, scrubber, text
-
-  when defined(useMetal4) or defined(useCpu):
-    proc loadExtensions*() {.inline.} =
-      ## No-op helper for non-OpenGL backends.
-      discard

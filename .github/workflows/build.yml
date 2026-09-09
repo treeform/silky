@@ -20,6 +20,9 @@ jobs:
           - os: windows-latest
             name: Windows Vulkan
             build_flags: "-d:useVulkan"
+          - os: windows-latest
+            name: Windows CPU
+            build_flags: "-d:useCpu"
           - os: ubuntu-latest
             name: Linux OpenGL
             build_flags: ""
@@ -59,6 +62,7 @@ jobs:
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim
           nim r ${{ matrix.build_flags }} tests/test_layout_clips.nim
+          nim r ${{ matrix.build_flags }} tests/test_cpu_backend.nim
 
       - name: Compile examples
         if: ${{ !matrix.emscripten }}
