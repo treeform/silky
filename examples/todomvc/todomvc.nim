@@ -47,10 +47,6 @@ sk.theme.frameFocusColor = parseHtmlColor("#D5DBDB").rgbx
 sk.theme.buttonHoverColor = rgbx(200, 200, 200, 255)
 sk.theme.buttonDownColor = rgbx(180, 180, 180, 255)
 
-window.runeInputEnabled = true
-window.onRune = proc(rune: Rune) =
-  sk.inputRunes.add(rune)
-
 var
   showWindow = true
   todos: seq[Todo]

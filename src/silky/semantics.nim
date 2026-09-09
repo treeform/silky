@@ -3,7 +3,8 @@
 import
   std/[algorithm, strutils, tables, unicode, times],
   vmath, bumpy, chroma, pixie,
-  silky/[atlas, clips, layout], testwindow
+  silky/[atlas, clips, layout], testwindow,
+  silky/internal/inputs
 
 from windy/common import Button, CursorKind, Cursor
 
@@ -284,7 +285,7 @@ type
     padding*: float32 = 12
     theme*: Theme = Theme()
     cursor*: Cursor = Cursor(kind: ArrowCursor)
-    inputRunes*: seq[Rune]
+    inputs: TextInputs
     mousePos*: Vec2
     mouseDelta*: Vec2
     mouseIdleTime*: float64
@@ -315,6 +316,10 @@ type
 
 proc currentDrawLayer*(sk: Silky): int =
   sk.currentLayer
+
+proc textInputs*(sk: Silky): TextInputs =
+  ## Provides internal text input state to the text widgets.
+  sk.inputs
 
 proc pushLayer*(sk: Silky, layer: int) =
   ## Pushes a new rendering layer onto the stack.
@@ -587,6 +592,7 @@ proc instanceCount*(sk: Silky): int =
 
 proc newSilky*(window: Window, atlas: SilkyAtlas): Silky =
   ## Creates a new Silky context for testing from atlas data.
+  ## Automatically installs input handling on the window.
   result = Silky()
   result.atlas = atlas
   result.layers[NormalLayer] = @[]
@@ -594,6 +600,7 @@ proc newSilky*(window: Window, atlas: SilkyAtlas): Silky =
   result.currentLayer = NormalLayer
   result.layerStack = @[]
   result.window = window
+  result.inputs = newTextInputs(window)
 
 proc newSilky*(window: Window, atlasPngPath: string): Silky =
   ## Creates a new Silky context for testing from a single atlas PNG.
@@ -602,6 +609,7 @@ proc newSilky*(window: Window, atlasPngPath: string): Silky =
 
 proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   ## Begins a new UI frame.
+  sk.inputs.beginInputFrame(window)
   sk.tooltipActive = sk.showTooltip
   sk.showTooltip = false
   sk.framebufferSize = size
@@ -633,16 +641,20 @@ proc endUi*(sk: Silky) =
   sk.popClipRect()
   sk.frameTime = epochTime() - sk.frameStartTime
   sk.avgFrameTime = (sk.avgFrameTime * 0.99) + (sk.frameTime * 0.01)
-  sk.inputRunes.setLen(0)
+  sk.inputs.endInputFrame(sk.window)
+  sk.inFrame = false
 
-template buttonDown*(sk: Silky): array[Button, bool] =
-  sk.window.buttonDown
+proc buttonDown*(sk: Silky): array[Button, bool] =
+  ## Returns held buttons, excluding keyboard keys during text entry.
+  sk.inputs.filterButtons(sk.window.buttonDown)
 
-template buttonPressed*(sk: Silky): array[Button, bool] =
-  sk.window.buttonPressed
+proc buttonPressed*(sk: Silky): array[Button, bool] =
+  ## Returns pressed buttons, excluding keyboard keys during text entry.
+  sk.inputs.filterButtons(sk.window.buttonPressed)
 
-template buttonReleased*(sk: Silky): array[Button, bool] =
-  sk.window.buttonReleased
+proc buttonReleased*(sk: Silky): array[Button, bool] =
+  ## Returns released buttons, excluding keyboard keys during text entry.
+  sk.inputs.filterButtons(sk.window.buttonReleased)
 
 proc beginWidget*(sk: Silky, kind: string, name = "", text = "", rect = rect(0f, 0f, 0f, 0f)) {.inline.} =
   ## Begins a new semantic widget node.

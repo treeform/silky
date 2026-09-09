@@ -502,7 +502,7 @@ window.onFrame = proc() =
           tint "#ffffff"
 
     # Regenerate the layout when R is pressed.
-    if window.buttonPressed[KeyR]:
+    if sk.buttonPressed[KeyR]:
       regenerate()
 
     let ms = sk.avgFrameTime * 1000

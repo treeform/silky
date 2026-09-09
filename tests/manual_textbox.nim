@@ -43,10 +43,6 @@ Done."""
 
 let sk = newSilky(window, "tests/dist/atlas.png")
 
-window.runeInputEnabled = true
-window.onRune = proc(rune: Rune) =
-  sk.inputRunes.add(rune)
-
 var
   boxWidth = 500.0f
   boxHeight = 400.0f

@@ -33,10 +33,6 @@ sk.theme.buttonDownColor = rgbx(180, 180, 180, 255)
 sk.theme.menuPopupHoverColor = parseHtmlColor("#3498DB").rgbx
 sk.theme.menuPopupSelectedColor = parseHtmlColor("#2980B9").rgbx
 
-window.runeInputEnabled = true
-window.onRune = proc(rune: Rune) =
-  sk.inputRunes.add(rune)
-
 var
   showChallenges = true
   showCounter = false
