@@ -26,11 +26,8 @@ pending text edits in arrival order before drawing, using modifiers captured
 with each event. There is no setup call or public queue to manage. Input beyond
 the internal limit of 65,536 pending events raises `SilkyError`.
 
-Emscripten builds automatically capture modifiers from DOM keyboard events.
-When Windy cancels a printable keydown and prevents its keypress, Silky delivers
-the browser's character through the rune callback. Shortcut keys do not insert
-characters, and a corresponding keypress cannot insert the character twice.
-This requires no application setup and does not add IME composition support.
+Native and Emscripten builds use the same Windy callbacks for text and modifier
+state. No browser-specific input setup is needed.
 
 Run `nim r tests/manual_inputs.nim` from the repository root to try single-line,
 password, and multiline fields with a keyboard display. Hold keys outside the

@@ -54,9 +54,6 @@ jobs:
         if: matrix.emscripten
         uses: mymindstorm/setup-emsdk@v14
 
-      - name: Test browser input adapter
-        run: node tests/test_browser_inputs.cjs
-
       - name: Run unit tests
         if: ${{ !matrix.emscripten }}
         run: |

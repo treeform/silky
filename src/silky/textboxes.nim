@@ -699,8 +699,9 @@ proc scrollBy*(state: TextBoxState, amount, viewportHeight: float32) =
 
 proc handleKey(state: TextBoxState, event: InputEvent) =
   ## Applies one keyboard press using its captured modifiers.
+  # AltGr can appear as Control+Alt and must not trigger editing shortcuts.
   let
-    ctrl = event.super or (event.control and not event.altGraph)
+    ctrl = event.super or (event.control and not event.alt)
     shift = event.shift
   when defined(macosx):
     let

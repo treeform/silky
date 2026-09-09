@@ -10,7 +10,6 @@
 *.data
 *.wasm
 *.js
-!src/silky/internal/browsers.js
 *.a
 *.o
 *.so

@@ -288,6 +288,20 @@ block:
   doAssert f.text == "Q!"
 
 block:
+  echo "Testing AltGr characters do not trigger Control shortcuts"
+  var f = fixture("Hello")
+  f.focus()
+  let window = f.harness.window
+  window.pressButton(KeyLeftControl)
+  window.pressButton(KeyRightAlt)
+  window.tap(KeyA)
+  window.typeText("ą")
+  window.releaseButton(KeyRightAlt)
+  window.releaseButton(KeyLeftControl)
+  f.frame()
+  doAssert f.text == "Helloą"
+
+block:
   echo "Testing Unicode, password, filtering, and single-line input"
   var f = fixture("")
   f.password = true

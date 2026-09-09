@@ -7,9 +7,6 @@ when defined(silkyTesting):
 else:
   import windy
 
-when defined(emscripten) and not defined(silkyTesting):
-  import browsers
-
 const MaxPendingEvents = 65_536
 
 type
@@ -21,7 +18,6 @@ type
     button*: Button
     rune*: Rune
     control*, shift*, alt*, super*: bool
-    altGraph*: bool
 
   CallbackIdentity = tuple[code, environment: pointer]
 
@@ -37,8 +33,6 @@ type
     forwardedKeys: set[Button]
     consumedKeys: set[Button]
     releaseCallback: proc(button: Button)
-    when defined(emscripten) and not defined(silkyTesting):
-      browser: BrowserInputs
 
 proc identity[T](callback: T): CallbackIdentity =
   ## Identifies a callback without retaining its closure environment.
@@ -78,15 +72,6 @@ proc stopInput*(inputs: TextInputs, window: Window) =
 
 proc modifiers(inputs: TextInputs, window: Window): InputEvent =
   ## Captures modifier state at the time of a callback.
-  when defined(emscripten) and not defined(silkyTesting):
-    let bits = inputs.browser.modifiers
-    if (bits and 16) != 0:
-      result.control = (bits and 1) != 0
-      result.shift = (bits and 2) != 0
-      result.alt = (bits and 4) != 0
-      result.super = (bits and 8) != 0
-      result.altGraph = (bits and 32) != 0
-      return
   result.control = window.buttonDown[KeyLeftControl] or
     window.buttonDown[KeyRightControl]
   result.shift = window.buttonDown[KeyLeftShift] or
@@ -95,13 +80,6 @@ proc modifiers(inputs: TextInputs, window: Window): InputEvent =
     window.buttonDown[KeyRightAlt]
   result.super = window.buttonDown[KeyLeftSuper] or
     window.buttonDown[KeyRightSuper]
-
-proc isKeyboard(inputs: TextInputs, button: Button): bool =
-  ## Includes browser keys that Windy does not map to a button yet.
-  when defined(emscripten) and not defined(silkyTesting):
-    if (inputs.browser.modifiers and 16) != 0:
-      return true
-  button >= Key0
 
 proc addEvent(inputs: TextInputs, event: InputEvent) =
   ## Appends an event without coalescing or dropping earlier events.
@@ -119,7 +97,7 @@ proc overrideCallbacks(
     let previousPress = window.onButtonPress
     window.onButtonPress = proc(button: Button) =
       let window = cast[Window](windowPointer)
-      if inputs.active and inputs.isKeyboard(button):
+      if inputs.active and button >= Key0:
         var event = inputs.modifiers(window)
         event.kind = KeyDown
         event.button = button
@@ -137,7 +115,7 @@ proc overrideCallbacks(
     inputs.releaseCallback = previousRelease
     window.onButtonRelease = proc(button: Button) =
       let window = cast[Window](windowPointer)
-      if inputs.active and inputs.isKeyboard(button):
+      if inputs.active and button >= Key0:
         var event = inputs.modifiers(window)
         event.kind = KeyUp
         event.button = button
@@ -177,8 +155,6 @@ proc overrideCallbacks(
 proc newTextInputs*(window: Window): TextInputs =
   ## Sets up all text input handling directly from the window.
   result = TextInputs()
-  when defined(emscripten) and not defined(silkyTesting):
-    result.browser = newBrowserInputs(window)
   result.overrideCallbacks(window, initialize = true)
   result.stopInput(window)
 
