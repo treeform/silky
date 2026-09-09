@@ -98,13 +98,19 @@ proc interact*(
     return ReleasedOutside
   if not hover:
     return None
+  # A complete click can arrive between frames. Use the final button state
+  # to distinguish it from a release followed by another press.
+  if released and not down:
+    return Released
   if pressed:
     return Pressed
   if down:
     return Held
-  if released:
-    return Released
   return Hovered
+
+proc pressedThisFrame(sk: Silky, interaction: Interaction): bool =
+  # A completed click still carries a press, without repeating normal releases.
+  sk.buttonPressed[MouseLeft] and interaction in [Pressed, Released]
 
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
@@ -189,7 +195,7 @@ proc subWindowStart*(
     )
     minimizeInteraction = sk.interact(minimizeRect, true)
 
-  if minimizeInteraction == Pressed:
+  if sk.pressedThisFrame(minimizeInteraction):
     subWindowState.minimized = not subWindowState.minimized
 
   if subWindowState.minimized:
@@ -562,7 +568,7 @@ template clickableIcon*(image: string, on: bool, body) =
   if sk.hover:
     sk.tooltipAnchor = iconRect
 
-  if interaction == Pressed:
+  if sk.pressedThisFrame(interaction):
     body
 
   sk.drawImage(image, sk.at, color)
@@ -698,8 +704,12 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
     let
       rowHeight = height
-      popupPos = vec2(dropRect.x, dropRect.y + dropRect.h)
-      popupSize = vec2(width, rowHeight * options.len.float32)
+      popupSize = vec2(min(width, sk.rootSize.x), rowHeight * options.len.float32)
+      below = dropRect.y + dropRect.h
+      popupY = if below + popupSize.y <= sk.rootSize.y: below
+        else: dropRect.y - popupSize.y
+      popupPos = clamp(vec2(dropRect.x, popupY), vec2(0),
+        max(sk.rootSize - popupSize, vec2(0)))
       popupRect = rect(popupPos, popupSize)
 
     sk.pushLayout(popupPos, popupSize)
@@ -708,7 +718,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
     for i, opt in options:
       let
         rowPos = vec2(sk.pos.x, sk.pos.y + i.float32 * rowHeight)
-        rowRect = rect(rowPos, vec2(width, rowHeight))
+        rowRect = rect(rowPos, vec2(popupSize.x, rowHeight))
         textPos = rowPos + vec2(sk.theme.padding)
         isSelected = selected == opt
         interaction = sk.interact(rowRect, true)
@@ -919,7 +929,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     handleReleased = handleInteraction in [Released, ReleasedOutside]
     controlReleased = controlInteraction in [Released, ReleasedOutside]
     released = handleReleased or controlReleased
-    pressed = handleInteraction == Pressed or controlInteraction == Pressed
+    pressed = sk.pressedThisFrame(handleInteraction) or sk.pressedThisFrame(controlInteraction)
 
   # Dragging logic.
   if scrubState.dragging and released:
@@ -929,7 +939,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
   elif pressed:
-    scrubState.dragging = true
+    scrubState.dragging = sk.buttonDown[MouseLeft]
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
 
