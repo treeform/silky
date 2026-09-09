@@ -108,6 +108,10 @@ proc interact*(
     return Held
   return Hovered
 
+proc pressedThisFrame(sk: Silky, interaction: Interaction): bool =
+  # A completed click still carries a press, without repeating normal releases.
+  sk.buttonPressed[MouseLeft] and interaction in [Pressed, Released]
+
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
   vec2(v.float32, v.float32)
@@ -191,7 +195,7 @@ proc subWindowStart*(
     )
     minimizeInteraction = sk.interact(minimizeRect, true)
 
-  if minimizeInteraction == Pressed:
+  if sk.pressedThisFrame(minimizeInteraction):
     subWindowState.minimized = not subWindowState.minimized
 
   if subWindowState.minimized:
@@ -564,7 +568,7 @@ template clickableIcon*(image: string, on: bool, body) =
   if sk.hover:
     sk.tooltipAnchor = iconRect
 
-  if interaction == Pressed:
+  if sk.pressedThisFrame(interaction):
     body
 
   sk.drawImage(image, sk.at, color)
@@ -921,7 +925,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     handleReleased = handleInteraction in [Released, ReleasedOutside]
     controlReleased = controlInteraction in [Released, ReleasedOutside]
     released = handleReleased or controlReleased
-    pressed = handleInteraction == Pressed or controlInteraction == Pressed
+    pressed = sk.pressedThisFrame(handleInteraction) or sk.pressedThisFrame(controlInteraction)
 
   # Dragging logic.
   if scrubState.dragging and released:
@@ -931,7 +935,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
   elif pressed:
-    scrubState.dragging = true
+    scrubState.dragging = sk.buttonDown[MouseLeft]
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
 
