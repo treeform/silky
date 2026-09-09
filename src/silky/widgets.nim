@@ -98,12 +98,14 @@ proc interact*(
     return ReleasedOutside
   if not hover:
     return None
+  # A complete click can arrive between frames. Use the final button state
+  # to distinguish it from a release followed by another press.
+  if released and not down:
+    return Released
   if pressed:
     return Pressed
   if down:
     return Held
-  if released:
-    return Released
   return Hovered
 
 proc vec2(v: SomeNumber): Vec2 =
