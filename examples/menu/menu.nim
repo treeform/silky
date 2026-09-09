@@ -20,10 +20,6 @@ const BackgroundColor = parseHtmlColor("#808080").rgbx
 
 let sk = newSilky(window, "dist/atlas.png")
 
-window.runeInputEnabled = true
-window.onRune = proc(rune: Rune) =
-  sk.inputRunes.add(rune)
-
 window.onFrame = proc() =
   sk.beginUI(window, window.size)
   sk.clearScreen(BackgroundColor)

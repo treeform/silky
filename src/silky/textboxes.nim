@@ -1,7 +1,7 @@
 import
   std/[tables, unicode, times],
   vmath, bumpy, chroma,
-  silky/atlas
+  silky/atlas, silky/internal/inputs
 
 ## Multi-line text box widget.
 ##
@@ -31,9 +31,6 @@ import
 
 when defined(silkyTesting):
   import silky/[semantics, testing, profiles]
-  proc setClipboardString(value: string) =
-    ## Stub for setting clipboard in test mode.
-    discard
 else:
   import silky/[contexts, profiles], windy
 
@@ -59,6 +56,7 @@ type
     scrollPos*: Vec2
     savedX*: float32
     focused*: bool
+    focusEpoch: uint64
     layout*: seq[Rect]
     dirty*: bool
     undoStack*: seq[(seq[Rune], int)]
@@ -699,85 +697,138 @@ proc scrollBy*(state: TextBoxState, amount, viewportHeight: float32) =
   let maxScroll = max(0.0f, state.innerHeight - viewportHeight)
   state.scrollPos.y = clamp(state.scrollPos.y, 0.0f, maxScroll)
 
-proc handleKeyboard*(
-  state: TextBoxState,
-  window: Window,
-  inputRunes: seq[Rune],
-  ctrl, shift, alt: bool,
-  wordWrap: bool
-) =
-  ## Processes keyboard input for the text box.
-  # On Mac: Option = word-level, Cmd = line/document-level.
-  # On Windows/Linux: Ctrl = word-level, Home/End = line, Ctrl+Home/End = document.
+proc handleKey(state: TextBoxState, event: InputEvent) =
+  ## Applies one keyboard press using its captured modifiers.
+  let
+    ctrl = event.super or (event.control and not event.altGraph)
+    shift = event.shift
   when defined(macosx):
-    let wordMod = alt
-    let lineMod = ctrl
+    let
+      wordMod = event.alt
+      lineMod = ctrl
   else:
-    let wordMod = ctrl
-    let lineMod = false
-  for r in inputRunes:
-    state.typeCharacter(r)
-  if window.buttonPressed[KeyBackspace]:
-    if wordMod: state.backspaceWord()
-    else: state.backspace()
-  elif window.buttonPressed[KeyDelete]:
-    if wordMod: state.deleteWord()
-    else: state.delete()
-  elif window.buttonPressed[KeyLeft]:
-    if wordMod: state.leftWord(shift)
-    elif lineMod: state.startOfLine(shift)
-    else: state.left(shift)
-  elif window.buttonPressed[KeyRight]:
-    if wordMod: state.rightWord(shift)
-    elif lineMod: state.endOfLine(shift)
-    else: state.right(shift)
-  elif window.buttonPressed[KeyUp]:
+    let
+      wordMod = ctrl
+      lineMod = false
+  case event.button
+  of KeyBackspace:
+    if wordMod:
+      state.backspaceWord()
+    else:
+      state.backspace()
+  of KeyDelete:
+    if wordMod:
+      state.deleteWord()
+    else:
+      state.delete()
+  of KeyLeft:
+    if wordMod:
+      state.leftWord(shift)
+    elif lineMod:
+      state.startOfLine(shift)
+    else:
+      state.left(shift)
+  of KeyRight:
+    if wordMod:
+      state.rightWord(shift)
+    elif lineMod:
+      state.endOfLine(shift)
+    else:
+      state.right(shift)
+  of KeyUp:
     if lineMod:
       state.cursor = 0
-      if not shift: state.selector = state.cursor
-    else: state.up(shift)
-  elif window.buttonPressed[KeyDown]:
+      if not shift:
+        state.selector = state.cursor
+    else:
+      state.up(shift)
+  of KeyDown:
     if lineMod:
       state.cursor = state.runes.len
-      if not shift: state.selector = state.cursor
-    else: state.down(shift)
-  elif window.buttonPressed[KeyHome]:
+      if not shift:
+        state.selector = state.cursor
+    else:
+      state.down(shift)
+  of KeyHome:
     if ctrl:
       state.cursor = 0
-      if not shift: state.selector = state.cursor
-    else: state.startOfLine(shift)
-  elif window.buttonPressed[KeyEnd]:
+      if not shift:
+        state.selector = state.cursor
+    else:
+      state.startOfLine(shift)
+  of KeyEnd:
     if ctrl:
       state.cursor = state.runes.len
-      if not shift: state.selector = state.cursor
-    else: state.endOfLine(shift)
-  elif window.buttonPressed[KeyPageUp]:
+      if not shift:
+        state.selector = state.cursor
+    else:
+      state.endOfLine(shift)
+  of KeyPageUp:
     state.pageUp(shift)
-  elif window.buttonPressed[KeyPageDown]:
+  of KeyPageDown:
     state.pageDown(shift)
-  elif window.buttonPressed[KeyEnter]:
+  of KeyEnter:
     if not state.singleLine:
       state.typeCharacter(LF)
-  elif ctrl:
-    if window.buttonPressed[KeyA]:
+  of KeyA:
+    if ctrl:
       state.selectAll()
-    elif window.buttonPressed[KeyC]:
+  of KeyC:
+    if ctrl:
       let copied = state.copyText()
       if copied.len > 0:
         setClipboardString(copied)
-    elif window.buttonPressed[KeyX]:
+  of KeyX:
+    if ctrl:
       let cut = state.cutText()
       if cut.len > 0:
         setClipboardString(cut)
-    elif window.buttonPressed[KeyV]:
+  of KeyV:
+    if ctrl and state.enabled:
       let clip = getClipboardString()
       if clip.len > 0:
         state.pasteText(clip)
-    elif window.buttonPressed[KeyZ]:
-      if shift: state.redo()
-      else: state.undo()
-    elif window.buttonPressed[KeyY]:
+  of KeyZ:
+    if ctrl and state.enabled:
+      if shift:
+        state.redo()
+      else:
+        state.undo()
+  of KeyY:
+    if ctrl and state.enabled:
       state.redo()
+  else:
+    discard
+
+proc handleInput(
+  state: TextBoxState,
+  inputs: TextInputs,
+  fontData: FontAtlas,
+  maxWidth: float32
+) =
+  ## Drains ordered input and refreshes layout before cursor navigation.
+  let
+    epoch = inputs.focusEpoch
+    events = inputs.takeInput()
+  for event in events:
+    if inputs.focusEpoch != epoch:
+      break
+    case event.kind
+    of TextInput:
+      state.typeCharacter(event.rune)
+    of InputKind.KeyDown:
+      if state.dirty and event.button in {
+        KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd,
+        KeyPageUp, KeyPageDown
+      }:
+        state.computeLayout(fontData, maxWidth)
+      state.handleKey(event)
+    of InputKind.KeyUp:
+      discard
+  if events.len > 0:
+    if state.dirty:
+      state.computeLayout(fontData, maxWidth)
+    state.scrollToCursor()
 
 proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
     outerRect, innerRect: Rect, mouseVec: Vec2, clipRect: Rect) =
@@ -879,6 +930,10 @@ proc textBox*(
     newState.setText(t)
     textBoxStates[id] = newState
   state = textBoxStates[id]
+  let inputs = sk.textInputs
+  if state.focused and state.focusEpoch != inputs.focusEpoch:
+    state.focused = false
+    state.dragging = false
   state.enabled = enabled
   state.allowedChars = allowedChars
   if state.password != password:
@@ -909,14 +964,8 @@ proc textBox*(
   if state.dirty or state.layout.len == 0 or
       state.lastMaxWidth != innerRect.w:
     state.computeLayout(fontData, innerRect.w)
-  let ctrl = window.buttonDown[KeyLeftControl] or
-    window.buttonDown[KeyRightControl] or
-    window.buttonDown[KeyLeftSuper] or
-    window.buttonDown[KeyRightSuper]
   let shift = window.buttonDown[KeyLeftShift] or
     window.buttonDown[KeyRightShift]
-  let alt = window.buttonDown[KeyLeftAlt] or
-    window.buttonDown[KeyRightAlt]
   let mouseVec = sk.mousePos
   let mouseInside = mouseVec.overlaps(outerRect) and
     mouseVec.overlaps(sk.clipRect)
@@ -946,8 +995,10 @@ proc textBox*(
       state.mouseAction(localMouse, click = false, shift = true)
     if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
       state.dragging = false
+  inputs.submitInput(window, id, state.focused, enabled)
   if state.focused:
-    state.handleKeyboard(window, sk.inputRunes, ctrl, shift, alt, state.wordWrap)
+    state.focusEpoch = inputs.focusEpoch
+    state.handleInput(inputs, fontData, innerRect.w)
     t = state.getText()
   if state.dirty:
     state.computeLayout(fontData, innerRect.w)

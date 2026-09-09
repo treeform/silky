@@ -19,13 +19,7 @@ proc newTestHarness*(atlas: SilkyAtlas, width = 800, height = 600): TestHarness 
   ## Creates a new test harness from atlas data.
   result.window = newWindow(width, height)
   result.frameCount = 0
-  result.sk = Silky()
-  result.sk.window = result.window
-  result.sk.atlas = atlas
-  result.sk.layers[NormalLayer] = @[]
-  result.sk.layers[PopupsLayer] = @[]
-  result.sk.currentLayer = NormalLayer
-  result.sk.layerStack = @[]
+  result.sk = newSilky(result.window, atlas)
 
 proc newTestHarness*(atlasPng: string, width = 800, height = 600): TestHarness =
   ## Creates a new test harness from a single atlas PNG.
@@ -34,18 +28,11 @@ proc newTestHarness*(atlasPng: string, width = 800, height = 600): TestHarness =
 
 proc beginFrame*(h: var TestHarness) =
   ## Begins a new test frame.
-  h.sk.framebufferSize = h.window.size
-  h.sk.mousePos = h.window.mousePos.vec2 / h.sk.uiScale
-  h.sk.mouseDelta = h.window.mouseDelta.vec2 / h.sk.uiScale
-  h.sk.pushLayout(vec2(0, 0), h.window.size.vec2 / h.sk.uiScale)
-  h.sk.pushClipRect(rect(0, 0, h.sk.size.x, h.sk.size.y))
-  h.sk.semantic.reset()
+  h.sk.beginUi(h.window, h.window.size)
 
 proc endFrame*(h: var TestHarness) =
   ## Ends the current test frame and captures the snapshot.
-  h.sk.popClipRect()
-  h.sk.popLayout()
-  h.sk.clear()
+  h.sk.endUi()
   inc h.frameCount
   h.lastSnapshot = h.sk.semantic.toSnapshot()
 

@@ -1,7 +1,8 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, clips, layout, profiles]
+  silky/[atlas, clips, layout, profiles],
+  silky/internal/inputs
 
 export layout, profiles
 
@@ -86,7 +87,7 @@ type
     padding*: float32 = 12
     theme*: Theme = Theme()
     cursor*: Cursor = Cursor(kind: ArrowCursor)
-    inputRunes*: seq[Rune]
+    inputs: TextInputs
     mousePos*: Vec2
     mouseDelta*: Vec2
     mouseIdleTime*: float64
@@ -118,6 +119,10 @@ type
 
 proc currentDrawLayer*(sk: Silky): int =
   sk.drawer.currentLayer
+
+proc textInputs*(sk: Silky): TextInputs =
+  ## Provides internal text input state to the text widgets.
+  sk.inputs
 
 proc pushLayer*(sk: Silky, layer: int) =
   ## Pushes a new rendering layer onto the stack.
@@ -299,6 +304,7 @@ proc resetInteractions*(sk: Silky) =
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
+  sk.inputs.beginInputFrame(window)
   beginProfileFrame()
 
   sk.tooltipActive = sk.showTooltip
@@ -349,7 +355,7 @@ proc endUiShared*(sk: Silky) =
   sk.popClipRect()
   sk.frameTime = epochTime() - sk.frameStartTime
   sk.avgFrameTime = (sk.avgFrameTime * 0.99) + (sk.frameTime * 0.01)
-  sk.inputRunes.setLen(0)
+  sk.inputs.endInputFrame(sk.window)
   sk.inFrame = false
   measurePop()
   endProfileFrame()
@@ -696,12 +702,14 @@ proc newSilky*(
   atlas: SilkyAtlas
 ): Silky {.measure.} =
   ## Creates a new Silky context and eagerly initializes its drawer.
+  ## Automatically installs input handling on the window.
   result = Silky()
   result.image = image
   result.atlas = atlas
   result.builder = newAtlasBuilderFromAtlas(atlas, image)
   result.window = window
   result.drawer = newDrawer(window, image)
+  result.inputs = newTextInputs(window)
 
 proc newSilky*(window: Window, atlasPngPath: string): Silky {.measure.} =
   ## Creates a new Silky from one atlas PNG file.
@@ -983,16 +991,16 @@ proc endUi*(sk: Silky) =
   sk.endUiShared()
 
 proc buttonDown*(sk: Silky): ButtonView =
-  ## Returns a view that returns true if the selected button is down
-  sk.window.buttonDown
+  ## Returns held buttons, excluding keyboard keys during text entry.
+  sk.inputs.filterButtons(sk.window.buttonDown)
 
 proc buttonPressed*(sk: Silky): ButtonView =
-  ## Returns a view that returns true the frame the selected button is pressed
-  sk.window.buttonPressed
+  ## Returns pressed buttons, excluding keyboard keys during text entry.
+  sk.inputs.filterButtons(sk.window.buttonPressed)
 
 proc buttonReleased*(sk: Silky): ButtonView =
-  ## Returns a view that returns true the frame the selected button is released
-  sk.window.buttonReleased
+  ## Returns released buttons, excluding keyboard keys during text entry.
+  sk.inputs.filterButtons(sk.window.buttonReleased)
 
 when not defined(useDirectX) and
     not defined(useVulkan) and

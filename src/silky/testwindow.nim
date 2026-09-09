@@ -2,8 +2,7 @@
 
 import
   std/unicode,
-  vmath, bumpy,
-  silky/[semantics, atlas]
+  vmath
 from windy/common import Button, CursorKind, Cursor
 export Button, CursorKind, Cursor, unicode
 
@@ -22,7 +21,12 @@ type Window* = ref object
   cursor*: Cursor = Cursor(kind: ArrowCursor)
   runeInputEnabled*: bool
   onRune*: proc(rune: Rune)
+  onButtonPress*: proc(button: Button)
+  onButtonRelease*: proc(button: Button)
+  onFocusChange*: proc()
   onFrame*: proc()
+
+var clipboard: string
 
 proc newWindow*(width = 800, height = 600): Window =
   ## Creates a new test window with the given dimensions.
@@ -51,8 +55,12 @@ proc pollEvents*() {.inline.} =
   discard
 
 proc getClipboardString*(): string =
-  ## Stub for getting clipboard content.
-  ""
+  ## Returns the simulated clipboard content.
+  clipboard
+
+proc setClipboardString*(value: string) =
+  ## Updates the simulated clipboard content.
+  clipboard = value
 
 proc makeContextCurrent*(window: Window) {.inline.} =
   ## Stub for OpenGL context creation.
@@ -71,14 +79,35 @@ proc resetInputState*(w: Window) =
   w.scrollDelta = vec2(0, 0)
 
 proc pressButton*(w: Window, button: Button) =
-  ## Simulates pressing a mouse button.
+  ## Simulates pressing a button, including repeated presses.
   w.buttonDown[button] = true
   w.buttonPressed[button] = true
+  if w.onButtonPress != nil:
+    w.onButtonPress(button)
 
 proc releaseButton*(w: Window, button: Button) =
-  ## Simulates releasing a mouse button.
+  ## Simulates releasing a button.
   w.buttonDown[button] = false
   w.buttonReleased[button] = true
+  if w.onButtonRelease != nil:
+    w.onButtonRelease(button)
+
+proc typeRune*(w: Window, rune: Rune) =
+  ## Delivers a printable rune when text input is enabled.
+  if not w.runeInputEnabled:
+    return
+  if rune.int32 < 32 or rune.int32 in 127 .. 159:
+    return
+  if w.onRune != nil:
+    w.onRune(rune)
+
+proc changeFocus*(w: Window) =
+  ## Releases held buttons and delivers a window focus change.
+  for button in Button:
+    if w.buttonDown[button]:
+      w.releaseButton(button)
+  if w.onFocusChange != nil:
+    w.onFocusChange()
 
 proc moveMouse*(w: Window, x, y: int) =
   ## Moves the simulated mouse cursor to the given position.

@@ -54,10 +54,14 @@ jobs:
         if: matrix.emscripten
         uses: mymindstorm/setup-emsdk@v14
 
+      - name: Test browser input adapter
+        run: node tests/test_browser_inputs.cjs
+
       - name: Run unit tests
         if: ${{ !matrix.emscripten }}
         run: |
           nim r tests/test_textboxes.nim
+          nim r -d:silkyTesting tests/test_inputs.nim
           nim r tests/test_atlas_png.nim
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim
@@ -74,6 +78,7 @@ jobs:
           nim c ${{ matrix.build_flags }} examples/panels/panels.nim
           nim c ${{ matrix.build_flags }} examples/the7gui/the7gui.nim
           nim c ${{ matrix.build_flags }} examples/todomvc/todomvc.nim
+          nim c ${{ matrix.build_flags }} tests/manual_inputs.nim
 
       - name: Compile examples (Emscripten)
         if: matrix.emscripten

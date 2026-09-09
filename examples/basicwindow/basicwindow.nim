@@ -21,10 +21,6 @@ loadExtensions()
 
 let sk = newSilky(window, "dist/atlas.png")
 
-window.runeInputEnabled = true
-window.onRune = proc(rune: Rune) =
-  sk.inputRunes.add(rune)
-
 const
   ElementOptions = ["Fire", "Water", "Earth", "Air"]
   PowerOptions = ["Low", "Medium", "High"]
@@ -67,11 +63,11 @@ proc returnTest() =
     characters "You will not see this."
 
 window.onFrame = proc() =
-  if window.buttonPressed[KeyEqual] or
-    window.buttonPressed[NumpadAdd]:
+  if sk.buttonPressed[KeyEqual] or
+    sk.buttonPressed[NumpadAdd]:
     sk.uiScale = min(sk.uiScale + 0.25'f, 4.0'f)
-  if window.buttonPressed[KeyMinus] or
-    window.buttonPressed[NumpadSubtract]:
+  if sk.buttonPressed[KeyMinus] or
+    sk.buttonPressed[NumpadSubtract]:
     sk.uiScale = max(sk.uiScale - 0.25'f, 0.25'f)
 
   sk.beginUI(window, window.size)
