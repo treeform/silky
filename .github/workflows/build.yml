@@ -57,6 +57,7 @@ jobs:
       - name: Run unit tests
         if: ${{ !matrix.emscripten }}
         run: |
+          nim r -d:silkyTesting tests/test_interactions.nim
           nim r tests/test_textboxes.nim
           nim r -d:silkyTesting tests/test_inputs.nim
           nim r tests/test_atlas_png.nim
