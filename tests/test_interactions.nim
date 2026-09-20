@@ -4,7 +4,7 @@ import std/[options, tables]
 import bumpy, silky, vmath
 
 let window = newWindow(200, 200)
-let sk = Silky(window: window)
+let sk = newSilky(window, SilkyAtlas(size: 64))
 let target = rect(20'f32, 20'f32, 100'f32, 40'f32)
 
 proc sample(enabled = true): Interaction =
