@@ -117,9 +117,47 @@ proc addToSkyline(allocator: SkylineAllocator, x, y, width, height: int) =
 
 proc markRegion*(allocator: SkylineAllocator, x, y, width, height: int) =
   ## Mark an already-drawn rectangle as used (no margin padding).
-  if width <= 0 or height <= 0:
+  ## Only raises the skyline, so marking order does not matter.
+  let
+    left = max(x, 0)
+    right = min(x + width, allocator.atlasSize)
+    top = y + height
+  if right <= left or height <= 0:
     return
-  allocator.addToSkyline(x, y, width, height)
+
+  var newSkyline: seq[SkylineNode]
+  for node in allocator.skyline:
+    let
+      nodeLeft = node.x
+      nodeRight = node.x + node.width
+    if nodeRight <= left or nodeLeft >= right:
+      newSkyline.add(node)
+      continue
+    # Part of the node before the region.
+    if nodeLeft < left:
+      newSkyline.add(SkylineNode(x: nodeLeft, y: node.y, width: left - nodeLeft))
+    # Part of the node inside the region, raised to the region top.
+    let
+      insideLeft = max(nodeLeft, left)
+      insideRight = min(nodeRight, right)
+    newSkyline.add(SkylineNode(
+      x: insideLeft,
+      y: max(node.y, top),
+      width: insideRight - insideLeft
+    ))
+    # Part of the node after the region.
+    if nodeRight > right:
+      newSkyline.add(SkylineNode(x: right, y: node.y, width: nodeRight - right))
+
+  # Merge adjacent nodes with same height.
+  var mergedSkyline: seq[SkylineNode]
+  for node in newSkyline:
+    if mergedSkyline.len > 0 and mergedSkyline[^1].y == node.y:
+      mergedSkyline[^1].width += node.width
+    else:
+      mergedSkyline.add(node)
+
+  allocator.skyline = mergedSkyline
 
 proc allocate*(allocator: SkylineAllocator, width, height: int): AllocationResult =
   ## Allocate a rectangle using skyline algorithm with margin.
