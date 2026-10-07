@@ -87,70 +87,92 @@ proc addEvent(inputs: TextInputs, event: InputEvent) =
     raise newException(SilkyError, "Too many pending text input events")
   inputs.events.add(event)
 
+proc installPress(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousPress = window.onButtonPress
+  window.onButtonPress = proc(button: Button) =
+    let window = cast[Window](windowPointer)
+    if inputs.active and button >= Key0:
+      var event = inputs.modifiers(window)
+      event.kind = KeyDown
+      event.button = button
+      inputs.consumedKeys.incl(button)
+      inputs.addEvent(event)
+      return
+    if button >= Key0:
+      inputs.forwardedKeys.incl(button)
+      inputs.consumedKeys.excl(button)
+    if previousPress != nil:
+      previousPress(button)
+  inputs.callbacks[0] = identity(window.onButtonPress)
+
+proc installRelease(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousRelease = window.onButtonRelease
+  inputs.releaseCallback = previousRelease
+  window.onButtonRelease = proc(button: Button) =
+    let window = cast[Window](windowPointer)
+    if inputs.active and button >= Key0:
+      var event = inputs.modifiers(window)
+      event.kind = KeyUp
+      event.button = button
+      inputs.consumedKeys.excl(button)
+      inputs.addEvent(event)
+      return
+    if button >= Key0:
+      inputs.forwardedKeys.excl(button)
+      if button in inputs.consumedKeys:
+        inputs.consumedKeys.excl(button)
+        return
+    if previousRelease != nil:
+      previousRelease(button)
+  inputs.callbacks[1] = identity(window.onButtonRelease)
+
+proc installRune(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousRune = window.onRune
+  window.onRune = proc(rune: Rune) =
+    let window = cast[Window](windowPointer)
+    if inputs.active:
+      if inputs.editable:
+        var event = inputs.modifiers(window)
+        event.kind = TextInput
+        event.rune = rune
+        inputs.addEvent(event)
+      return
+    if previousRune != nil:
+      previousRune(rune)
+  inputs.callbacks[2] = identity(window.onRune)
+
+proc installFocus(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousFocus = window.onFocusChange
+  window.onFocusChange = proc() =
+    inputs.stopInput(cast[Window](windowPointer))
+    if previousFocus != nil:
+      previousFocus()
+  inputs.callbacks[3] = identity(window.onFocusChange)
+
 proc overrideCallbacks(
   inputs: TextInputs, window: Window, initialize = false
 ) =
-  ## Automatically installs handlers for any changed callback slots.
-  let windowPointer = cast[pointer](window)
-  # The window owns these callbacks, so a pointer avoids a reference cycle.
+  ## Checks handlers without allocating closure state on unchanged frames.
   if initialize or identity(window.onButtonPress) != inputs.callbacks[0]:
-    let previousPress = window.onButtonPress
-    window.onButtonPress = proc(button: Button) =
-      let window = cast[Window](windowPointer)
-      if inputs.active and button >= Key0:
-        var event = inputs.modifiers(window)
-        event.kind = KeyDown
-        event.button = button
-        inputs.consumedKeys.incl(button)
-        inputs.addEvent(event)
-        return
-      if button >= Key0:
-        inputs.forwardedKeys.incl(button)
-        inputs.consumedKeys.excl(button)
-      if previousPress != nil:
-        previousPress(button)
-    inputs.callbacks[0] = identity(window.onButtonPress)
+    inputs.installPress(window)
   if initialize or identity(window.onButtonRelease) != inputs.callbacks[1]:
-    let previousRelease = window.onButtonRelease
-    inputs.releaseCallback = previousRelease
-    window.onButtonRelease = proc(button: Button) =
-      let window = cast[Window](windowPointer)
-      if inputs.active and button >= Key0:
-        var event = inputs.modifiers(window)
-        event.kind = KeyUp
-        event.button = button
-        inputs.consumedKeys.excl(button)
-        inputs.addEvent(event)
-        return
-      if button >= Key0:
-        inputs.forwardedKeys.excl(button)
-        if button in inputs.consumedKeys:
-          inputs.consumedKeys.excl(button)
-          return
-      if previousRelease != nil:
-        previousRelease(button)
-    inputs.callbacks[1] = identity(window.onButtonRelease)
+    inputs.installRelease(window)
   if initialize or identity(window.onRune) != inputs.callbacks[2]:
-    let previousRune = window.onRune
-    window.onRune = proc(rune: Rune) =
-      let window = cast[Window](windowPointer)
-      if inputs.active:
-        if inputs.editable:
-          var event = inputs.modifiers(window)
-          event.kind = TextInput
-          event.rune = rune
-          inputs.addEvent(event)
-        return
-      if previousRune != nil:
-        previousRune(rune)
-    inputs.callbacks[2] = identity(window.onRune)
+    inputs.installRune(window)
   if initialize or identity(window.onFocusChange) != inputs.callbacks[3]:
-    let previousFocus = window.onFocusChange
-    window.onFocusChange = proc() =
-      inputs.stopInput(cast[Window](windowPointer))
-      if previousFocus != nil:
-        previousFocus()
-    inputs.callbacks[3] = identity(window.onFocusChange)
+    inputs.installFocus(window)
 
 proc newTextInputs*(window: Window): TextInputs =
   ## Sets up all text input handling directly from the window.

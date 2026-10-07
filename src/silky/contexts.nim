@@ -83,6 +83,7 @@ type
     ## Multiplies 9-patch borders for a denser atlas.
     sliceScale*: int = 1
     layoutStack*: seq[LayoutScope]
+    scaledVertices: seq[DrawerVertex]
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
@@ -965,19 +966,17 @@ proc endUi*(sk: Silky) =
     scale = sk.uiScale
     quadCount = sk.drawer.layers[NormalLayer].len
     needsScale = not (scale ~= 1.0f)
-  var
-    quadsPtr: pointer
-    scaledVertices: seq[DrawerVertex]
+  var quadsPtr: pointer
   if quadCount > 0:
     if needsScale:
-      scaledVertices = newSeqOfCap[DrawerVertex](quadCount)
+      sk.scaledVertices.setLen(quadCount)
       for i in 0 ..< quadCount:
         var vertex = sk.drawer.layers[NormalLayer][i]
         vertex.pos *= scale
         vertex.clipPos *= scale
         vertex.clipSize *= scale
-        scaledVertices.add(vertex)
-      quadsPtr = cast[pointer](unsafeAddr scaledVertices[0])
+        sk.scaledVertices[i] = vertex
+      quadsPtr = cast[pointer](unsafeAddr sk.scaledVertices[0])
     else:
       quadsPtr = cast[pointer](unsafeAddr sk.drawer.layers[NormalLayer][0])
   else:
