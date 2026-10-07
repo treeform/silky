@@ -1,7 +1,7 @@
 import
   std/unicode,
   vmath,
-  silky
+  silky, silky/internal/inputs
 
 when not defined(silkyTesting):
   {.error: "Compile with -d:silkyTesting".}
@@ -536,5 +536,18 @@ block:
   window.changeFocus()
   f.frame()
   doAssert not f.state.focused and not window.runeInputEnabled
+
+when defined(nimTypeNames):
+  block:
+    echo "Testing unchanged input frames allocate zero"
+    let
+      window = newWindow()
+      inputs = newTextInputs(window)
+    let before = getMemCounters()
+    for i in 0 ..< 100:
+      inputs.beginInputFrame(window)
+      inputs.endInputFrame(window)
+    let after = getMemCounters()
+    doAssert after[0] == before[0], "Unchanged handlers must reuse closures."
 
 echo "All ordered text input tests passed"
