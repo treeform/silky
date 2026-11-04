@@ -163,7 +163,10 @@ proc subWindowStart*(
     titleBarInteraction = sk.interact(titleBarRect, true)
 
   case titleBarInteraction
-  of Disabled, None, Error, ReleasedOutside:
+  of Disabled, None, Error:
+    sk.draw9Patch("header.9patch", sk.theme.headerPatch, sk.pos, sk.size)
+  of ReleasedOutside:
+    subWindowState.dragging = false
     sk.draw9Patch("header.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Pressed:
     subWindowState.dragOffset = sk.mousePos - subWindowState.pos
