@@ -59,6 +59,7 @@ jobs:
         run: |
           nim r tests/test_textboxes.nim
           nim r -d:silkyTesting -d:nimTypeNames tests/test_inputs.nim
+          nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim
