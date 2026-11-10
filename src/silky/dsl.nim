@@ -512,13 +512,21 @@ proc pushChildrenLayout(sk: Silky, node: DslNode) =
     if node.id notin frameStates:
       frameStates[node.id] = FrameState()
     node.frameState = frameStates[node.id]
-    let clipRect = rect(r.x + 1, r.y + 1, max(0.0'f, r.w - 2), max(0.0'f, r.h - 2))
+    let inset = if node.patch.name.len > 0: 1'f32 else: 0'f32
+    let clipRect = rect(r.x + inset, r.y + inset,
+      max(0.0'f, r.w - inset*2), max(0.0'f, r.h - inset*2))
     sk.pushClipRect(clipRect)
     node.pushedClip = true
     node.frameOrigin = r.xy + dslVec2(node.horizontalPadding, node.verticalPadding)
+    # Content must stop before visible scrollbar tracks. Existing padding
+    # already contributes to that gutter. Overflow settles on the next frame.
+    let reserveX = if node.frameState.contentSize.y > r.h:
+      max(0'f32, 10-node.horizontalPadding) else: 0'f32
+    let reserveY = if node.frameState.contentSize.x > r.w:
+      max(0'f32, 10-node.verticalPadding) else: 0'f32
     let childSize = dslVec2(
-      max(0.0'f, r.w - node.horizontalPadding * 2),
-      max(0.0'f, r.h - node.verticalPadding * 2)
+      max(0.0'f, r.w - node.horizontalPadding * 2 - reserveX),
+      max(0.0'f, r.h - node.verticalPadding * 2 - reserveY)
     )
     # T7: scrolling translates the content by -σ·t, so the origin edge
     # is pinned at rest and overflow hides past the far edge.

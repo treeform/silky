@@ -12,6 +12,7 @@ var
   indentCalls = 0
   padding = 0.0'f
   overflow = vec2(0, 0)
+  itemCount = 4
 
 proc indentAmount(): float32 =
   ## Counts evaluation of an indent expression.
@@ -82,6 +83,34 @@ proc clickFrame(harness: var TestHarness) =
   harness.sk.endUi()
   harness.window.resetInputState()
 
+proc gutterUi(sk: Silky, window: Window) =
+  ui:
+    frame "gutter":
+      box 50, 50, 100, 100
+      horizontalPadding padding
+      verticalPadding padding
+      itemSpacing 0
+      for i in 0..<itemCount:
+        rectangle "item" & $i:
+          fillWidth()
+          height 36
+
+proc testGutter(atlas: SilkyAtlas) =
+  ## Fill-width children yield space only while a scrollbar is visible.
+  for inset in [0'f32, 1, 12]:
+    padding = inset
+    frameStates.clear()
+    var harness = newTestHarness(atlas)
+    itemCount = 4
+    discard harness.pumpFrame(gutterUi, 3)
+    let scrollingItem = harness.sk.semantic.root.findByName("item0").rect
+    doAssert scrollingItem.x+scrollingItem.w <= 140
+    doAssert frameStates["gutter"].contentSize.x <= 100
+    itemCount = 1
+    discard harness.pumpFrame(gutterUi, 3)
+    let fittingItem = harness.sk.semantic.root.findByName("item0").rect
+    doAssert fittingItem.w == 100-inset*2
+
 proc testIndent(atlas: SilkyAtlas) =
   ## Checks hug extents and single evaluation in every direction.
   for value in StackDirection:
@@ -145,6 +174,8 @@ proc main() =
   testClicks(builder.atlas)
   echo "Testing scroll padding in four directions"
   testScroll(builder.atlas)
+  echo "Testing scrollbar gutter appears and disappears"
+  testGutter(builder.atlas)
   echo "All layout regression tests passed."
 
 main()

@@ -28,6 +28,7 @@ type
 
   FrameState* = ref object
     scrollPos*: Vec2
+    contentSize*: Vec2
     scrollingX*: bool
     scrollingY*: bool
     scrollDragOffset*: Vec2
@@ -325,6 +326,7 @@ proc frameScrollbars*(
     frameState.scrollingX = false
 
   let scrollMax = max(contentSize - frameRect.wh, vec2(0, 0))
+  frameState.contentSize = contentSize
 
   # Clamp t to the overflow (handles resize making content smaller).
   if scrollMax.y > 0:
@@ -355,9 +357,9 @@ proc frameScrollbars*(
     let
       track = rect(
         frameRect.x + frameRect.w - 10,
-        frameRect.y + 2,
+        frameRect.y + 1,
         8,
-        frameRect.h - 4 - 10
+        max(0'f32, frameRect.h - 2 - (if scrollMax.x > 0: 10'f32 else: 0'f32))
       )
       thumbH = track.h * (frameRect.h / contentSize.y)
       travel = track.h - thumbH
@@ -390,9 +392,9 @@ proc frameScrollbars*(
   if contentSize.x > frameRect.w:
     let
       track = rect(
-        frameRect.x + 2,
+        frameRect.x + 1,
         frameRect.y + frameRect.h - 10,
-        frameRect.w - 4 - 10,
+        max(0'f32, frameRect.w - 2 - (if scrollMax.y > 0: 10'f32 else: 0'f32)),
         8
       )
       thumbW = track.w * (frameRect.w / contentSize.x)

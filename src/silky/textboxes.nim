@@ -851,9 +851,9 @@ proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
   if hasScrollY:
     let trackRect = rect(
       outerRect.x + outerRect.w - 10,
-      innerRect.y + 2,
+      outerRect.y + 1,
       8,
-      innerRect.h - 4 - (if hasScrollX: 10.0f else: 0.0f)
+      max(0'f32, outerRect.h - 2 - (if hasScrollX: 10.0f else: 0.0f))
     )
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
     let posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
@@ -877,9 +877,9 @@ proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
   # X scrollbar.
   if hasScrollX:
     let trackRect = rect(
-      innerRect.x + 2,
+      outerRect.x + 1,
       outerRect.y + outerRect.h - 10,
-      innerRect.w - 4 - (if hasScrollY: 10.0f else: 0.0f),
+      max(0'f32, outerRect.w - 2 - (if hasScrollY: 10.0f else: 0.0f)),
       8
     )
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
@@ -914,13 +914,17 @@ proc textBox*(
   error: bool = false,
   password: bool = false,
   passwordChar: Rune = Rune('*'),
-  allowedChars: seq[Rune] = default(seq[Rune])
+  allowedChars: seq[Rune] = default(seq[Rune]),
+  centerVertically: bool = false
 ) {.measure.} =
   ## Text box widget with editing, selection, and scroll.
   ## When disabled, text can be selected and copied but not modified.
   ## Error is a visual-only state that changes the border and text color.
   ## Password mode masks displayed characters with the given char.
   ## allowedChars filters which characters can be typed or pasted.
+  ## centerVertically centers a single-line editor using the font's capital
+  ## height, keeping a stable baseline while typing. Caret, selection and mouse
+  ## coordinates share that offset; the field chrome and clip do not move.
   var state: TextBoxState
   let effectiveWrap = if singleLine: false else: wrapWords
   if id notin textBoxStates:
@@ -961,6 +965,12 @@ proc textBox*(
       sk.at.x + padding, sk.at.y + padding,
       boxWidth - padding * 2, boxHeight - padding * 2
     )
+    capital = fontData.entries.getOrDefault("H")
+    inkCenter = if capital.len > 0:
+      round(fontData.ascent+capital[0].boundsY)+capital[0].boundsHeight/2
+      else: fontData.lineHeight/2
+    textOffset = vec2(0,if centerVertically and singleLine:
+      max(0'f32,floor(boxHeight/2-padding-inkCenter)) else: 0'f32)
   state.boxSize = vec2(innerRect.w, innerRect.h)
   if state.dirty or state.layout.len == 0 or
       state.lastMaxWidth != innerRect.w:
@@ -974,7 +984,7 @@ proc textBox*(
   if window.buttonPressed[MouseLeft]:
     if mouseInside and not onScrollbar:
       state.focused = true
-      let localMouse = mouseVec - innerRect.xy + state.scrollPos
+      let localMouse = mouseVec - innerRect.xy - textOffset + state.scrollPos
       let now = epochTime()
       if now - state.lastClickTime < DoubleClickTime:
         inc state.clickCount
@@ -992,7 +1002,7 @@ proc textBox*(
       state.focused = false
   if state.dragging and not state.scrollingX and not state.scrollingY:
     if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
-      let localMouse = mouseVec - innerRect.xy + state.scrollPos
+      let localMouse = mouseVec - innerRect.xy - textOffset + state.scrollPos
       state.mouseAction(localMouse, click = false, shift = true)
     if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
       state.dragging = false
@@ -1023,7 +1033,7 @@ proc textBox*(
   else:
     sk.draw9Patch(patch, sk.theme.textboxPatch, outerRect.xy, outerRect.wh)
   sk.pushClipRect(innerRect)
-  let textOrigin = innerRect.xy - state.scrollPos
+  let textOrigin = innerRect.xy + textOffset - state.scrollPos
   if state.cursor != state.selector:
     let sel = state.selection
     let selRects = getSelectionRects(state.layout, sel.a, sel.b)
