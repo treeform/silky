@@ -111,6 +111,15 @@ proc resetBlink*(state: TextBoxState) =
   ## Resets the cursor blink timer so the cursor is immediately visible.
   state.blinkTime = epochTime()
 
+proc focus*(state: TextBoxState, sk: Silky, window: Window, id: string) =
+  ## Focuses a registered field and captures input before its next draw.
+  let inputs = sk.textInputs
+  inputs.submitInput(window, id, true, state.enabled)
+  state.focused = true
+  state.focusEpoch = inputs.focusEpoch
+  state.dragging = false
+  state.resetBlink()
+
 proc cursorVisible*(state: TextBoxState): bool =
   ## Returns true when the blinking cursor should be drawn.
   ## Blinks 0.5s on, 0.5s off, always starting visible after a reset.
