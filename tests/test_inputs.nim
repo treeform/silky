@@ -13,6 +13,7 @@ type Fixture = object
   singleLine: bool
   submitOnEnter: bool
   enabled: bool
+  rich: bool
   password: bool
   allowedChars: seq[Rune]
   spans: seq[TextSpan]
@@ -69,29 +70,40 @@ proc frame(f: var Fixture, visible = true, duplicate = false) =
       sk.pushClipRect(f.clip)
     for i in 0 .. ord(duplicate):
       sk.at = vec2(20, 20)
-      sk.textBox(
-        window,
-        f.id,
-        f.text,
-        240,
-        f.height,
-        wrapWords = true,
-        singleLine = f.singleLine,
-        enabled = f.enabled,
-        password = f.password,
-        allowedChars = f.allowedChars,
-        submitOnEnter = f.submitOnEnter,
-        spans = f.spans,
-        blocks = f.blocks
-      )
+      if f.rich:
+        sk.richTextBox(
+          window, f.id, f.text, 240, f.height,
+          wrapWords = true, spans = f.spans, blocks = f.blocks
+        )
+      else:
+        sk.textBox(
+          window,
+          f.id,
+          f.text,
+          240,
+          f.height,
+          wrapWords = true,
+          singleLine = f.singleLine,
+          enabled = f.enabled,
+          password = f.password,
+          allowedChars = f.allowedChars,
+          submitOnEnter = f.submitOnEnter
+        )
     if f.clip.w > 0:
       sk.popClipRect()
   f.harness.endFrame()
   f.harness.window.resetInputState()
 
 proc state(f: Fixture): TextBoxState =
-  ## Returns the text state belonging to a fixture.
-  textBoxStates[f.id]
+  ## Returns the selection editor belonging to either widget kind.
+  if f.rich:
+    richTextBoxStates[f.id].editor
+  else:
+    textBoxStates[f.id]
+
+proc richState(f: Fixture): RichTextBoxState =
+  ## Returns formatting and link state owned only by the rich widget.
+  richTextBoxStates[f.id]
 
 proc hoverGlyph(f: var Fixture, index: int) =
   ## Moves the pointer over a visible laid-out glyph in the current view.
@@ -664,7 +676,7 @@ block:
 block:
   echo "Testing read-only styled text retains selection and copy"
   var f = fixture("é code 世界")
-  f.enabled = false
+  f.rich = true
   f.singleLine = false
   f.spans = @[TextSpan(first: 2, last: 6, font: "Wide")]
   f.focus()
@@ -680,17 +692,30 @@ block:
   doAssert getClipboardString() == f.text
   doAssert f.state.selection == (0 .. f.text.runeLen)
   doAssert f.state.layout[2].w == styledWidth
-  f.enabled = true
+  window.onTextInput("Ignored native commit")
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText, start: 0, length: f.text.runeLen, text: "Ignored edit"
+  ))
+  setClipboardString("Ignored paste")
+  window.shortcut(KeyV)
   f.frame()
+  doAssert f.richState.getText() == "é code 世界"
+  doAssert f.state.undoStack.len == 0
+  let rich = f.richState
+  f.rich = false
+  f.focus()
+  doAssert f.state != rich.editor
   doAssert f.state.layout[2].w < styledWidth
+  window.shortcut(KeyA)
   window.typeText("Editable")
   f.frame()
   doAssert f.text == "Editable"
+  doAssert rich.getText() == "é code 世界"
 
 block:
   echo "Testing styled span clicks activate only without dragging"
   var f = fixture("Click here")
-  f.enabled = false
+  f.rich = true
   f.spans = @[TextSpan(first: 0, last: f.text.runeLen, font: "Wide")]
   f.frame()
   let
@@ -702,12 +727,12 @@ block:
   window.moveMouse(x, y)
   window.pressButton(MouseLeft)
   f.frame()
-  doAssert f.state.activatedSpan == -1
+  doAssert f.richState.activatedSpan == -1
   window.releaseButton(MouseLeft)
   f.frame()
-  doAssert f.state.activatedSpan == 0
+  doAssert f.richState.activatedSpan == 0
   f.frame()
-  doAssert f.state.activatedSpan == -1
+  doAssert f.richState.activatedSpan == -1
   f.state.lastClickTime = 0
   window.pressButton(MouseLeft)
   f.frame()
@@ -716,32 +741,32 @@ block:
   window.moveMouse(x, y)
   window.releaseButton(MouseLeft)
   f.frame()
-  doAssert f.state.activatedSpan == -1
+  doAssert f.richState.activatedSpan == -1
 
 block:
   echo "Testing link hover cursor and non-link text boundaries"
   var f = fixture("Link bold text")
-  f.enabled = false
+  f.rich = true
   f.spans = @[
     TextSpan(first: 0, last: 4, linkId: 1),
     TextSpan(first: 5, last: 9, font: "Wide")
   ]
   f.frame()
   f.hoverGlyph(1)
-  doAssert f.state.hoveredSpan == 0
+  doAssert f.richState.hoveredSpan == 0
   doAssert f.harness.window.cursor.kind == PointerCursor
   f.hoverGlyph(6)
-  doAssert f.state.hoveredSpan == -1
+  doAssert f.richState.hoveredSpan == -1
   doAssert f.harness.window.cursor.kind == ArrowCursor
   f.hoverGlyph(1)
   f.harness.window.moveMouse(21, 21)
   f.frame()
-  doAssert f.state.hoveredSpan == -1
+  doAssert f.richState.hoveredSpan == -1
   doAssert f.harness.window.cursor.kind == ArrowCursor
   f.hoverGlyph(1)
   f.harness.window.moveMouse(600, 400)
   f.frame()
-  doAssert f.state.hoveredSpan == -1
+  doAssert f.richState.hoveredSpan == -1
   doAssert f.harness.window.cursor.kind == ArrowCursor
   f.hoverGlyph(1)
   f.frame(visible = false)
@@ -752,7 +777,7 @@ block:
   var f = fixture(
     "A long linked sentence that wraps onto several lines in this text box."
   )
-  f.enabled = false
+  f.rich = true
   f.singleLine = false
   f.spans = @[
     TextSpan(first: 0, last: f.text.runeLen, font: "Wide", linkId: 1)
@@ -765,27 +790,27 @@ block:
       break
   doAssert secondLine >= 0
   f.hoverGlyph(secondLine)
-  doAssert f.state.hoveredSpan == 0
+  doAssert f.richState.hoveredSpan == 0
   doAssert f.harness.window.cursor.kind == PointerCursor
   f.clip = rect(20, 20, 240, 20)
   f.frame()
-  doAssert f.state.hoveredSpan == -1
+  doAssert f.richState.hoveredSpan == -1
   doAssert f.harness.window.cursor.kind == ArrowCursor
   f.clip = rect(0, 0, 0, 0)
   f.state.scrollPos.y = f.state.lineHeight
   f.hoverGlyph(secondLine)
-  doAssert f.state.hoveredSpan == 0
+  doAssert f.richState.hoveredSpan == 0
   doAssert f.harness.window.cursor.kind == PointerCursor
   f.spans[0].linkId = 0
   f.frame()
-  doAssert f.state.hoveredSpan == -1
+  doAssert f.richState.hoveredSpan == -1
   doAssert f.harness.window.cursor.kind == ArrowCursor
   f.spans[0].linkId = 1
   f.frame()
-  doAssert f.state.hoveredSpan == 0
+  doAssert f.richState.hoveredSpan == 0
   f.spans.setLen(0)
   f.frame()
-  doAssert f.state.hoveredSpan == -1
+  doAssert f.richState.hoveredSpan == -1
   doAssert f.harness.window.cursor.kind == ArrowCursor
 
 block:
@@ -820,7 +845,7 @@ block:
   echo "Testing one block widget selects and copies across all sections"
   const Sample = "Title\nBody link\ncode()"
   var f = fixture(Sample)
-  f.enabled = false
+  f.rich = true
   f.singleLine = false
   f.height = 240
   f.blocks = @[
@@ -857,12 +882,12 @@ block:
 
   echo "Testing block links retain hover, activation, and drag selection"
   f.hoverGlyph(12)
-  doAssert f.state.hoveredSpan == 0
+  doAssert f.richState.hoveredSpan == 0
   doAssert window.cursor.kind == PointerCursor
   f.state.lastClickTime = 0
   window.tap(MouseLeft)
   f.frame()
-  doAssert f.state.activatedSpan == 0
+  doAssert f.richState.activatedSpan == 0
   f.state.lastClickTime = 0
   window.pressButton(MouseLeft)
   f.frame()
@@ -870,7 +895,7 @@ block:
   f.frame()
   window.releaseButton(MouseLeft)
   f.frame()
-  doAssert f.state.activatedSpan == -1
+  doAssert f.richState.activatedSpan == -1
   doAssert f.state.selection.a == 0
   doAssert f.state.selection.b >= 11
 
@@ -909,6 +934,96 @@ block:
   f.frame()
   doAssert not f.state.focused
   doAssert f.state.cursor == f.state.selector
+
+block:
+  echo "Testing same-id plain and rich widgets isolate state and focus"
+  const RichSource = "Read only reply"
+  for reverse in [false, true]:
+    let id = "shared-widget-" & $reverse
+    var
+      harness = newTestHarness(atlas)
+      plain = "Editable"
+
+    proc renderBoth(sk: Silky, window: Window) =
+      ## Draws independent widgets with the same public identifier.
+      template plainWidget() =
+        ## Draws the editable surface below the rich reply.
+        sk.at = vec2(20, 150)
+        sk.textBox(window, id, plain, 240, 80, wrapWords = true)
+
+      template richWidget() =
+        ## Draws a read-only surface without borrowing plain widget state.
+        sk.at = vec2(20, 20)
+        sk.richTextBox(
+          window, id, RichSource, 240, 80,
+          spans = @[TextSpan(first: 0, last: RichSource.runeLen, font: "Wide")]
+        )
+
+      if reverse:
+        plainWidget()
+        richWidget()
+      else:
+        richWidget()
+        plainWidget()
+
+    discard harness.pumpFrame(renderBoth)
+    let
+      window = harness.window
+      editor = textBoxStates[id]
+      rich = richTextBoxStates[id]
+    doAssert editor != rich.editor
+    doAssert editor.getText() == "Editable"
+    doAssert rich.getText() == RichSource
+    window.moveMouse(35, 165)
+    window.tap(MouseLeft)
+    discard harness.pumpFrame(renderBoth)
+    doAssert editor.focused and not rich.editor.focused
+    editor.cursor = plain.runeLen
+    editor.selector = editor.cursor
+    window.typeText("!")
+    discard harness.pumpFrame(renderBoth)
+    doAssert plain == "Editable!"
+    doAssert rich.getText() == RichSource
+    doAssert window.runeInputEnabled
+
+    window.moveMouse(35, 35)
+    window.tap(MouseLeft)
+    discard harness.pumpFrame(renderBoth)
+    doAssert rich.editor.focused and not editor.focused
+    doAssert not window.runeInputEnabled
+    window.shortcut(KeyA)
+    window.typeText("Ignored typed text")
+    window.onTextInput("Ignored native commit")
+    window.onTextEdit(TextInputEdit(
+      kind: ReplaceText,
+      start: 0,
+      length: RichSource.runeLen,
+      text: "Ignored native edit"
+    ))
+    setClipboardString("Ignored paste")
+    window.shortcut(KeyV)
+    window.shortcut(KeyX)
+    window.tap(KeyBackspace)
+    discard harness.pumpFrame(renderBoth)
+    doAssert plain == "Editable!"
+    doAssert rich.getText() == RichSource
+    doAssert rich.editor.selection == (0 .. RichSource.runeLen)
+    doAssert rich.editor.undoStack.len == 0
+    window.shortcut(KeyC)
+    discard harness.pumpFrame(renderBoth)
+    doAssert getClipboardString() == RichSource
+
+    window.moveMouse(35, 165)
+    window.tap(MouseLeft)
+    discard harness.pumpFrame(renderBoth)
+    editor.cursor = plain.runeLen
+    editor.selector = editor.cursor
+    window.onTextInput("2")
+    discard harness.pumpFrame(renderBoth)
+    doAssert plain == "Editable!2"
+    doAssert rich.getText() == RichSource
+    textBoxStates.del(id)
+    richTextBoxStates.del(id)
 
 block:
   echo "Testing one-batch editing matches separate frames and layout"

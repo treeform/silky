@@ -38,7 +38,6 @@ const
   LF = Rune(10)
   CR = Rune(13)
   Space = Rune(32)
-  Tab = Rune(9)
   CursorWidth* = 2.0f
   DoubleClickTime = 0.4
   SelectionColor = rgbx(30, 60, 130, 128)
@@ -49,50 +48,6 @@ else:
   const TextBoxScrollSpeed = -10.0f
 
 type
-  TextSpan* = object
-    ## Read-only formatting over a half-open range of rune offsets.
-    first*, last*: int
-    font*: string
-    color*: ColorRGBX
-    background*: ColorRGBX
-    strikethrough*: bool
-    linkId*: int
-      ## Matching positive IDs group the styled parts of one hoverable link.
-
-  TextBlock* = object
-    ## A styled block over a half-open range of shared rune offsets.
-    first*, last*: int
-    font*: string
-    padding*: Vec2
-    spacing*: float32
-    patch*: string
-    patchBorder*: int
-    label*, labelFont*: string
-    labelColor*: ColorRGBX
-    labelSpacing*: float32
-    ruleColor*: ColorRGBX
-    ruleThickness*: float32
-      ## Positive thickness turns an empty block into a horizontal rule.
-    quoteDepth*, quoteContinue*: int
-      ## Continued quote levels also draw their borders through spacing.
-    quoteIndent*: float32 = 16
-    quoteColor*: ColorRGBX
-    quoteThickness*: float32 = 2
-
-  BlockLayout = object
-    bounds: Rect
-    ruleBounds: Rect
-    quoteBounds: Rect
-    labelPosition: Vec2
-    labelFont: string
-
-  TextRun = object
-    text: string
-    font: string
-    position: Vec2
-    bounds: Rect
-    span: int
-
   TextBoxState* = ref object
     ## State for a multi-line text box widget.
     runes*: seq[Rune]
@@ -103,6 +58,10 @@ type
     focused*: bool
     focusEpoch: uint64
     layout*: seq[Rect]
+    positionedLayout*: bool
+      ## Selection geometry may have variable line heights and gaps.
+    layoutHeight*: float32
+    layoutCursor*: Rect
     dirty*: bool
     undoStack*: seq[(seq[Rune], int)]
     redoStack*: seq[(seq[Rune], int)]
@@ -124,19 +83,7 @@ type
     password*: bool
     passwordChar*: Rune = Rune('*')
     allowedChars*: seq[Rune]
-    spans*: seq[TextSpan]
-    blocks*: seq[TextBlock]
-    activatedSpan*: int = -1
-    hoveredSpan*: int = -1
-    runeSpans: seq[int]
-    runs: seq[TextRun]
-    blockLayouts: seq[BlockLayout]
-    blockHeight: float32
-    blockCursor: Rect
-    lastFont: string
-    pressedSpan: int = -1
-    pressPosition: Vec2
-    spanDragged: bool
+    lastFont: FontAtlas
     textCache: string
     textCacheValid: bool
     displayCache: string
@@ -252,6 +199,10 @@ proc computeLayout*(state: TextBoxState, fontData: FontAtlas, maxWidth: float32)
   ## Computes per-character selection rectangles in local coordinates.
   ## Mirrors the glyph-walking logic from drawText but stores positions
   ## instead of emitting GPU vertices.
+  state.positionedLayout = false
+  state.layoutHeight = 0
+  state.layoutCursor = rect(0, 0, 0, 0)
+  state.lastFont = fontData
   state.layout.setLen(0)
   state.lineHeight = fontData.lineHeight
   state.lastMaxWidth = maxWidth
@@ -311,399 +262,6 @@ proc computeLayout*(state: TextBoxState, fontData: FontAtlas, maxWidth: float32)
     inc i
   state.dirty = false
 
-proc computeLayout*(
-  state: TextBoxState,
-  fonts: Table[string, FontAtlas],
-  baseFont: string,
-  maxWidth: float32
-)
-
-proc computeBlocks(
-  state: TextBoxState,
-  fonts: Table[string, FontAtlas],
-  baseFont: string,
-  maxWidth: float32
-) =
-  ## Combines block layouts into one selectable document and native run list.
-  state.lineHeight = fonts[baseFont].lineHeight
-  state.lastMaxWidth = maxWidth
-  state.layout.setLen(state.runes.len)
-  state.runeSpans.setLen(state.runes.len)
-  state.runs.setLen(0)
-  state.blockLayouts.setLen(0)
-  state.blockHeight = 0
-  for index in state.runeSpans.mitems:
-    index = -1
-  var
-    covered = 0
-    previousEnd = rect(0, 0, 0, state.lineHeight)
-  for item in state.blocks:
-    let
-      first = clamp(item.first, covered, state.runes.len)
-      last = clamp(item.last, first, state.runes.len)
-      width = max(0.0'f, maxWidth)
-      depth = max(0, item.quoteDepth)
-      padding = vec2(
-        if depth > 0:
-          min(max(0.0'f, item.padding.x), width / 2)
-        else:
-          max(0.0'f, item.padding.x),
-        max(0.0'f, item.padding.y)
-      )
-      quoteInset = min(
-        max(0.0'f, width - padding.x * 2),
-        depth.float32 * max(0.0'f, item.quoteIndent)
-      )
-      blockWidth = width - quoteInset
-    for i in covered ..< first:
-      state.layout[i] = previousEnd
-    if first == last and item.ruleThickness > 0:
-      let
-        origin = vec2(quoteInset + padding.x, state.blockHeight + padding.y)
-        height = item.ruleThickness + padding.y * 2
-      state.blockLayouts.add(BlockLayout(
-        bounds: rect(quoteInset, state.blockHeight, blockWidth, height),
-        ruleBounds: rect(
-          origin,
-          vec2(max(0.0'f, blockWidth - padding.x * 2), item.ruleThickness)
-        ),
-        quoteBounds: rect(
-          padding.x, state.blockHeight, max(0.0'f, width - padding.x * 2),
-          height
-        )
-      ))
-      state.blockCursor = rect(origin, vec2(0))
-      state.blockHeight += height + max(0.0'f, item.spacing)
-      previousEnd = state.blockCursor
-      covered = last
-      continue
-    let
-      font =
-        if item.font in fonts:
-          item.font
-        else:
-          baseFont
-      labelFont =
-        if item.labelFont in fonts:
-          item.labelFont
-        else:
-          baseFont
-      labelHeight =
-        if item.label.len > 0:
-          fonts[labelFont].lineHeight + max(0.0'f, item.labelSpacing)
-        else:
-          0.0'f
-      origin = vec2(
-        quoteInset + padding.x, state.blockHeight + padding.y + labelHeight
-      )
-      local = TextBoxState(
-        runes: state.runes[first ..< last],
-        wordWrap: state.wordWrap,
-        spans: @[TextSpan()]
-      )
-    var spanIndices = @[-1]
-    for index, span in state.spans:
-      if span.first < last and span.last > first:
-        var relative = span
-        relative.first = max(first, span.first) - first
-        relative.last = min(last, span.last) - first
-        local.spans.add(relative)
-        spanIndices.add(index)
-    local.computeLayout(fonts, font, max(0.0'f, blockWidth - padding.x * 2))
-    var contentHeight = local.lineHeight
-    for i, bounds in local.layout:
-      state.layout[first + i] = rect(origin + bounds.xy, bounds.wh)
-      let span = local.runeSpans[i]
-      if span >= 0:
-        state.runeSpans[first + i] = spanIndices[span]
-    for run in local.runs.mitems:
-      run.position += origin
-      run.bounds.x += origin.x
-      run.bounds.y += origin.y
-      if run.span >= 0:
-        run.span = spanIndices[run.span]
-      state.runs.add(run)
-    state.blockCursor = rect(origin.x, origin.y, 0, local.lineHeight)
-    if local.layout.len > 0:
-      let bounds = local.layout[^1]
-      contentHeight = bounds.y + bounds.h
-      state.blockCursor = rect(
-        origin.x + bounds.x + bounds.w,
-        origin.y + bounds.y,
-        0,
-        bounds.h
-      )
-      if local.runes[^1] == LF:
-        contentHeight += local.lineHeight
-        state.blockCursor.x = origin.x
-        state.blockCursor.y += local.lineHeight
-    let height = contentHeight + padding.y * 2 + labelHeight
-    state.blockLayouts.add(BlockLayout(
-      bounds: rect(quoteInset, state.blockHeight, blockWidth, height),
-      quoteBounds: rect(
-        padding.x, state.blockHeight, max(0.0'f, width - padding.x * 2),
-        height
-      ),
-      labelPosition: vec2(
-        quoteInset + padding.x, state.blockHeight + padding.y
-      ),
-      labelFont: labelFont
-    ))
-    state.blockHeight += height + max(0.0'f, item.spacing)
-    previousEnd = state.blockCursor
-    covered = last
-  for i in covered ..< state.runes.len:
-    state.layout[i] = previousEnd
-  state.dirty = false
-
-proc computeLayout*(
-  state: TextBoxState,
-  fonts: Table[string, FontAtlas],
-  baseFont: string,
-  maxWidth: float32
-) =
-  ## Lays out styled text with the same glyph positions used for selection.
-  state.lastFont = baseFont
-  if state.blocks.len > 0:
-    state.computeBlocks(fonts, baseFont, maxWidth)
-    return
-  state.blockLayouts.setLen(0)
-  state.blockHeight = 0
-  if state.spans.len == 0:
-    state.runeSpans.setLen(0)
-    state.runs.setLen(0)
-    state.computeLayout(fonts[baseFont], maxWidth)
-    return
-  let base = fonts[baseFont]
-  var
-    resolvedFonts = @[base]
-    fontNames = @[baseFont]
-    baseline = base.ascent
-    descent = base.descent
-    lineGap = base.lineGap
-  state.lineHeight = base.lineHeight
-  state.lastMaxWidth = maxWidth
-  state.layout.setLen(0)
-  state.runs.setLen(0)
-  state.runeSpans.setLen(state.runes.len)
-  for index in state.runeSpans.mitems:
-    index = -1
-  for index, span in state.spans:
-    let name =
-      if span.font.len > 0 and span.font in fonts:
-        span.font
-      else:
-        baseFont
-    let font = fonts[name]
-    resolvedFonts.add(font)
-    fontNames.add(name)
-    if span.first < state.runes.len and span.last > max(0, span.first):
-      state.lineHeight = max(state.lineHeight, font.lineHeight)
-      baseline = max(baseline, font.ascent)
-      descent = min(descent, font.descent)
-      lineGap = max(lineGap, font.lineGap)
-    for i in max(0, span.first) ..< min(span.last, state.runes.len):
-      state.runeSpans[i] = index
-  state.lineHeight = max(state.lineHeight, baseline - descent + lineGap)
-  var
-    advances = newSeq[float32](state.runes.len)
-    kernings = newSeq[float32](state.runes.len)
-  for i, rune in state.runes:
-    if rune == LF:
-      continue
-    let font = resolvedFonts[state.runeSpans[i] + 1]
-    var entry: ptr LetterEntry
-    if rune == Tab:
-      if font.lookupLetter(Space, 0, entry):
-        advances[i] = entry.advance * 4
-      continue
-    if font.lookupLetter(rune, 0, entry):
-      advances[i] = entry.advance
-    if i + 1 < state.runes.len and state.runes[i + 1] != LF and
-      font == resolvedFonts[state.runeSpans[i + 1] + 1]:
-        kernings[i] = font.lookupKerning(rune, state.runes[i + 1])
-  var position = vec2(0, 0)
-  for i, rune in state.runes:
-    if rune == LF:
-      state.layout.add(rect(position.x, position.y, 0, state.lineHeight))
-      position.x = 0
-      position.y += state.lineHeight
-      continue
-    if state.wordWrap and maxWidth < float32.high:
-      let wordStart = i == 0 or state.runes[i - 1] in [Space, Tab, LF]
-      if wordStart and rune notin [Space, Tab] and position.x > 0:
-        var
-          wordWidth = 0.0'f
-          j = i
-        while j < state.runes.len and state.runes[j] notin [Space, Tab, LF]:
-          wordWidth += advances[j]
-          if j + 1 < state.runes.len and
-            state.runes[j + 1] notin [Space, Tab, LF]:
-              wordWidth += kernings[j]
-          inc j
-        if position.x + wordWidth > maxWidth:
-          position.x = 0
-          position.y += state.lineHeight
-      if position.x > 0 and position.x + advances[i] > maxWidth:
-        position.x = 0
-        position.y += state.lineHeight
-    state.layout.add(rect(
-      position.x, position.y, advances[i], state.lineHeight
-    ))
-    position.x += advances[i] + kernings[i]
-  var i = 0
-  while i < state.runes.len:
-    if state.runes[i] in [LF, Tab]:
-      inc i
-      continue
-    let
-      first = i
-      span = state.runeSpans[i]
-      font = resolvedFonts[span + 1]
-      bounds = state.layout[i]
-    var text = ""
-    while i < state.runes.len and state.runes[i] notin [LF, Tab] and
-      state.runeSpans[i] == span and state.layout[i].y == bounds.y:
-        text.add($state.runes[i])
-        inc i
-    let last = state.layout[i - 1]
-    state.runs.add(TextRun(
-      text: text,
-      font: fontNames[span + 1],
-      position: vec2(bounds.x, bounds.y + baseline - font.ascent),
-      bounds: rect(
-        bounds.x, bounds.y, last.x + last.w - bounds.x, bounds.h
-      ),
-      span: state.runeSpans[first]
-    ))
-  state.dirty = false
-
-proc spanAt(state: TextBoxState, position: Vec2): int =
-  ## Finds a formatted span only when the pointer touches its glyph bounds.
-  for i, bounds in state.layout:
-    if position.overlaps(bounds) and i < state.runeSpans.len:
-      return state.runeSpans[i]
-  -1
-
-proc drawSpanBackgrounds(sk: Silky, state: TextBoxState, origin: Vec2) =
-  ## Draws inline backgrounds before the native selection highlight.
-  for run in state.runs:
-    if run.span >= 0:
-      let color = state.spans[run.span].background
-      if color.a > 0:
-        sk.drawRect(origin + run.bounds.xy, run.bounds.wh, color)
-
-proc drawBlocks(
-  sk: Silky,
-  state: TextBoxState,
-  origin: Vec2,
-  defaultColor: ColorRGBX
-) =
-  ## Draws native block surfaces, borders, rules, and captions.
-  for i, bounds in state.blockLayouts:
-    let item = state.blocks[i]
-    if item.patch.len > 0:
-      sk.draw9Patch(
-        item.patch,
-        item.patchBorder,
-        origin + bounds.bounds.xy,
-        bounds.bounds.wh
-      )
-    if item.quoteDepth > 0 and item.quoteThickness > 0 and
-      item.quoteColor.a > 0 and bounds.quoteBounds.w > 0:
-        let
-          scale = max(sk.uiScale, 0.001'f)
-          indent = max(0.0'f, item.quoteIndent)
-          position = origin + bounds.quoteBounds.xy
-          limit = floor((position.x + bounds.quoteBounds.w) * scale) / scale
-          top = round(position.y * scale) / scale
-          thickness = max(1.0'f, round(item.quoteThickness * scale)) / scale
-          continuation = clamp(item.quoteContinue, 0, item.quoteDepth)
-        for level in 0 ..< item.quoteDepth:
-          let
-            left = round((position.x + level.float32 * indent) * scale) /
-              scale
-            width = min(thickness, limit - left)
-          if width <= 0:
-            break
-          let
-            spacing =
-              if level < continuation:
-                max(0.0'f, item.spacing)
-              else:
-                0.0'f
-            bottom = round(
-              (position.y + bounds.quoteBounds.h + spacing) * scale
-            ) / scale
-          sk.drawRect(
-            vec2(left, top), vec2(width, bottom - top), item.quoteColor
-          )
-          if indent == 0:
-            break
-    if bounds.ruleBounds.h > 0:
-      if bounds.ruleBounds.w > 0 and item.ruleColor.a > 0:
-        let
-          scale = max(sk.uiScale, 0.001'f)
-          position = origin + bounds.ruleBounds.xy
-          left = round(position.x * scale) / scale
-          right = round((position.x + bounds.ruleBounds.w) * scale) / scale
-          top = round(position.y * scale) / scale
-          thickness = max(1.0'f, round(bounds.ruleBounds.h * scale)) / scale
-        sk.drawRect(
-          vec2(left, top), vec2(right - left, thickness), item.ruleColor
-        )
-      continue
-    if item.label.len > 0:
-      let color =
-        if item.labelColor.a > 0:
-          item.labelColor
-        else:
-          defaultColor
-      discard sk.drawText(
-        bounds.labelFont,
-        item.label,
-        origin + bounds.labelPosition,
-        color,
-        maxWidth = max(0.0'f, bounds.bounds.w - item.padding.x * 2)
-      )
-
-proc drawSpans(
-  sk: Silky,
-  state: TextBoxState,
-  origin: Vec2,
-  defaultColor: ColorRGBX
-) =
-  ## Draws cached runs at their measured positions without wrapping again.
-  for run in state.runs:
-    let color =
-      if run.span >= 0 and state.spans[run.span].color.a > 0:
-        state.spans[run.span].color
-      else:
-        defaultColor
-    discard sk.drawText(
-      run.font, run.text, origin + run.position, color, clip = false
-    )
-    if run.span >= 0:
-      let
-        span = state.spans[run.span]
-        underline = state.hoveredSpan >= 0 and span.linkId > 0 and
-          span.linkId == state.spans[state.hoveredSpan].linkId
-      if span.strikethrough or underline:
-        let
-          font = sk.atlas.fonts[run.font]
-          scale = max(sk.uiScale, 0.001'f)
-          left = round((origin.x + run.bounds.x) * scale) / scale
-          right = round((origin.x + run.bounds.x + run.bounds.w) * scale) /
-            scale
-          baseline = origin.y + run.position.y + font.ascent
-          thickness = max(1.0'f, round(scale)) / scale
-        if span.strikethrough:
-          let top = round((baseline - font.size * 0.3'f) * scale) / scale
-          sk.drawRect(vec2(left, top), vec2(right - left, thickness), color)
-        if underline:
-          let top = round((baseline + 1) * scale) / scale
-          sk.drawRect(vec2(left, top), vec2(right - left, thickness), color)
-
 proc pickGlyphAt*(state: TextBoxState, pos: Vec2): int =
   ## Finds the character index closest to the given position.
   ## Returns -1 if no character found on that line.
@@ -715,7 +273,7 @@ proc pickGlyphAt*(state: TextBoxState, pos: Vec2): int =
       if minDistance < 0 or dist < minDistance:
         minDistance = dist
         minGlyph = i
-  if minGlyph < 0 and state.blocks.len > 0:
+  if minGlyph < 0 and state.positionedLayout:
     var nearestY = float32.high
     for i, bounds in state.layout:
       let
@@ -745,8 +303,8 @@ proc getSelectionRects*(layout: seq[Rect], start, stop: int): seq[Rect] =
 
 proc innerHeight*(state: TextBoxState): float32 =
   ## Returns the total content height.
-  if state.blocks.len > 0:
-    return state.blockHeight
+  if state.positionedLayout:
+    return state.layoutHeight
   if state.layout.len > 0:
     let lastPos = state.layout[^1]
     return lastPos.y + lastPos.h
@@ -761,9 +319,9 @@ proc innerWidth*(state: TextBoxState): float32 =
 
 proc locationRect*(state: TextBoxState, loc: int): Rect =
   ## Returns the rectangle where the cursor should be drawn.
-  if state.blocks.len > 0:
+  if state.positionedLayout:
     if loc >= state.layout.len:
-      result = state.blockCursor
+      result = state.layoutCursor
     elif loc >= 0:
       result = state.layout[loc]
     result.w = CursorWidth
@@ -1009,7 +567,7 @@ proc right*(state: TextBoxState, shift = false) =
   state.resetBlink()
 
 proc adjacentLine(state: TextBoxState, forward: bool): int =
-  ## Finds a neighboring visual line when document blocks vary in height.
+  ## Finds a neighboring visual line when cached lines vary in height.
   let currentY = state.cursorPos.y
   var
     nearest = float32.high
@@ -1035,7 +593,7 @@ proc down*(state: TextBoxState, shift = false) =
     let
       curPos = state.cursorPos
       index =
-        if state.blocks.len > 0:
+        if state.positionedLayout:
           state.adjacentLine(true)
         else:
           state.pickGlyphAt(
@@ -1058,7 +616,7 @@ proc up*(state: TextBoxState, shift = false) =
     let
       curPos = state.cursorPos
       index =
-        if state.blocks.len > 0:
+        if state.positionedLayout:
           state.adjacentLine(false)
         else:
           state.pickGlyphAt(
@@ -1317,14 +875,30 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
   else:
     discard
 
+proc handleSelectionInput*(state: TextBoxState, inputs: TextInputs) =
+  ## Drains read-only navigation and copy events without accepting edits.
+  assert not state.enabled
+  let
+    epoch = inputs.focusEpoch
+    events = inputs.takeInput()
+  for event in events:
+    if inputs.focusEpoch != epoch:
+      break
+    if event.kind == InputKind.KeyDown:
+      state.handleKey(event)
+  if events.len > 0:
+    state.scrollToCursor()
+
 proc handleInput(
   state: TextBoxState,
   inputs: TextInputs,
-  fonts: Table[string, FontAtlas],
-  baseFont: string,
+  fontData: FontAtlas,
   maxWidth: float32
 ) =
   ## Drains ordered input and refreshes layout before cursor navigation.
+  if not state.enabled:
+    state.handleSelectionInput(inputs)
+    return
   let
     epoch = inputs.focusEpoch
     events = inputs.takeInput()
@@ -1353,13 +927,13 @@ proc handleInput(
         KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd,
         KeyPageUp, KeyPageDown
       }:
-        state.computeLayout(fonts, baseFont, maxWidth)
+        state.computeLayout(fontData, maxWidth)
       state.handleKey(event)
     of InputKind.KeyUp:
       discard
   if events.len > 0:
     if state.dirty:
-      state.computeLayout(fonts, baseFont, maxWidth)
+      state.computeLayout(fontData, maxWidth)
     state.scrollToCursor()
 
 proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
@@ -1446,9 +1020,7 @@ proc textBox*(
   password: bool = false,
   passwordChar: Rune = Rune('*'),
   allowedChars: seq[Rune] = default(seq[Rune]),
-  submitOnEnter: bool = false,
-  spans: seq[TextSpan] = default(seq[TextSpan]),
-  blocks: seq[TextBlock] = default(seq[TextBlock])
+  submitOnEnter: bool = false
 ) {.measure.} =
   ## Text box widget with editing, selection, and scroll.
   ## When disabled, text can be selected and copied but not modified.
@@ -1467,8 +1039,6 @@ proc textBox*(
   state = textBoxStates[id]
   state.submitOnEnter = submitOnEnter
   state.submitted = false
-  state.activatedSpan = -1
-  state.hoveredSpan = -1
   let inputs = sk.textInputs
   if state.focused and state.focusEpoch != inputs.focusEpoch:
     state.focused = false
@@ -1477,23 +1047,6 @@ proc textBox*(
       state.selector = state.cursor
   state.enabled = enabled
   state.allowedChars = allowedChars
-  let
-    activeSpans =
-      if not enabled and not password:
-        spans
-      else:
-        default(seq[TextSpan])
-    activeBlocks =
-      if not enabled and not password and not singleLine:
-        blocks
-      else:
-        default(seq[TextBlock])
-  if state.spans != activeSpans:
-    state.spans = activeSpans
-    state.dirty = true
-  if state.blocks != activeBlocks:
-    state.blocks = activeBlocks
-    state.dirty = true
   if state.password != password:
     state.password = password
     state.dirty = true
@@ -1521,8 +1074,8 @@ proc textBox*(
     )
   state.boxSize = vec2(innerRect.w, innerRect.h)
   if state.dirty or state.layout.len == 0 or
-      state.lastMaxWidth != innerRect.w or state.lastFont != sk.textStyle:
-    state.computeLayout(sk.atlas.fonts, sk.textStyle, innerRect.w)
+      state.lastMaxWidth != innerRect.w or state.lastFont != sk.atlas.fonts[sk.textStyle]:
+    state.computeLayout(sk.atlas.fonts[sk.textStyle], innerRect.w)
   let shift = window.buttonDown[KeyLeftShift] or
     window.buttonDown[KeyRightShift]
   let mouseVec = sk.mousePos
@@ -1530,7 +1083,6 @@ proc textBox*(
     mouseVec.overlaps(sk.clipRect)
   let onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
   if window.buttonPressed[MouseLeft]:
-    state.pressedSpan = -1
     if mouseInside and not onScrollbar:
       state.focused = true
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
@@ -1544,10 +1096,6 @@ proc textBox*(
       of 1:
         state.mouseAction(localMouse, click = true, shift = shift)
         state.dragging = true
-        if not enabled and not shift:
-          state.pressedSpan = state.spanAt(localMouse)
-          state.pressPosition = mouseVec
-          state.spanDragged = false
       of 2: state.selectWord(localMouse)
       of 3: state.selectParagraph(localMouse)
       else: state.selectAll()
@@ -1556,19 +1104,6 @@ proc textBox*(
       state.dragging = false
       if not enabled:
         state.selector = state.cursor
-  if state.pressedSpan >= 0:
-    let distance = mouseVec - state.pressPosition
-    if distance.x * distance.x + distance.y * distance.y > 9:
-      state.spanDragged = true
-    if window.buttonReleased[MouseLeft]:
-      let localMouse = mouseVec - innerRect.xy + state.scrollPos
-      if mouseInside and not state.spanDragged and
-        state.cursor == state.selector and
-        state.spanAt(localMouse) == state.pressedSpan:
-          state.activatedSpan = state.pressedSpan
-      state.pressedSpan = -1
-    elif not window.buttonDown[MouseLeft]:
-      state.pressedSpan = -1
   if state.dragging and not state.scrollingX and not state.scrollingY:
     if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
@@ -1578,29 +1113,16 @@ proc textBox*(
   inputs.submitInput(window, id, state.focused, enabled)
   if state.focused:
     state.focusEpoch = inputs.focusEpoch
-    state.handleInput(inputs, sk.atlas.fonts, sk.textStyle, innerRect.w)
+    state.handleInput(inputs, sk.atlas.fonts[sk.textStyle], innerRect.w)
     t = state.getText()
   if state.dirty:
-    state.computeLayout(sk.atlas.fonts, sk.textStyle, innerRect.w)
+    state.computeLayout(sk.atlas.fonts[sk.textStyle], innerRect.w)
   let maxScrollY = max(0.0f, state.innerHeight - innerRect.h)
   state.scrollPos.y = clamp(state.scrollPos.y, 0.0f, maxScrollY)
   if state.wordWrap:
     state.scrollPos.x = 0
   else:
     state.scrollPos.x = max(0.0f, state.scrollPos.x)
-  let
-    overVerticalBar = state.innerHeight > innerRect.h and
-      mouseVec.x >= outerRect.x + outerRect.w - 10
-    overHorizontalBar = not state.wordWrap and
-      state.innerWidth > innerRect.w and
-      mouseVec.y >= outerRect.y + outerRect.h - 10
-  if mouseInside and mouseVec.overlaps(innerRect) and
-    not state.scrollingX and not state.scrollingY and
-    not overVerticalBar and not overHorizontalBar:
-      let index = state.spanAt(mouseVec - innerRect.xy + state.scrollPos)
-      if index >= 0 and state.spans[index].linkId > 0:
-        state.hoveredSpan = index
-        sk.cursor = Cursor(kind: PointerCursor)
   let patch =
     if error: "textbox.error.9patch"
     elif not enabled: "textbox.disabled.9patch"
@@ -1616,10 +1138,6 @@ proc textBox*(
     sk.draw9Patch(patch, sk.theme.textboxPatch, outerRect.xy, outerRect.wh)
   sk.pushClipRect(innerRect)
   let textOrigin = innerRect.xy - state.scrollPos
-  if state.blocks.len > 0:
-    sk.drawBlocks(state, textOrigin, textColor)
-  if state.spans.len > 0:
-    sk.drawSpanBackgrounds(state, textOrigin)
   if state.cursor != state.selector:
     let sel = state.selection
     let selRects = getSelectionRects(state.layout, sel.a, sel.b)
@@ -1627,18 +1145,15 @@ proc textBox*(
       sk.drawRect(
         vec2(textOrigin.x + r.x, textOrigin.y + r.y),
         vec2(r.w, r.h), SelectionColor)
-  if state.spans.len > 0 or state.blocks.len > 0:
-    sk.drawSpans(state, textOrigin, textColor)
-  else:
-    discard sk.drawText(
-      sk.textStyle,
-      state.displayText,
-      textOrigin,
-      textColor,
-      maxWidth = innerRect.w,
-      wordWrap = state.wordWrap,
-      clip = false
-    )
+  discard sk.drawText(
+    sk.textStyle,
+    state.displayText,
+    textOrigin,
+    textColor,
+    maxWidth = innerRect.w,
+    wordWrap = state.wordWrap,
+    clip = false
+  )
   if state.focused and state.cursorVisible:
     let cr = state.locationRect(state.cursor)
     sk.drawRect(
@@ -1690,16 +1205,12 @@ template textBox*(
   isPassword = false,
   passChar: Rune = Rune('*'),
   chars: seq[Rune] = default(seq[Rune]),
-  submitOnEnter = false,
-  spans: seq[TextSpan] = default(seq[TextSpan]),
-  blocks: seq[TextBlock] = default(seq[TextBlock])
+  submitOnEnter = false
 ) =
   ## Text box widget. Set singleLine for a single-line input.
   ## submitOnEnter reports Enter in state.submitted and preserves Shift+Enter.
-  ## Read-only spans preserve selection and report clicks in activatedSpan.
   sk.textBox(window, id, t, boxWidth, boxHeight, wrapWords, singleLine,
-    isEnabled, isError, isPassword, passChar, chars, submitOnEnter, spans,
-    blocks
+    isEnabled, isError, isPassword, passChar, chars, submitOnEnter
   )
 
 template textInput*(

@@ -34,16 +34,15 @@ proc render(
   source: string,
   blocks: seq[TextBlock],
   width = 180.0'f
-): TextBoxState =
-  ## Draws one read-only quote document through the native textbox.
-  var text = source
-  textBoxStates.del("quotes")
+): RichTextBoxState =
+  ## Draws one selectable quote document through the native rich textbox.
+  richTextBoxStates.del("quotes")
   sk.at = vec2(10.17'f, 20.29'f)
-  sk.textBox(
-    Window(), "quotes", text, width, 220,
-    wrapWords = true, enabled = false, blocks = blocks
+  sk.richTextBox(
+    Window(), "quotes", source, width, 220,
+    wrapWords = true, blocks = blocks
   )
-  result = textBoxStates["quotes"]
+  result = richTextBoxStates["quotes"]
 
 proc bars(sk: Silky, color: ColorRGBX, width = 180.0'f): seq[Rect] =
   ## Finds solid rules and checks their physical alignment and clipping.
@@ -122,8 +121,8 @@ block:
         quads = sk.bars(QuoteColor)
         firstHeight = builder.atlas.fonts["Heading"].lineHeight + 12
       doAssert quads.len == 4
-      doAssert state.layout[0].x == 44
-      doAssert state.layout[5].x == 44
+      doAssert state.editor.layout[0].x == 44
+      doAssert state.editor.layout[5].x == 44
       for level in 0 .. 1:
         let extension = if level < continuing: 8.0'f else: 0.0'f
         doAssert close(
@@ -139,9 +138,9 @@ block:
           quads[level + 2].y * density,
           round((20.29'f + firstHeight + 8) * density)
         )
-      state.selectAll()
-      doAssert state.copyText() == "Head\nBody"
-      doAssert state.layout.len == 9
+      state.editor.selectAll()
+      doAssert state.editor.copyText() == "Head\nBody"
+      doAssert state.editor.layout.len == 9
 
     echo "Testing quoted code surfaces, captions, and rules at ", density
     let
@@ -162,7 +161,9 @@ block:
       quotePatch = quoted.patchBounds("code.9patch")
     doAssert close(quotePatch.x - plainPatch.x, 32)
     doAssert close(plainPatch.w - quotePatch.w, 32)
-    doAssert close(quoteState.layout[0].x - plainState.layout[0].x, 32)
+    doAssert close(
+      quoteState.editor.layout[0].x - plainState.editor.layout[0].x, 32
+    )
     doAssert close(quoted.caption().x - plain.caption().x, 32)
     doAssert quoteState.innerHeight == plainState.innerHeight
     let
@@ -176,7 +177,7 @@ block:
       ])
       horizontal = ruled.bars(RuleColor)
     doAssert ruleState.innerHeight == 13
-    doAssert ruleState.runes.len == 0
+    doAssert ruleState.editor.runes.len == 0
     doAssert horizontal.len == 1
     doAssert close(horizontal[0].x * density, round((10.17'f + 44) * density))
 
@@ -189,9 +190,9 @@ block:
         quoteDepth: 1, quoteColor: QuoteColor
       )
     ], 80)
-  doAssert wrapped.layout[3].y > wrapped.layout[0].y
-  wrapped.selectAll()
-  doAssert wrapped.copyText() == "WW WW WW"
+  doAssert wrapped.editor.layout[3].y > wrapped.editor.layout[0].y
+  wrapped.editor.selectAll()
+  doAssert wrapped.editor.copyText() == "WW WW WW"
   let
     empty = fixture(builder, 2)
     emptyState = empty.render("", @[
@@ -204,7 +205,7 @@ block:
     emptyState.innerHeight,
     builder.atlas.fonts["Default"].lineHeight + 12
   )
-  doAssert emptyState.layout.len == 0
+  doAssert emptyState.editor.layout.len == 0
   doAssert empty.bars(QuoteColor).len == 1
   for width in [0.0'f, 10.0'f, 20.0'f, 80.0'f]:
     let
@@ -220,6 +221,6 @@ block:
       doAssert quad.w >= 0 and quad.h >= 0
       doAssert quad.x >= 10
       doAssert quad.x + quad.w <= 10.17'f + width + 0.5'f
-  textBoxStates.del("quotes")
+  richTextBoxStates.del("quotes")
 
 echo "All native quote tests passed."

@@ -47,7 +47,7 @@ proc rules(sk: Silky, clip: Rect): seq[Rect] =
 
 block:
   echo "Testing rule-only blocks have no text or implicit font line"
-  privateAccess(TextBoxState)
+  privateAccess(RichTextBoxState)
   let
     builder = newAtlasBuilder(1024, 2)
     window = Window()
@@ -64,23 +64,23 @@ block:
         ruleThickness: 1,
         padding: vec2(12, 6)
       )
-    var text = ""
+    let text = ""
     sk.at = origin
-    sk.textBox(
+    sk.richTextBox(
       window, "rule", text, 80, 100,
-      wrapWords = true, enabled = false, blocks = @[rule]
+      wrapWords = true, blocks = @[rule]
     )
     let
-      state = textBoxStates["rule"]
+      state = richTextBoxStates["rule"]
       quads = sk.rules(rect(origin, vec2(80, 100)))
-    doAssert state.runes.len == 0
-    doAssert state.layout.len == 0
+    doAssert state.editor.runes.len == 0
+    doAssert state.editor.layout.len == 0
     doAssert state.runs.len == 0
     doAssert state.innerHeight == 13
-    doAssert state.locationRect(0).h == 0
-    state.selectAll()
-    doAssert state.copyText() == ""
-    doAssert state.cursor == 0 and state.selector == 0
+    doAssert state.editor.locationRect(0).h == 0
+    state.editor.selectAll()
+    doAssert state.editor.copyText() == ""
+    doAssert state.editor.cursor == 0 and state.editor.selector == 0
     doAssert quads.len == 1
     doAssert close(quads[0].x * density, round((origin.x + 12) * density))
     doAssert close(quads[0].y * density, round((origin.y + 6) * density))
@@ -92,13 +92,13 @@ block:
 
     sk.drawer.layers[NormalLayer].setLen(0)
     sk.at = origin
-    sk.textBox(
+    sk.richTextBox(
       window, "rule", text, 20, 100,
-      wrapWords = true, enabled = false, blocks = @[rule]
+      wrapWords = true, blocks = @[rule]
     )
     doAssert sk.rules(rect(origin, vec2(20, 100))).len == 0
     doAssert state.innerHeight == 13
-    textBoxStates.del("rule")
+    richTextBoxStates.del("rule")
 
   echo "Testing rules preserve shared selection and surrounding wrapping"
   const Source = "WW WW WW\nAfter"
@@ -116,26 +116,26 @@ block:
     following = TextBlock(
       first: after, last: Source.runeLen, padding: vec2(12, 6)
     )
-    plain = TextBoxState(wordWrap: true, blocks: @[before, following])
-    ruled = TextBoxState(wordWrap: true, blocks: @[before, rule, following])
-  plain.setText(Source)
-  ruled.setText(Source)
+    plain = newRichTextBoxState(Source)
+    ruled = newRichTextBoxState(Source)
+  plain.blocks = @[before, following]
+  ruled.blocks = @[before, rule, following]
   plain.computeLayout(builder.atlas.fonts, "Default", 64)
   ruled.computeLayout(builder.atlas.fonts, "Default", 64)
-  doAssert ruled.layout.len == plain.layout.len
-  doAssert ruled.runes == plain.runes
+  doAssert ruled.editor.layout.len == plain.editor.layout.len
+  doAssert ruled.editor.runes == plain.editor.runes
   doAssert ruled.runs.len == plain.runs.len
-  doAssert ruled.layout[3].y > ruled.layout[0].y
+  doAssert ruled.editor.layout[3].y > ruled.editor.layout[0].y
   for i in 0 ..< after - 1:
-    doAssert ruled.layout[i] == plain.layout[i]
+    doAssert ruled.editor.layout[i] == plain.editor.layout[i]
   for i in after ..< Source.runeLen:
-    doAssert ruled.layout[i].x == plain.layout[i].x
-    doAssert ruled.layout[i].wh == plain.layout[i].wh
-    doAssert close(ruled.layout[i].y - plain.layout[i].y, 21)
+    doAssert ruled.editor.layout[i].x == plain.editor.layout[i].x
+    doAssert ruled.editor.layout[i].wh == plain.editor.layout[i].wh
+    doAssert close(ruled.editor.layout[i].y - plain.editor.layout[i].y, 21)
   doAssert close(ruled.innerHeight - plain.innerHeight, 21)
-  ruled.selectAll()
-  doAssert ruled.copyText() == Source
-  doAssert ruled.locationRect(Source.runeLen).h ==
-    plain.locationRect(Source.runeLen).h
+  ruled.editor.selectAll()
+  doAssert ruled.editor.copyText() == Source
+  doAssert ruled.editor.locationRect(Source.runeLen).h ==
+    plain.editor.locationRect(Source.runeLen).h
 
 echo "All native rule tests passed."
