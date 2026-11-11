@@ -8,6 +8,8 @@ import
 # Build a real atlas with font metrics.
 let builder = newAtlasBuilder(1024, 4)
 builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Default", 18.0)
+builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Wide", 30.0)
+builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Small", 12.0)
 builder.write("tests/dist/atlas.png")
 let silkyAtlas = readAtlasFromPng("tests/dist/atlas.png")
 let fontData = silkyAtlas.fonts["Default"]
@@ -30,6 +32,193 @@ proc newStateSingleLine(text: string, maxWidth = 500.0f): TextBoxState =
     boxSize: vec2(maxWidth, 300))
   result.setText(text)
   result.computeLayout(fontData, maxWidth)
+
+proc advance(font: FontAtlas, rune: Rune): float32 =
+  ## Returns the actual atlas advance used by span layout assertions.
+  var entry: ptr LetterEntry
+  doAssert font.lookupLetter(rune, 0, entry)
+  entry.advance
+
+block:
+  echo "Testing styled text uses each span's font metrics"
+  let
+    s = newState("W a")
+    wide = silkyAtlas.fonts["Wide"]
+    small = silkyAtlas.fonts["Small"]
+  s.enabled = false
+  s.spans = @[
+    TextSpan(first: 0, last: 1, font: "Wide"),
+    TextSpan(first: 2, last: 3, font: "Small")
+  ]
+  s.computeLayout(silkyAtlas.fonts, "Default", 500)
+  doAssert s.layout.len == 3
+  doAssert abs(s.layout[0].w - wide.advance(Rune('W'))) < 0.01
+  doAssert abs(s.layout[1].w - fontData.advance(Rune(' '))) < 0.01
+  doAssert abs(s.layout[2].w - small.advance(Rune('a'))) < 0.01
+  doAssert abs(s.layout[1].x - s.layout[0].w) < 0.01
+  doAssert s.lineHeight >= wide.lineHeight
+  for bounds in s.layout:
+    doAssert bounds.h == s.lineHeight
+
+block:
+  echo "Testing formatting and links preserve native pair kerning"
+  const Sample = "AVATAR To WAVY"
+  let
+    plain = newStateNoWrap(Sample)
+    styled = newStateNoWrap(Sample)
+  doAssert fontData.lookupKerning(Rune('A'), Rune('V')) != 0
+  doAssert fontData.lookupKerning(Rune('T'), Rune('o')) != 0
+  doAssert plain.layout[1].x < plain.layout[0].w
+  styled.enabled = false
+  for i in 0 ..< styled.runes.len:
+    styled.spans.add(TextSpan(
+      first: i,
+      last: i + 1,
+      font:
+        if i mod 2 == 0:
+          "Default"
+        else:
+          "",
+      linkId:
+        if i in 1 .. 8:
+          1
+        else:
+          0
+    ))
+  styled.computeLayout(silkyAtlas.fonts, "Default", 500)
+  doAssert styled.layout.len == plain.layout.len
+  for i in 0 ..< plain.layout.len:
+    let
+      expected = plain.layout[i]
+      actual = styled.layout[i]
+    doAssert abs(actual.x - expected.x) < 0.001
+    doAssert abs(actual.y - expected.y) < 0.001
+    doAssert abs(actual.w - expected.w) < 0.001
+    doAssert abs(actual.h - expected.h) < 0.001
+
+block:
+  echo "Testing styled long words wrap before crossing the width"
+  let
+    s = newState("WWWWWW")
+    wide = silkyAtlas.fonts["Wide"]
+    width = wide.advance(Rune('W')) * 2.5'f
+  s.enabled = false
+  s.spans = @[TextSpan(first: 0, last: 6, font: "Wide")]
+  s.computeLayout(silkyAtlas.fonts, "Default", width)
+  doAssert s.layout[0].y == s.layout[1].y
+  doAssert s.layout[2].y > s.layout[1].y
+  doAssert s.layout[4].y > s.layout[3].y
+  for bounds in s.layout:
+    doAssert bounds.x + bounds.w <= width + 0.01
+
+block:
+  echo "Testing styled Unicode selection preserves the original text"
+  let s = newState("é code 世界")
+  s.enabled = false
+  s.spans = @[TextSpan(first: 2, last: 6, font: "Small")]
+  s.computeLayout(silkyAtlas.fonts, "Default", 500)
+  doAssert s.layout.len == s.runes.len
+  s.cursor = 2
+  s.selector = 6
+  doAssert s.copyText() == "code"
+  doAssert getSelectionRects(s.layout, 2, 6).len == 1
+  s.selectAll()
+  doAssert s.copyText() == "é code 世界"
+
+block:
+  echo "Testing styled code preserves tabs when copying"
+  let
+    s = newState("a\tb")
+    small = silkyAtlas.fonts["Small"]
+  s.enabled = false
+  s.spans = @[TextSpan(first: 0, last: 3, font: "Small")]
+  s.computeLayout(silkyAtlas.fonts, "Default", 500)
+  doAssert abs(s.layout[1].w - small.advance(Rune(' ')) * 4) < 0.01
+  doAssert abs(s.layout[2].x - s.layout[1].x - s.layout[1].w) < 0.01
+  s.selectAll()
+  doAssert s.copyText() == "a\tb"
+
+block:
+  echo "Testing the styled layout overload preserves unstyled layout"
+  let
+    s = newState("A plain paragraph that wraps across lines.", 100)
+    expected = s.layout
+  s.computeLayout(silkyAtlas.fonts, "Default", 100)
+  doAssert s.layout == expected
+
+block:
+  echo "Testing one selection spans headings, wrapped prose, and code"
+  const
+    Heading = "Heading"
+    Body = "é body wraps over several lines for selection."
+    Code = "let x = 1\n  echo x"
+    Sample = Heading & "\n" & Body & "\n" & Code
+  let
+    bodyStart = Heading.runeLen + 1
+    codeStart = bodyStart + Body.runeLen + 1
+    s = newState(Sample, 180)
+  s.enabled = false
+  s.blocks = @[
+    TextBlock(
+      first: 0, last: Heading.runeLen, font: "Wide",
+      padding: vec2(12, 6), spacing: 8
+    ),
+    TextBlock(
+      first: bodyStart, last: codeStart - 1,
+      padding: vec2(12, 6), spacing: 8
+    ),
+    TextBlock(
+      first: codeStart, last: Sample.runeLen, font: "Small",
+      padding: vec2(12, 12), label: "nim", labelFont: "Small",
+      labelSpacing: 8
+    )
+  ]
+  s.computeLayout(silkyAtlas.fonts, "Default", 180)
+  doAssert s.layout.len == Sample.runeLen
+  doAssert s.layout[0].h > s.layout[bodyStart].h
+  doAssert s.layout[bodyStart].h > s.layout[codeStart].h
+  doAssert s.layout[codeStart - 2].y > s.layout[bodyStart].y
+  doAssert s.layout[bodyStart].x == 12
+  doAssert s.layout[codeStart].x == 12
+  doAssert abs(s.innerHeight - s.layout[^1].y - s.layout[^1].h - 12) < 0.001
+  for index in [0, bodyStart, codeStart]:
+    doAssert s.locationRect(index).h == s.layout[index].h
+  s.selector = 2
+  s.cursor = codeStart + 5
+  doAssert s.copyText() == "ading\n" & Body & "\nlet x"
+  let selected = getSelectionRects(s.layout, s.selector, s.cursor)
+  doAssert selected.len >= 4
+  doAssert selected[0].h > selected[^1].h
+  s.selectAll()
+  doAssert s.copyText() == Sample
+
+  echo "Testing dragging through block spacing has no selection dead zone"
+  let
+    first = s.layout[0]
+    body = s.layout[bodyStart]
+  s.mouseAction(first.xy + vec2(0, first.h / 2))
+  s.mouseAction(
+    vec2(body.x, body.y - 1), click = false, shift = true
+  )
+  doAssert s.selector == 0
+  doAssert s.cursor == bodyStart
+  doAssert s.copyText() == Heading & "\n"
+
+  echo "Testing keyboard selection follows rows with different heights"
+  s.cursor = 0
+  s.selector = 0
+  s.savedX = first.x
+  s.down(shift = true)
+  doAssert s.cursor == bodyStart
+  doAssert s.selector == 0
+  s.up(shift = true)
+  doAssert s.cursor == 0
+  s.cursor = codeStart
+  s.selector = codeStart
+  s.savedX = s.layout[codeStart].x
+  s.up(shift = true)
+  doAssert s.cursor >= bodyStart and s.cursor < codeStart
+  doAssert s.selector == codeStart
 
 block:
   echo "Testing getText / setText"

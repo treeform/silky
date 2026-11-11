@@ -3,8 +3,12 @@
 import
   std/unicode,
   vmath
-from windy/common import Button, CursorKind, Cursor
-export Button, CursorKind, Cursor, unicode
+from windy/common import
+  Button, CursorKind, Cursor, TextInputState, TextInputEdit,
+  TextInputEditKind, TextInputEditCallback
+export
+  Button, CursorKind, Cursor, unicode, TextInputState, TextInputEdit,
+  TextInputEditKind, TextInputEditCallback
 
 type Window* = ref object
   ## Test window that simulates a windy Window.
@@ -21,12 +25,19 @@ type Window* = ref object
   cursor*: Cursor = Cursor(kind: ArrowCursor)
   runeInputEnabled*: bool
   onRune*: proc(rune: Rune)
+  onTextInput*: proc(text: string)
+  onTextEdit*: TextInputEditCallback
+  textInput*: TextInputState
   onButtonPress*: proc(button: Button)
   onButtonRelease*: proc(button: Button)
   onFocusChange*: proc()
   onFrame*: proc()
 
 var clipboard: string
+
+proc setTextInputState*(window: Window, state: TextInputState) =
+  ## Records the editor exposed to native text services.
+  window.textInput = state
 
 proc newWindow*(width = 800, height = 600): Window =
   ## Creates a new test window with the given dimensions.
@@ -98,8 +109,20 @@ proc typeRune*(w: Window, rune: Rune) =
     return
   if rune.int32 < 32 or rune.int32 in 127 .. 159:
     return
-  if w.onRune != nil:
+  if w.onTextInput != nil:
+    w.onTextInput($rune)
+  elif w.onRune != nil:
     w.onRune(rune)
+
+proc typeText*(w: Window, text: string) =
+  ## Delivers one committed text edit without synthesizing Enter key presses.
+  if not w.runeInputEnabled or text.len == 0:
+    return
+  if w.onTextInput != nil:
+    w.onTextInput(text)
+  else:
+    for rune in text.runes:
+      w.typeRune(rune)
 
 proc changeFocus*(w: Window) =
   ## Releases held buttons and delivers a window focus change.
