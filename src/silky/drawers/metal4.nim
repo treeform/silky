@@ -144,18 +144,20 @@ fragment float4 texturedFragmentMain(
   texture2d<float> tex [[texture(0)]],
   sampler texSampler [[sampler(0)]]
 ) {
+  // Fetch before clipping so discarded neighbors keep valid derivatives.
+  float4 base = tex.sample(texSampler, in.uv);
+  float4 shaded = base * in.color;
+  if (in.maskUv.x >= 0.0) {
+    float maskR = tex.sample(texSampler, in.maskUv).r;
+    shaded = float4(base.rgb * mix(float3(1.0), in.color.rgb, maskR), base.a * in.color.a);
+  }
   if (in.position.x < in.clipPos.x ||
       in.position.y < in.clipPos.y ||
       in.position.x > in.clipPos.x + in.clipSize.x ||
       in.position.y > in.clipPos.y + in.clipSize.y) {
     discard_fragment();
   }
-  float4 base = tex.sample(texSampler, in.uv);
-  if (in.maskUv.x >= 0.0) {
-    float maskR = tex.sample(texSampler, in.maskUv).r;
-    return float4(base.rgb * mix(float3(1.0), in.color.rgb, maskR), base.a * in.color.a);
-  }
-  return base * in.color;
+  return shaded;
 }
 """
 

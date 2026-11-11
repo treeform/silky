@@ -18,6 +18,7 @@ type
     ## Vertex and clip boundaries for a deferred layout on both layers.
     marks*: array[2, int]
     clipMark*: int
+    textMark*: int
 
 proc intersectClips(a, b: Rect): Rect =
   ## Intersects clip bounds while keeping empty intersections empty.

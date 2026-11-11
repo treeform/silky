@@ -58,6 +58,10 @@ type
     focused*: bool
     focusEpoch: uint64
     layout*: seq[Rect]
+    positionedLayout*: bool
+      ## Selection geometry may have variable line heights and gaps.
+    layoutHeight*: float32
+    layoutCursor*: Rect
     dirty*: bool
     undoStack*: seq[(seq[Rune], int)]
     redoStack*: seq[(seq[Rune], int)]
@@ -73,10 +77,13 @@ type
     scrollingX*: bool
     scrollDragOffset*: Vec2
     singleLine*: bool
+    submitOnEnter*: bool
+    submitted*: bool
     enabled*: bool = true
     password*: bool
     passwordChar*: Rune = Rune('*')
     allowedChars*: seq[Rune]
+    lastFont: FontAtlas
     textCache: string
     textCacheValid: bool
     displayCache: string
@@ -103,6 +110,15 @@ proc isAllowed*(state: TextBoxState, rune: Rune): bool =
 proc resetBlink*(state: TextBoxState) =
   ## Resets the cursor blink timer so the cursor is immediately visible.
   state.blinkTime = epochTime()
+
+proc focus*(state: TextBoxState, sk: Silky, window: Window, id: string) =
+  ## Focuses a registered field and captures input before its next draw.
+  let inputs = sk.textInputs
+  inputs.submitInput(window, id, true, state.enabled)
+  state.focused = true
+  state.focusEpoch = inputs.focusEpoch
+  state.dragging = false
+  state.resetBlink()
 
 proc cursorVisible*(state: TextBoxState): bool =
   ## Returns true when the blinking cursor should be drawn.
@@ -156,8 +172,12 @@ proc sameText*(state: TextBoxState, text: string): bool =
     inc runeIdx
   result = i == text.len and runeIdx == state.runes.len
 
-proc setText*(state: TextBoxState, text: string) =
-  ## Sets the text content and resets cursor to end.
+proc setText*(
+  state: TextBoxState,
+  text: string,
+  preserveSelection = false
+) =
+  ## Sets text, optionally retaining the selection while content streams.
   ## In single-line mode, newlines are converted to spaces.
   ## Disallowed characters are removed.
   state.runes = text.toRunes
@@ -171,8 +191,12 @@ proc setText*(state: TextBoxState, text: string) =
       if r in state.allowedChars:
         filtered.add(r)
     state.runes = filtered
-  state.cursor = state.runes.len
-  state.selector = state.cursor
+  if preserveSelection:
+    state.cursor = clamp(state.cursor, 0, state.runes.len)
+    state.selector = clamp(state.selector, 0, state.runes.len)
+  else:
+    state.cursor = state.runes.len
+    state.selector = state.cursor
   state.dirty = true
   state.invalidateTextCaches()
 
@@ -184,6 +208,10 @@ proc computeLayout*(state: TextBoxState, fontData: FontAtlas, maxWidth: float32)
   ## Computes per-character selection rectangles in local coordinates.
   ## Mirrors the glyph-walking logic from drawText but stores positions
   ## instead of emitting GPU vertices.
+  state.positionedLayout = false
+  state.layoutHeight = 0
+  state.layoutCursor = rect(0, 0, 0, 0)
+  state.lastFont = fontData
   state.layout.setLen(0)
   state.lineHeight = fontData.lineHeight
   state.lastMaxWidth = maxWidth
@@ -254,6 +282,17 @@ proc pickGlyphAt*(state: TextBoxState, pos: Vec2): int =
       if minDistance < 0 or dist < minDistance:
         minDistance = dist
         minGlyph = i
+  if minGlyph < 0 and state.positionedLayout:
+    var nearestY = float32.high
+    for i, bounds in state.layout:
+      let
+        distanceY = max(bounds.y - pos.y, pos.y - bounds.y - bounds.h)
+        distanceX = abs(pos.x - bounds.x)
+      if distanceY < nearestY or
+        (distanceY == nearestY and distanceX < minDistance):
+          nearestY = distanceY
+          minDistance = distanceX
+          minGlyph = i
   return minGlyph
 
 proc getSelectionRects*(layout: seq[Rect], start, stop: int): seq[Rect] =
@@ -273,6 +312,8 @@ proc getSelectionRects*(layout: seq[Rect], start, stop: int): seq[Rect] =
 
 proc innerHeight*(state: TextBoxState): float32 =
   ## Returns the total content height.
+  if state.positionedLayout:
+    return state.layoutHeight
   if state.layout.len > 0:
     let lastPos = state.layout[^1]
     return lastPos.y + lastPos.h
@@ -287,6 +328,13 @@ proc innerWidth*(state: TextBoxState): float32 =
 
 proc locationRect*(state: TextBoxState, loc: int): Rect =
   ## Returns the rectangle where the cursor should be drawn.
+  if state.positionedLayout:
+    if loc >= state.layout.len:
+      result = state.layoutCursor
+    elif loc >= 0:
+      result = state.layout[loc]
+    result.w = CursorWidth
+    return
   if state.layout.len > 0:
     if loc >= state.layout.len:
       let selectRect = state.layout[^1]
@@ -527,12 +575,39 @@ proc right*(state: TextBoxState, shift = false) =
   state.scrollToCursor()
   state.resetBlink()
 
+proc adjacentLine(state: TextBoxState, forward: bool): int =
+  ## Finds a neighboring visual line when cached lines vary in height.
+  let currentY = state.cursorPos.y
+  var
+    nearest = float32.high
+    targetY = currentY
+  for bounds in state.layout:
+    let distance =
+      if forward:
+        bounds.y - currentY
+      else:
+        currentY - bounds.y
+    if distance > 0 and distance < nearest:
+      nearest = distance
+      targetY = bounds.y + bounds.h * 0.5'f
+  if nearest == float32.high:
+    if forward:
+      return state.runes.len
+    return 0
+  state.pickGlyphAt(vec2(state.savedX, targetY))
+
 proc down*(state: TextBoxState, shift = false) =
   ## Moves the cursor down one line.
   if state.layout.len > 0:
-    let curPos = state.cursorPos
-    let index = state.pickGlyphAt(
-      vec2(state.savedX, curPos.y + state.lineHeight * 1.5))
+    let
+      curPos = state.cursorPos
+      index =
+        if state.positionedLayout:
+          state.adjacentLine(true)
+        else:
+          state.pickGlyphAt(
+            vec2(state.savedX, curPos.y + state.lineHeight * 1.5)
+          )
     if index != -1:
       state.cursor = index
       if not shift:
@@ -547,9 +622,15 @@ proc down*(state: TextBoxState, shift = false) =
 proc up*(state: TextBoxState, shift = false) =
   ## Moves the cursor up one line.
   if state.layout.len > 0:
-    let curPos = state.cursorPos
-    let index = state.pickGlyphAt(
-      vec2(state.savedX, curPos.y - state.lineHeight * 0.5))
+    let
+      curPos = state.cursorPos
+      index =
+        if state.positionedLayout:
+          state.adjacentLine(false)
+        else:
+          state.pickGlyphAt(
+            vec2(state.savedX, curPos.y - state.lineHeight * 0.5)
+          )
     if index != -1:
       state.cursor = index
       if not shift:
@@ -769,7 +850,9 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
   of KeyPageDown:
     state.pageDown(shift)
   of KeyEnter:
-    if not state.singleLine:
+    if state.submitOnEnter and not shift:
+      state.submitted = state.enabled
+    elif not state.singleLine:
       state.typeCharacter(LF)
   of KeyA:
     if ctrl:
@@ -801,6 +884,20 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
   else:
     discard
 
+proc handleSelectionInput*(state: TextBoxState, inputs: TextInputs) =
+  ## Drains read-only navigation and copy events without accepting edits.
+  assert not state.enabled
+  let
+    epoch = inputs.focusEpoch
+    events = inputs.takeInput()
+  for event in events:
+    if inputs.focusEpoch != epoch:
+      break
+    if event.kind == InputKind.KeyDown:
+      state.handleKey(event)
+  if events.len > 0:
+    state.scrollToCursor()
+
 proc handleInput(
   state: TextBoxState,
   inputs: TextInputs,
@@ -808,6 +905,9 @@ proc handleInput(
   maxWidth: float32
 ) =
   ## Drains ordered input and refreshes layout before cursor navigation.
+  if not state.enabled:
+    state.handleSelectionInput(inputs)
+    return
   let
     epoch = inputs.focusEpoch
     events = inputs.takeInput()
@@ -817,6 +917,20 @@ proc handleInput(
     case event.kind
     of TextInput:
       state.typeCharacter(event.rune)
+    of TextCommit:
+      state.pasteText(event.text)
+    of NativeEdit:
+      if state.enabled:
+        let first = clamp(event.edit.start, 0, state.runes.len)
+        state.selector = first
+        state.cursor = first + clamp(
+          event.edit.length, 0, state.runes.len - first
+        )
+        case event.edit.kind
+        of ReplaceText:
+          state.pasteText(event.edit.text)
+        of SelectText:
+          state.resetBlink()
     of InputKind.KeyDown:
       if state.dirty and event.button in {
         KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd,
@@ -914,7 +1028,8 @@ proc textBox*(
   error: bool = false,
   password: bool = false,
   passwordChar: Rune = Rune('*'),
-  allowedChars: seq[Rune] = default(seq[Rune])
+  allowedChars: seq[Rune] = default(seq[Rune]),
+  submitOnEnter: bool = false
 ) {.measure.} =
   ## Text box widget with editing, selection, and scroll.
   ## When disabled, text can be selected and copied but not modified.
@@ -931,10 +1046,14 @@ proc textBox*(
     newState.setText(t)
     textBoxStates[id] = newState
   state = textBoxStates[id]
+  state.submitOnEnter = submitOnEnter
+  state.submitted = false
   let inputs = sk.textInputs
   if state.focused and state.focusEpoch != inputs.focusEpoch:
     state.focused = false
     state.dragging = false
+    if not enabled:
+      state.selector = state.cursor
   state.enabled = enabled
   state.allowedChars = allowedChars
   if state.password != password:
@@ -951,10 +1070,11 @@ proc textBox*(
   if state.wordWrap != effectiveWrap:
     state.wordWrap = effectiveWrap
     state.dirty = true
-  if not state.focused and not state.sameText(t):
-    state.setText(t)
+  if (not state.focused or not enabled) and not state.sameText(t):
+    state.setText(t, preserveSelection = not enabled)
   let
-    fontData = sk.atlas.fonts[sk.textStyle]
+    firstVertex = sk.vertexMark()
+    textLayer = sk.currentDrawLayer()
     padding = sk.theme.padding.float32
     outerRect = rect(sk.at, vec2(boxWidth, boxHeight))
     innerRect = rect(
@@ -963,8 +1083,8 @@ proc textBox*(
     )
   state.boxSize = vec2(innerRect.w, innerRect.h)
   if state.dirty or state.layout.len == 0 or
-      state.lastMaxWidth != innerRect.w:
-    state.computeLayout(fontData, innerRect.w)
+      state.lastMaxWidth != innerRect.w or state.lastFont != sk.atlas.fonts[sk.textStyle]:
+    state.computeLayout(sk.atlas.fonts[sk.textStyle], innerRect.w)
   let shift = window.buttonDown[KeyLeftShift] or
     window.buttonDown[KeyRightShift]
   let mouseVec = sk.mousePos
@@ -990,6 +1110,9 @@ proc textBox*(
       else: state.selectAll()
     elif not mouseInside:
       state.focused = false
+      state.dragging = false
+      if not enabled:
+        state.selector = state.cursor
   if state.dragging and not state.scrollingX and not state.scrollingY:
     if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
@@ -999,10 +1122,10 @@ proc textBox*(
   inputs.submitInput(window, id, state.focused, enabled)
   if state.focused:
     state.focusEpoch = inputs.focusEpoch
-    state.handleInput(inputs, fontData, innerRect.w)
+    state.handleInput(inputs, sk.atlas.fonts[sk.textStyle], innerRect.w)
     t = state.getText()
   if state.dirty:
-    state.computeLayout(fontData, innerRect.w)
+    state.computeLayout(sk.atlas.fonts[sk.textStyle], innerRect.w)
   let maxScrollY = max(0.0f, state.innerHeight - innerRect.h)
   state.scrollPos.y = clamp(state.scrollPos.y, 0.0f, maxScrollY)
   if state.wordWrap:
@@ -1053,6 +1176,31 @@ proc textBox*(
       window.scrollDelta.y != 0:
     state.scrollBy(
       window.scrollDelta.y * TextBoxScrollSpeed, innerRect.h)
+  if state.focused and enabled and not password:
+    let selection = state.selection
+    var
+      visibleStart = state.runes.len
+      visibleEnd = 0
+    for i, bounds in state.layout:
+      if bounds.y + bounds.h > state.scrollPos.y and
+        bounds.y < state.scrollPos.y + innerRect.h and
+        bounds.x + bounds.w >= state.scrollPos.x and
+        bounds.x < state.scrollPos.x + innerRect.w:
+          visibleStart = min(visibleStart, i)
+          visibleEnd = i + 1
+    if visibleEnd == 0:
+      visibleStart = min(state.cursor, state.runes.len)
+      visibleEnd = visibleStart
+    inputs.publishTextInput(TextInputState(
+      id: id,
+      text: t,
+      selectionStart: selection.a,
+      selectionEnd: selection.b,
+      visibleStart: visibleStart,
+      visibleEnd: visibleEnd,
+      bounds: rect(innerRect.xy * sk.uiScale, innerRect.wh * sk.uiScale),
+      multiline: not singleLine
+    ), textLayer, firstVertex)
   sk.advance(vec2(boxWidth, boxHeight))
 
 template textBox*(
@@ -1065,11 +1213,13 @@ template textBox*(
   isError = false,
   isPassword = false,
   passChar: Rune = Rune('*'),
-  chars: seq[Rune] = default(seq[Rune])
+  chars: seq[Rune] = default(seq[Rune]),
+  submitOnEnter = false
 ) =
   ## Text box widget. Set singleLine for a single-line input.
+  ## submitOnEnter reports Enter in state.submitted and preserves Shift+Enter.
   sk.textBox(window, id, t, boxWidth, boxHeight, wrapWords, singleLine,
-    isEnabled, isError, isPassword, passChar, chars
+    isEnabled, isError, isPassword, passChar, chars, submitOnEnter
   )
 
 template textInput*(

@@ -1,6 +1,6 @@
 import
   std/unicode,
-  vmath,
+  bumpy, vmath,
   silky, silky/internal/inputs
 
 when not defined(silkyTesting):
@@ -11,9 +11,15 @@ type Fixture = object
   id: string
   text: string
   singleLine: bool
+  submitOnEnter: bool
   enabled: bool
+  rich: bool
   password: bool
   allowedChars: seq[Rune]
+  spans: seq[TextSpan]
+  blocks: seq[TextBlock]
+  height: float32
+  clip: Rect
 
 var
   atlas: SilkyAtlas
@@ -23,6 +29,8 @@ block:
   let builder = newAtlasBuilder(1024, 4)
   builder.addDir("tests/data/", "tests/data/")
   builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Default", 18.0)
+  builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Wide", 30.0)
+  builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Small", 12.0)
   atlas = builder.atlas
 
 proc fixture(
@@ -30,7 +38,9 @@ proc fixture(
   onPress: proc(button: Button) = nil,
   onRelease: proc(button: Button) = nil,
   onRune: proc(rune: Rune) = nil,
-  onFocus: proc() = nil
+  onFocus: proc() = nil,
+  onTextInput: proc(text: string) = nil,
+  onTextEdit: TextInputEditCallback = nil
 ): Fixture =
   ## Creates a real Silky test context with optional application callbacks.
   inc nextId
@@ -38,12 +48,15 @@ proc fixture(
   result.text = text
   result.singleLine = true
   result.enabled = true
+  result.height = 120
   result.harness.window = newWindow()
   let window = result.harness.window
   window.onButtonPress = onPress
   window.onButtonRelease = onRelease
   window.onRune = onRune
   window.onFocusChange = onFocus
+  window.onTextInput = onTextInput
+  window.onTextEdit = onTextEdit
   result.harness.sk = newSilky(window, atlas)
 
 proc frame(f: var Fixture, visible = true, duplicate = false) =
@@ -53,26 +66,54 @@ proc frame(f: var Fixture, visible = true, duplicate = false) =
     let
       sk = f.harness.sk
       window = f.harness.window
+    if f.clip.w > 0:
+      sk.pushClipRect(f.clip)
     for i in 0 .. ord(duplicate):
       sk.at = vec2(20, 20)
-      sk.textBox(
-        window,
-        f.id,
-        f.text,
-        240,
-        120,
-        wrapWords = true,
-        singleLine = f.singleLine,
-        enabled = f.enabled,
-        password = f.password,
-        allowedChars = f.allowedChars
-      )
+      if f.rich:
+        sk.richTextBox(
+          window, f.id, f.text, 240, f.height,
+          wrapWords = true, spans = f.spans, blocks = f.blocks
+        )
+      else:
+        sk.textBox(
+          window,
+          f.id,
+          f.text,
+          240,
+          f.height,
+          wrapWords = true,
+          singleLine = f.singleLine,
+          enabled = f.enabled,
+          password = f.password,
+          allowedChars = f.allowedChars,
+          submitOnEnter = f.submitOnEnter
+        )
+    if f.clip.w > 0:
+      sk.popClipRect()
   f.harness.endFrame()
   f.harness.window.resetInputState()
 
 proc state(f: Fixture): TextBoxState =
-  ## Returns the text state belonging to a fixture.
-  textBoxStates[f.id]
+  ## Returns the selection editor belonging to either widget kind.
+  if f.rich:
+    richTextBoxStates[f.id].editor
+  else:
+    textBoxStates[f.id]
+
+proc richState(f: Fixture): RichTextBoxState =
+  ## Returns formatting and link state owned only by the rich widget.
+  richTextBoxStates[f.id]
+
+proc hoverGlyph(f: var Fixture, index: int) =
+  ## Moves the pointer over a visible laid-out glyph in the current view.
+  let
+    bounds = f.state.layout[index]
+    padding = f.harness.sk.theme.padding.float32
+    point = vec2(20 + padding) + bounds.xy + bounds.wh / 2 -
+      f.state.scrollPos
+  f.harness.window.moveMouse(point.x.int, point.y.int)
+  f.frame()
 
 proc focus(f: var Fixture) =
   ## Clicks the field and positions the caret at the end of its text.
@@ -320,6 +361,297 @@ block:
   doAssert f.text == "123"
 
 block:
+  echo "Testing Enter submission and captured Shift modifiers"
+  var f = fixture("First")
+  f.singleLine = false
+  f.submitOnEnter = true
+  f.focus()
+  let window = f.harness.window
+  window.tap(KeyEnter)
+  f.frame()
+  doAssert f.state.submitted and f.text == "First"
+  f.frame()
+  doAssert not f.state.submitted
+  window.pressButton(KeyLeftShift)
+  window.tap(KeyEnter)
+  window.releaseButton(KeyLeftShift)
+  f.frame()
+  doAssert not f.state.submitted and f.text == "First\n"
+  setClipboardString("Second\nThird")
+  window.shortcut(KeyV)
+  window.tap(KeyEnter)
+  f.frame()
+  doAssert f.state.submitted and f.text == "First\nSecond\nThird"
+  f.enabled = false
+  window.tap(KeyEnter)
+  f.frame()
+  doAssert not f.state.submitted
+
+block:
+  echo "Testing clipboard restoration before the paste frame"
+  for modifier in [KeyLeftSuper, KeyLeftControl]:
+    var f = fixture("Original")
+    f.singleLine = false
+    f.submitOnEnter = true
+    f.focus()
+    let
+      window = f.harness.window
+      dictated = "First\tline\n\n第二段 👩‍💻"
+    window.shortcut(KeyA, modifier)
+    setClipboardString(dictated)
+    window.shortcut(KeyV, modifier)
+    setClipboardString("Restored clipboard")
+    doAssert f.text == "Original"
+    f.frame(duplicate = true)
+    doAssert f.text == dictated and not f.state.submitted
+    doAssert getClipboardString() == "Restored clipboard"
+    f.frame()
+    doAssert f.text == dictated
+    window.shortcut(KeyZ, modifier)
+    f.frame()
+    doAssert f.text == "Original"
+    window.shortcut(KeyY, modifier)
+    f.frame()
+    doAssert f.text == dictated
+
+block:
+  echo "Testing native text commits replace a Unicode selection atomically"
+  var f = fixture("Aé🙂Z")
+  f.singleLine = false
+  f.submitOnEnter = true
+  f.focus()
+  let
+    window = f.harness.window
+    committed = "First\tline\nSecond 👩‍💻"
+    expected = "A" & committed & "Z"
+  f.state.cursor = 1
+  f.state.selector = 3
+  window.onTextInput(committed)
+  doAssert f.text == "Aé🙂Z"
+  f.frame(duplicate = true)
+  doAssert f.text == expected and not f.state.submitted
+  doAssert f.state.cursor == 1 + committed.runeLen
+  doAssert f.state.selector == f.state.cursor
+  window.shortcut(KeyZ)
+  f.frame()
+  doAssert f.text == "Aé🙂Z"
+  window.shortcut(KeyY)
+  f.frame()
+  doAssert f.text == expected
+
+block:
+  echo "Testing disabled fields reject native commits and captured paste"
+  var f = fixture("Read only")
+  f.enabled = false
+  f.focus()
+  let window = f.harness.window
+  window.shortcut(KeyA)
+  window.onTextInput("Ignored\n👩‍💻")
+  setClipboardString("Ignored paste")
+  window.shortcut(KeyV)
+  f.frame()
+  doAssert f.text == "Read only" and not f.state.submitted
+  doAssert f.state.selection == (0 .. 9)
+  window.shortcut(KeyC)
+  f.frame()
+  doAssert getClipboardString() == "Read only"
+
+block:
+  echo "Testing native editor publication uses rune ranges and pixel bounds"
+  var f = fixture("Aé🙂Z\nNext")
+  f.singleLine = false
+  f.focus()
+  let
+    window = f.harness.window
+    padding = f.harness.sk.theme.padding.float32
+    scale = 1.5'f
+  f.state.cursor = 3
+  f.state.selector = 1
+  f.harness.sk.uiScale = scale
+  f.frame()
+  doAssert window.textInput.id == f.id
+  doAssert window.textInput.text == f.text
+  doAssert window.textInput.selectionStart == 1
+  doAssert window.textInput.selectionEnd == 3
+  doAssert window.textInput.visibleStart == 0
+  doAssert window.textInput.visibleEnd == f.text.runeLen
+  doAssert window.textInput.multiline and not window.textInput.password
+  doAssert window.textInput.bounds == rect(
+    (20 + padding) * scale,
+    (20 + padding) * scale,
+    (240 - padding * 2) * scale,
+    (f.height - padding * 2) * scale
+  )
+
+block:
+  echo "Testing native editor bounds follow nested deferred layout spans"
+  for scale in [1.0'f, 1.5'f, 2.0'f]:
+    var f = fixture("Nested 🙂")
+    f.focus()
+    let
+      sk = f.harness.sk
+      window = f.harness.window
+      padding = sk.theme.padding.float32
+    sk.uiScale = scale
+    f.harness.beginFrame()
+    let
+      outer = sk.beginVertexSpan()
+      inner = sk.beginVertexSpan()
+    sk.at = vec2(20, 20)
+    sk.textBox(window, f.id, f.text, 120, 60, wrapWords = true)
+    sk.endVertexSpan(inner, vec2(8, 16))
+    sk.endVertexSpan(outer, vec2(40, -24))
+    let unrelated = sk.beginVertexSpan()
+    sk.endVertexSpan(unrelated, vec2(200, 300))
+    f.harness.endFrame()
+    doAssert window.textInput.id == f.id
+    let expected = rect(
+      (vec2(68, 12) + vec2(padding)) * scale,
+      (vec2(120, 60) - vec2(padding * 2)) * scale
+    )
+    doAssert window.textInput.bounds == expected,
+      $scale & ": " & $window.textInput.bounds & " != " & $expected
+
+block:
+  echo "Testing native editor visibility follows the scrolled text"
+  var f = fixture("")
+  for i in 0 ..< 20:
+    if i > 0:
+      f.text.add("\n")
+    f.text.add("Line " & $i)
+  f.singleLine = false
+  f.height = 54
+  f.focus()
+  let window = f.harness.window
+  window.onTextEdit(TextInputEdit(kind: SelectText, start: high(int)))
+  f.frame()
+  doAssert window.textInput.visibleStart > 0
+  doAssert window.textInput.visibleEnd > window.textInput.visibleStart
+  doAssert window.textInput.visibleEnd <= f.text.runeLen
+  doAssert window.textInput.selectionStart == f.text.runeLen
+
+block:
+  echo "Testing native editor publication clears for unavailable fields"
+  for mode in 0 .. 3:
+    var f = fixture("Private text 🙂")
+    let window = f.harness.window
+    doAssert window.textInput == TextInputState()
+    f.focus()
+    f.frame()
+    doAssert window.textInput.text == f.text
+    case mode
+    of 0:
+      f.frame(visible = false)
+    of 1:
+      f.enabled = false
+      f.frame()
+    of 2:
+      f.password = true
+      f.frame()
+    else:
+      window.changeFocus()
+      doAssert window.textInput == TextInputState()
+      f.frame()
+    doAssert window.textInput == TextInputState()
+
+block:
+  echo "Testing native range replacement and deletion are single edits"
+  var f = fixture("Aé🙂Z")
+  f.singleLine = false
+  f.submitOnEnter = true
+  f.focus()
+  let
+    window = f.harness.window
+    replacement = "First\tline\n第二段 👩‍💻"
+    expected = "A" & replacement & "Z"
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText,
+    text: replacement,
+    start: 1,
+    length: 2
+  ))
+  doAssert f.text == "Aé🙂Z"
+  f.frame(duplicate = true)
+  doAssert f.text == expected and not f.state.submitted
+  doAssert f.state.undoStack.len == 1
+  window.shortcut(KeyZ)
+  f.frame()
+  doAssert f.text == "Aé🙂Z"
+  window.shortcut(KeyY)
+  f.frame()
+  doAssert f.text == expected
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText,
+    start: 1,
+    length: replacement.runeLen
+  ))
+  f.frame()
+  doAssert f.text == "AZ" and not f.state.submitted
+  window.shortcut(KeyZ)
+  f.frame()
+  doAssert f.text == expected
+
+block:
+  echo "Testing native edits clamp invalid and oversized rune ranges"
+  var f = fixture("Aé🙂Z")
+  f.focus()
+  let window = f.harness.window
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText,
+    text: "!",
+    start: high(int),
+    length: high(int)
+  ))
+  f.frame()
+  doAssert f.text == "Aé🙂Z!"
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText,
+    start: low(int),
+    length: 2
+  ))
+  f.frame()
+  doAssert f.text == "🙂Z!"
+  window.onTextEdit(TextInputEdit(
+    kind: SelectText,
+    start: 1,
+    length: low(int)
+  ))
+  f.frame()
+  doAssert f.state.selection == (1 .. 1)
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText,
+    start: 1,
+    length: high(int)
+  ))
+  f.frame()
+  doAssert f.text == "🙂"
+  window.shortcut(KeyZ)
+  f.frame()
+  doAssert f.text == "🙂Z!"
+
+block:
+  echo "Testing native selection preserves edit order and undo history"
+  var f = fixture("Aé🙂Z")
+  f.focus()
+  let window = f.harness.window
+  window.onTextInput("!")
+  window.onTextEdit(TextInputEdit(kind: SelectText, start: 1, length: 2))
+  f.frame()
+  doAssert f.text == "Aé🙂Z!" and f.state.selection == (1 .. 3)
+  doAssert f.state.undoStack.len == 1
+  window.shortcut(KeyZ)
+  f.frame()
+  doAssert f.text == "Aé🙂Z"
+  window.onTextEdit(TextInputEdit(kind: SelectText, start: 0, length: 1))
+  f.frame()
+  doAssert f.state.undoStack.len == 0 and f.state.redoStack.len == 1
+  window.shortcut(KeyY)
+  window.onTextEdit(TextInputEdit(kind: SelectText, start: 1, length: 2))
+  window.onTextInput("R")
+  f.frame()
+  doAssert f.text == "ARZ!"
+
+block:
   echo "Testing disabled fields retain selection and copy without editing"
   var f = fixture()
   f.focus()
@@ -340,6 +672,146 @@ block:
   f.frame()
   doAssert f.text == "Hello!" and getClipboardString() == "Hello!"
   doAssert f.state.selection == (0 .. 6)
+
+block:
+  echo "Testing read-only styled text retains selection and copy"
+  var f = fixture("é code 世界")
+  f.rich = true
+  f.singleLine = false
+  f.spans = @[TextSpan(first: 2, last: 6, font: "Wide")]
+  f.focus()
+  let
+    window = f.harness.window
+    styledWidth = f.state.layout[2].w
+  window.shortcut(KeyA)
+  window.shortcut(KeyC)
+  window.tap(KeyBackspace)
+  window.typeText("ignored")
+  f.frame()
+  doAssert f.text == "é code 世界"
+  doAssert getClipboardString() == f.text
+  doAssert f.state.selection == (0 .. f.text.runeLen)
+  doAssert f.state.layout[2].w == styledWidth
+  window.onTextInput("Ignored native commit")
+  window.onTextEdit(TextInputEdit(
+    kind: ReplaceText, start: 0, length: f.text.runeLen, text: "Ignored edit"
+  ))
+  setClipboardString("Ignored paste")
+  window.shortcut(KeyV)
+  f.frame()
+  doAssert f.richState.getText() == "é code 世界"
+  doAssert f.state.undoStack.len == 0
+  let rich = f.richState
+  f.rich = false
+  f.focus()
+  doAssert f.state != rich.editor
+  doAssert f.state.layout[2].w < styledWidth
+  window.shortcut(KeyA)
+  window.typeText("Editable")
+  f.frame()
+  doAssert f.text == "Editable"
+  doAssert rich.getText() == "é code 世界"
+
+block:
+  echo "Testing styled span clicks activate only without dragging"
+  var f = fixture("Click here")
+  f.rich = true
+  f.spans = @[TextSpan(first: 0, last: f.text.runeLen, font: "Wide")]
+  f.frame()
+  let
+    window = f.harness.window
+    bounds = f.state.layout[0]
+    padding = f.harness.sk.theme.padding.float32
+    x = (20 + padding + bounds.x + bounds.w / 2).int
+    y = (20 + padding + bounds.y + bounds.h / 2).int
+  window.moveMouse(x, y)
+  window.pressButton(MouseLeft)
+  f.frame()
+  doAssert f.richState.activatedSpan == -1
+  window.releaseButton(MouseLeft)
+  f.frame()
+  doAssert f.richState.activatedSpan == 0
+  f.frame()
+  doAssert f.richState.activatedSpan == -1
+  f.state.lastClickTime = 0
+  window.pressButton(MouseLeft)
+  f.frame()
+  window.moveMouse(x + 20, y)
+  f.frame()
+  window.moveMouse(x, y)
+  window.releaseButton(MouseLeft)
+  f.frame()
+  doAssert f.richState.activatedSpan == -1
+
+block:
+  echo "Testing link hover cursor and non-link text boundaries"
+  var f = fixture("Link bold text")
+  f.rich = true
+  f.spans = @[
+    TextSpan(first: 0, last: 4, linkId: 1),
+    TextSpan(first: 5, last: 9, font: "Wide")
+  ]
+  f.frame()
+  f.hoverGlyph(1)
+  doAssert f.richState.hoveredSpan == 0
+  doAssert f.harness.window.cursor.kind == PointerCursor
+  f.hoverGlyph(6)
+  doAssert f.richState.hoveredSpan == -1
+  doAssert f.harness.window.cursor.kind == ArrowCursor
+  f.hoverGlyph(1)
+  f.harness.window.moveMouse(21, 21)
+  f.frame()
+  doAssert f.richState.hoveredSpan == -1
+  doAssert f.harness.window.cursor.kind == ArrowCursor
+  f.hoverGlyph(1)
+  f.harness.window.moveMouse(600, 400)
+  f.frame()
+  doAssert f.richState.hoveredSpan == -1
+  doAssert f.harness.window.cursor.kind == ArrowCursor
+  f.hoverGlyph(1)
+  f.frame(visible = false)
+  doAssert f.harness.window.cursor.kind == ArrowCursor
+
+block:
+  echo "Testing wrapped links follow scrolling and ancestor clipping"
+  var f = fixture(
+    "A long linked sentence that wraps onto several lines in this text box."
+  )
+  f.rich = true
+  f.singleLine = false
+  f.spans = @[
+    TextSpan(first: 0, last: f.text.runeLen, font: "Wide", linkId: 1)
+  ]
+  f.frame()
+  var secondLine = -1
+  for i, bounds in f.state.layout:
+    if bounds.y > 0 and bounds.w > 0:
+      secondLine = i
+      break
+  doAssert secondLine >= 0
+  f.hoverGlyph(secondLine)
+  doAssert f.richState.hoveredSpan == 0
+  doAssert f.harness.window.cursor.kind == PointerCursor
+  f.clip = rect(20, 20, 240, 20)
+  f.frame()
+  doAssert f.richState.hoveredSpan == -1
+  doAssert f.harness.window.cursor.kind == ArrowCursor
+  f.clip = rect(0, 0, 0, 0)
+  f.state.scrollPos.y = f.state.lineHeight
+  f.hoverGlyph(secondLine)
+  doAssert f.richState.hoveredSpan == 0
+  doAssert f.harness.window.cursor.kind == PointerCursor
+  f.spans[0].linkId = 0
+  f.frame()
+  doAssert f.richState.hoveredSpan == -1
+  doAssert f.harness.window.cursor.kind == ArrowCursor
+  f.spans[0].linkId = 1
+  f.frame()
+  doAssert f.richState.hoveredSpan == 0
+  f.spans.setLen(0)
+  f.frame()
+  doAssert f.richState.hoveredSpan == -1
+  doAssert f.harness.window.cursor.kind == ArrowCursor
 
 block:
   echo "Testing focus loss, disappearing fields, and field switching"
@@ -368,6 +840,190 @@ block:
   window.typeText("!")
   f.frame()
   doAssert f.text == "Other!"
+
+block:
+  echo "Testing one block widget selects and copies across all sections"
+  const Sample = "Title\nBody link\ncode()"
+  var f = fixture(Sample)
+  f.rich = true
+  f.singleLine = false
+  f.height = 240
+  f.blocks = @[
+    TextBlock(
+      first: 0, last: 5, font: "Wide",
+      padding: vec2(4, 3), spacing: 12
+    ),
+    TextBlock(first: 6, last: 15, padding: vec2(4, 3), spacing: 12),
+    TextBlock(
+      first: 16, last: Sample.runeLen, font: "Small",
+      padding: vec2(4, 3)
+    )
+  ]
+  f.spans = @[TextSpan(first: 11, last: 15, linkId: 1)]
+  f.frame()
+  let
+    window = f.harness.window
+    origin = vec2(20 + f.harness.sk.theme.padding.float32)
+    first = f.state.layout[0]
+    last = f.state.layout[^1]
+    start = origin + first.xy + vec2(0, first.h / 2)
+    finish = origin + last.xy + vec2(last.w + 1, last.h / 2)
+  window.moveMouse(start.x.int, start.y.int)
+  window.pressButton(MouseLeft)
+  f.frame()
+  window.moveMouse(finish.x.int, finish.y.int)
+  f.frame()
+  window.releaseButton(MouseLeft)
+  f.frame()
+  doAssert f.state.selection == (0 .. Sample.runeLen)
+  window.shortcut(KeyC)
+  f.frame()
+  doAssert getClipboardString() == Sample
+
+  echo "Testing block links retain hover, activation, and drag selection"
+  f.hoverGlyph(12)
+  doAssert f.richState.hoveredSpan == 0
+  doAssert window.cursor.kind == PointerCursor
+  f.state.lastClickTime = 0
+  window.tap(MouseLeft)
+  f.frame()
+  doAssert f.richState.activatedSpan == 0
+  f.state.lastClickTime = 0
+  window.pressButton(MouseLeft)
+  f.frame()
+  window.moveMouse(start.x.int, start.y.int)
+  f.frame()
+  window.releaseButton(MouseLeft)
+  f.frame()
+  doAssert f.richState.activatedSpan == -1
+  doAssert f.state.selection.a == 0
+  doAssert f.state.selection.b >= 11
+
+  echo "Testing streaming text preserves one existing block selection"
+  f.state.cursor = 2
+  f.state.selector = 13
+  let copied = f.state.copyText()
+  f.text.add("\necho 1")
+  f.blocks[^1].last = f.text.runeLen
+  f.frame()
+  doAssert f.state.selection == (2 .. 13)
+  doAssert f.state.copyText() == copied
+  window.shortcut(KeyA)
+  window.shortcut(KeyC)
+  f.frame()
+  doAssert getClipboardString() == f.text
+  f.text = "Title\nBody"
+  f.blocks.setLen(2)
+  f.blocks[^1].last = f.text.runeLen
+  f.spans.setLen(0)
+  f.frame()
+  doAssert f.state.selection == (0 .. f.text.runeLen)
+  doAssert f.state.copyText() == f.text
+
+  echo "Testing read-only selection clears on blur and focus epoch changes"
+  window.moveMouse(600, 400)
+  window.tap(MouseLeft)
+  f.frame()
+  doAssert not f.state.focused
+  doAssert f.state.cursor == f.state.selector
+  f.focus()
+  window.shortcut(KeyA)
+  f.frame()
+  doAssert f.state.cursor != f.state.selector
+  window.changeFocus()
+  f.frame()
+  doAssert not f.state.focused
+  doAssert f.state.cursor == f.state.selector
+
+block:
+  echo "Testing same-id plain and rich widgets isolate state and focus"
+  const RichSource = "Read only reply"
+  for reverse in [false, true]:
+    let id = "shared-widget-" & $reverse
+    var
+      harness = newTestHarness(atlas)
+      plain = "Editable"
+
+    proc renderBoth(sk: Silky, window: Window) =
+      ## Draws independent widgets with the same public identifier.
+      template plainWidget() =
+        ## Draws the editable surface below the rich reply.
+        sk.at = vec2(20, 150)
+        sk.textBox(window, id, plain, 240, 80, wrapWords = true)
+
+      template richWidget() =
+        ## Draws a read-only surface without borrowing plain widget state.
+        sk.at = vec2(20, 20)
+        sk.richTextBox(
+          window, id, RichSource, 240, 80,
+          spans = @[TextSpan(first: 0, last: RichSource.runeLen, font: "Wide")]
+        )
+
+      if reverse:
+        plainWidget()
+        richWidget()
+      else:
+        richWidget()
+        plainWidget()
+
+    discard harness.pumpFrame(renderBoth)
+    let
+      window = harness.window
+      editor = textBoxStates[id]
+      rich = richTextBoxStates[id]
+    doAssert editor != rich.editor
+    doAssert editor.getText() == "Editable"
+    doAssert rich.getText() == RichSource
+    window.moveMouse(35, 165)
+    window.tap(MouseLeft)
+    discard harness.pumpFrame(renderBoth)
+    doAssert editor.focused and not rich.editor.focused
+    editor.cursor = plain.runeLen
+    editor.selector = editor.cursor
+    window.typeText("!")
+    discard harness.pumpFrame(renderBoth)
+    doAssert plain == "Editable!"
+    doAssert rich.getText() == RichSource
+    doAssert window.runeInputEnabled
+
+    window.moveMouse(35, 35)
+    window.tap(MouseLeft)
+    discard harness.pumpFrame(renderBoth)
+    doAssert rich.editor.focused and not editor.focused
+    doAssert not window.runeInputEnabled
+    window.shortcut(KeyA)
+    window.typeText("Ignored typed text")
+    window.onTextInput("Ignored native commit")
+    window.onTextEdit(TextInputEdit(
+      kind: ReplaceText,
+      start: 0,
+      length: RichSource.runeLen,
+      text: "Ignored native edit"
+    ))
+    setClipboardString("Ignored paste")
+    window.shortcut(KeyV)
+    window.shortcut(KeyX)
+    window.tap(KeyBackspace)
+    discard harness.pumpFrame(renderBoth)
+    doAssert plain == "Editable!"
+    doAssert rich.getText() == RichSource
+    doAssert rich.editor.selection == (0 .. RichSource.runeLen)
+    doAssert rich.editor.undoStack.len == 0
+    window.shortcut(KeyC)
+    discard harness.pumpFrame(renderBoth)
+    doAssert getClipboardString() == RichSource
+
+    window.moveMouse(35, 165)
+    window.tap(MouseLeft)
+    discard harness.pumpFrame(renderBoth)
+    editor.cursor = plain.runeLen
+    editor.selector = editor.cursor
+    window.onTextInput("2")
+    discard harness.pumpFrame(renderBoth)
+    doAssert plain == "Editable!2"
+    doAssert rich.getText() == RichSource
+    textBoxStates.del(id)
+    richTextBoxStates.del(id)
 
 block:
   echo "Testing one-batch editing matches separate frames and layout"
@@ -458,6 +1114,98 @@ block:
   window.typeText("R")
   f.frame()
   doAssert f.text == "R"
+
+block:
+  echo "Testing native commit callbacks forward only while inactive"
+  var
+    commits: seq[string]
+    f = fixture(
+      onTextInput = (proc(text: string) = commits.add(text))
+    )
+  let window = f.harness.window
+  window.onTextInput("Inactive\n🙂")
+  doAssert commits == @["Inactive\n🙂"]
+  f.focus()
+  doAssert f.text == "Hello"
+  window.onTextInput(" active")
+  f.frame()
+  doAssert f.text == "Hello active"
+  doAssert commits == @["Inactive\n🙂"]
+  window.onTextInput(" discarded")
+  window.changeFocus()
+  f.frame()
+  doAssert f.text == "Hello active"
+  window.onTextInput("After blur")
+  doAssert commits == @["Inactive\n🙂", "After blur"]
+  f.focus()
+  doAssert f.text == "Hello active"
+
+block:
+  echo "Testing replaced native commit callbacks are reinstalled once"
+  var
+    oldCommits, newCommits: seq[string]
+    f = fixture(
+      onTextInput = (proc(text: string) = oldCommits.add(text))
+    )
+  let window = f.harness.window
+  f.focus()
+  window.onTextInput(" pending")
+  window.onTextInput = proc(text: string) = newCommits.add(text)
+  f.frame()
+  doAssert f.text == "Hello pending"
+  for i in 0 ..< 5:
+    window.shortcut(KeyA)
+    window.onTextInput("Replacement")
+    f.frame()
+    doAssert f.text == "Replacement"
+  doAssert oldCommits.len == 0 and newCommits.len == 0
+  window.changeFocus()
+  f.frame()
+  window.onTextInput("Forward once")
+  doAssert oldCommits.len == 0 and newCommits == @["Forward once"]
+  f.focus()
+  window.onTextInput = nil
+  f.frame()
+  window.onTextInput(" restored")
+  f.frame()
+  doAssert f.text == "Replacement restored"
+  doAssert oldCommits.len == 0 and newCommits == @["Forward once"]
+
+block:
+  echo "Testing native edit callbacks forward and reinstall without repeats"
+  var
+    oldEdits, newEdits: seq[TextInputEdit]
+    f = fixture(onTextEdit = (proc(edit: TextInputEdit) = oldEdits.add(edit)))
+  let
+    window = f.harness.window
+    edit = TextInputEdit(kind: ReplaceText, text: "R", start: 0, length: 5)
+  window.onTextEdit(edit)
+  doAssert oldEdits == @[edit]
+  f.focus()
+  window.onTextEdit(edit)
+  window.onTextEdit = proc(edit: TextInputEdit) = newEdits.add(edit)
+  f.frame()
+  doAssert f.text == "R" and oldEdits == @[edit] and newEdits.len == 0
+  window.onTextEdit = nil
+  f.frame()
+  window.onTextEdit(TextInputEdit(kind: ReplaceText, text: "!", start: 1))
+  f.frame()
+  doAssert f.text == "R!"
+  window.onTextEdit = proc(edit: TextInputEdit) = newEdits.add(edit)
+  f.frame()
+  f.enabled = false
+  f.frame()
+  window.onTextEdit(edit)
+  f.frame()
+  doAssert f.text == "R!" and newEdits.len == 0
+  f.enabled = true
+  f.frame()
+  window.onTextEdit(edit)
+  window.changeFocus()
+  f.frame()
+  doAssert f.text == "R!"
+  window.onTextEdit(edit)
+  doAssert oldEdits == @[edit] and newEdits == @[edit]
 
 block:
   echo "Testing application callbacks assigned after construction"

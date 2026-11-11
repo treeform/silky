@@ -31,6 +31,11 @@ proc newStateSingleLine(text: string, maxWidth = 500.0f): TextBoxState =
   result.setText(text)
   result.computeLayout(fontData, maxWidth)
 
+static:
+  doAssert not declared(TextSpan)
+  doAssert not declared(RichTextBoxState)
+  doAssert not compiles(TextBoxState(spans: @[]))
+
 block:
   echo "Testing getText / setText"
   let s = newState("")
