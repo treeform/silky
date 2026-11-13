@@ -22,6 +22,8 @@ type
   CallbackIdentity = tuple[code, environment: pointer]
 
   TextInputs* = ref object
+    onEvent*: proc()
+      ## Wakes an on-demand UI after editor input has been queued.
     events: seq[InputEvent]
     active: bool
     editable: bool
@@ -41,6 +43,10 @@ proc identity[T](callback: T): CallbackIdentity =
 proc focusEpoch*(inputs: TextInputs): uint64 =
   ## Returns the generation of the current text focus.
   inputs.epoch
+
+proc hasPendingEvents*(inputs: TextInputs): bool {.raises: [].} =
+  ## Reports queued edits without consuming the editor's input batch.
+  inputs != nil and inputs.events.len > 0
 
 when defined(silkyTesting):
   proc filterButtons*(
@@ -86,6 +92,8 @@ proc addEvent(inputs: TextInputs, event: InputEvent) =
   if inputs.events.len >= MaxPendingEvents:
     raise newException(SilkyError, "Too many pending text input events")
   inputs.events.add(event)
+  if inputs.onEvent != nil:
+    inputs.onEvent()
 
 proc installPress(inputs: TextInputs, window: Window) =
   ## Installs this handler only when the window's callback changes.

@@ -1,10 +1,10 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, clips, layout, profiles],
+  silky/[atlas, clips, frames, layout, profiles],
   silky/internal/inputs
 
-export layout, profiles
+export frames, layout, profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -89,6 +89,9 @@ type
     theme*: Theme = Theme()
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputs: TextInputs
+    frames: FrameSchedule
+    frameInput: FrameInput
+    frameHadInput: bool
     mousePos*: Vec2
     mouseDelta*: Vec2
     mouseIdleTime*: float64
@@ -124,6 +127,39 @@ proc currentDrawLayer*(sk: Silky): int =
 proc textInputs*(sk: Silky): TextInputs =
   ## Provides internal text input state to the text widgets.
   sk.inputs
+
+proc renderMode*(sk: Silky): RenderMode =
+  ## Returns continuous game rendering or event-driven application rendering.
+  sk.frames.mode
+
+proc requestFrame*(sk: Silky, delayMs = 0) =
+  ## Invalidates app data or schedules a visible animation on the UI thread.
+  sk.frames.requestFrame(delayMs)
+
+proc `renderMode=`*(sk: Silky, mode: RenderMode) =
+  ## Selects the rendering policy without changing the drawing API.
+  sk.frames.mode = mode
+  sk.requestFrame()
+
+proc `onFrameRequested=`*(sk: Silky, wake: proc()) =
+  ## Connects invalidation and native editor input to an event-loop wakeup.
+  sk.frames.wake = wake
+  if sk.inputs != nil:
+    sk.inputs.onEvent = wake
+
+proc needsFrame*(sk: Silky, window: Window): bool =
+  ## Checks UI input and scheduled deadlines before drawing an app frame.
+  if sk.frames.mode == ContinuousRender:
+    return true
+  if sk.frameInput.inputChanged(window, sk.inputs.hasPendingEvents()):
+    sk.requestFrame()
+  sk.frames.needsFrame()
+
+proc nextFrameDelay*(sk: Silky, window: Window, maxWaitMs = 1000): int =
+  ## Bounds an event-loop wait by pending UI work and animation deadlines.
+  if sk.needsFrame(window):
+    return 0
+  sk.frames.nextFrameDelay(maxWaitMs)
 
 proc pushLayer*(sk: Silky, layer: int) =
   ## Pushes a new rendering layer onto the stack.
@@ -295,6 +331,11 @@ proc peekRune(text: string, i: int, rune: var Rune): bool {.inline.} =
 
 proc shouldShowTooltip*(sk: Silky): bool =
   ## Returns true when a tooltip should be shown.
+  if sk.renderMode == OnDemandRender and sk.hover and
+    sk.mouseIdleTime < sk.tooltipThreshold:
+      sk.requestFrame(max(
+        1, ((sk.tooltipThreshold - sk.mouseIdleTime) * 1000).int + 1
+      ))
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc resetInteractions*(sk: Silky) =
@@ -305,6 +346,11 @@ proc resetInteractions*(sk: Silky) =
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
+  if sk.frames.mode == OnDemandRender:
+    sk.frameHadInput = sk.frameInput.inputChanged(
+      window, sk.inputs.hasPendingEvents()
+    )
+    sk.frames.beginFrame()
   sk.inputs.beginInputFrame(window)
   beginProfileFrame()
 
@@ -348,6 +394,11 @@ proc endInteractions(interactor: var Interactor) =
 
 proc endUiShared*(sk: Silky) =
   ## Ends a frame after the backend has finished drawing.
+  if sk.frames.mode == OnDemandRender:
+    if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
+      sk.requestFrame()
+    if sk.window.buttonDown[MouseLeft]:
+      sk.requestFrame(16)
   if sk.window.buttonReleased[MouseLeft]:
     sk.resetInteractions()
   sk.interactor.endInteractions()

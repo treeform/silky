@@ -9,6 +9,7 @@ export Button, CursorKind, Cursor, unicode
 type Window* = ref object
   ## Test window that simulates a windy Window.
   size*: IVec2
+  focused*: bool = true
   mousePrevPos*: IVec2
   mousePos*: IVec2
   mouseDelta*: IVec2
