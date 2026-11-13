@@ -3,12 +3,12 @@
 import
   std/[algorithm, strutils, tables, unicode, times],
   vmath, bumpy, chroma, pixie,
-  silky/[atlas, clips, layout], testwindow,
+  silky/[atlas, clips, frames, layout], testwindow,
   silky/internal/inputs
 
 from windy/common import Button, CursorKind, Cursor
 
-export layout
+export frames, layout
 
 const
   LineFeedRune = Rune(10)
@@ -286,6 +286,9 @@ type
     theme*: Theme = Theme()
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputs: TextInputs
+    frames: FrameSchedule
+    frameInput: FrameInput
+    frameHadInput: bool
     mousePos*: Vec2
     mouseDelta*: Vec2
     mouseIdleTime*: float64
@@ -320,6 +323,39 @@ proc currentDrawLayer*(sk: Silky): int =
 proc textInputs*(sk: Silky): TextInputs =
   ## Provides internal text input state to the text widgets.
   sk.inputs
+
+proc renderMode*(sk: Silky): RenderMode =
+  ## Returns continuous game rendering or event-driven application rendering.
+  sk.frames.mode
+
+proc requestFrame*(sk: Silky, delayMs = 0) =
+  ## Invalidates app data or schedules a visible animation on the UI thread.
+  sk.frames.requestFrame(delayMs)
+
+proc `renderMode=`*(sk: Silky, mode: RenderMode) =
+  ## Selects the rendering policy without changing the drawing API.
+  sk.frames.mode = mode
+  sk.requestFrame()
+
+proc `onFrameRequested=`*(sk: Silky, wake: proc()) =
+  ## Connects invalidation and native editor input to an event-loop wakeup.
+  sk.frames.wake = wake
+  if sk.inputs != nil:
+    sk.inputs.onEvent = wake
+
+proc needsFrame*(sk: Silky, window: Window): bool =
+  ## Checks UI input and scheduled deadlines before drawing an app frame.
+  if sk.frames.mode == ContinuousRender:
+    return true
+  if sk.frameInput.inputChanged(window, sk.inputs.hasPendingEvents()):
+    sk.requestFrame()
+  sk.frames.needsFrame()
+
+proc nextFrameDelay*(sk: Silky, window: Window, maxWaitMs = 1000): int =
+  ## Bounds an event-loop wait by pending UI work and animation deadlines.
+  if sk.needsFrame(window):
+    return 0
+  sk.frames.nextFrameDelay(maxWaitMs)
 
 proc pushLayer*(sk: Silky, layer: int) =
   ## Pushes a new rendering layer onto the stack.
@@ -503,6 +539,11 @@ proc contains*(sk: Silky, name: string): bool =
 
 proc shouldShowTooltip*(sk: Silky): bool =
   ## Returns true if a tooltip should be displayed.
+  if sk.renderMode == OnDemandRender and sk.hover and
+    sk.mouseIdleTime < sk.tooltipThreshold:
+      sk.requestFrame(max(
+        1, ((sk.tooltipThreshold - sk.mouseIdleTime) * 1000).int + 1
+      ))
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc drawQuad*(sk: Silky, pos: Vec2, size: Vec2, uvPos: Vec2, uvSize: Vec2, color: ColorRGBX) {.inline.} =
@@ -609,6 +650,11 @@ proc newSilky*(window: Window, atlasPngPath: string): Silky =
 
 proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   ## Begins a new UI frame.
+  if sk.frames.mode == OnDemandRender:
+    sk.frameHadInput = sk.frameInput.inputChanged(
+      window, sk.inputs.hasPendingEvents()
+    )
+    sk.frames.beginFrame()
   sk.inputs.beginInputFrame(window)
   sk.tooltipActive = sk.showTooltip
   sk.showTooltip = false
@@ -617,8 +663,19 @@ proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   sk.mouseDelta = window.mouseDelta.vec2 / sk.uiScale
   sk.pushLayout(vec2(0, 0), size.vec2 / sk.uiScale)
   sk.inFrame = true
-  let currentTime = epochTime()
+  let
+    currentTime = epochTime()
+    deltaTime = currentTime - sk.frameStartTime
   sk.frameStartTime = currentTime
+  if sk.mousePos != sk.lastMousePos:
+    sk.mouseIdleTime = 0
+    sk.lastMousePos = sk.mousePos
+  else:
+    sk.mouseIdleTime += deltaTime
+  if sk.tooltipActive:
+    sk.tooltipFadeInTime += deltaTime
+  else:
+    sk.tooltipFadeInTime = 0
   sk.pushClipRect(rect(0, 0, sk.size.x, sk.size.y))
   sk.semantic.reset()
 
@@ -635,6 +692,11 @@ proc resetInteractions*(sk: Silky) =
 
 proc endUi*(sk: Silky) =
   ## Ends the current UI frame.
+  if sk.frames.mode == OnDemandRender:
+    if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
+      sk.requestFrame()
+    if sk.window.buttonDown[MouseLeft]:
+      sk.requestFrame(16)
   sk.interactor.endInteractions()
   sk.clear()
   sk.popLayout()

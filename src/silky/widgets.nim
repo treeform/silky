@@ -1002,6 +1002,9 @@ template tooltip*(text: string) =
     sk.tooltipFadeInTime = 0
   sk.tooltipLastAnchor = sk.tooltipAnchor
   sk.showTooltip = true
+  if sk.renderMode == OnDemandRender and
+    sk.tooltipFadeInTime < sk.tooltipFadeInDuration:
+      sk.requestFrame(16)
 
   let
     fadeAlpha = clamp(

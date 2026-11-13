@@ -305,6 +305,28 @@ proc cursorPos*(state: TextBoxState): Vec2 =
   ## Returns the position of the text cursor.
   state.locationRect(state.cursor).xy
 
+proc requestCursorFrame*(
+  sk: Silky,
+  window: Window,
+  state: TextBoxState,
+  bounds: Rect
+) =
+  ## Schedules blinking only for a visible caret that still owns focus.
+  if sk.renderMode != OnDemandRender or not state.focused or
+    state.focusEpoch != sk.textInputs.focusEpoch or
+    sk.clipRect.w <= 0 or sk.clipRect.h <= 0:
+      return
+  when compiles(window.focused):
+    if not window.focused:
+      return
+  let
+    cursor = state.locationRect(state.cursor)
+    placed = rect(bounds.xy - state.scrollPos + cursor.xy, cursor.wh)
+  if not placed.overlaps(bounds) or not placed.overlaps(sk.clipRect):
+    return
+  let elapsed = (max(0.0, epochTime() - state.blinkTime) * 1000).int64
+  sk.requestFrame(500 - (elapsed mod 500).int)
+
 proc undoSave*(state: TextBoxState) =
   ## Saves current state for undo.
   state.undoStack.add((state.runes, state.cursor))
@@ -1040,6 +1062,7 @@ proc textBox*(
     wordWrap = state.wordWrap,
     clip = false
   )
+  sk.requestCursorFrame(window, state, innerRect)
   if state.focused and state.cursorVisible:
     let cr = state.locationRect(state.cursor)
     sk.drawRect(
