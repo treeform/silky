@@ -80,6 +80,12 @@ order, including when atlas controls and independent images alternate.
 Call the drawer's `close` after rendering has stopped to release its GPU
 resources. Closing a drawer does not destroy Windy's UIKit view.
 
+`drawer.maxTextureSize` reports the active device's 2D texture limit.
+Simulator exposes Apple family 2 capabilities with an 8192-pixel limit;
+newer physical devices can support larger textures. Repack the atlas within
+this bound before uploading it. Oversized textures raise `SilkyError`
+before reaching Metal's descriptor assertions.
+
 Atlas icons and skins accept an integer `pixelScale` through `addImage`,
 `addDir` and `addDirRecursive`. Their physical texture sizes remain intact;
 layout uses the corresponding logical dimensions.

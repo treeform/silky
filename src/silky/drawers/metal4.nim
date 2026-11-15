@@ -9,7 +9,6 @@ import
 const
   InitialVertexCapacity = 4096
   VertexBufferIndex = 1
-  MaximumTextureSize = 16384
   VertexShaderSource = toMSL(silkyVert, shaderVertex)
   FragmentShaderSource = toMSL(silkyFrag, shaderFragment)
 
@@ -45,6 +44,7 @@ type
     maxVertexCount: int
     viewportSize: IVec2
     atlasSize: IVec2
+    textureLimit: int
     textures: Table[uint32, DrawerTexture]
     nextTexture: uint32
     clearColor: MTLClearColor
@@ -59,6 +59,26 @@ static:
   doAssert sizeof(ShaderUniforms) == 16
   doAssert offsetOf(ShaderUniforms, viewportSize) == 0
   doAssert offsetOf(ShaderUniforms, atlasSize) == 8
+
+objc:
+  proc supportsFamily(self: MTLDevice, x: int): bool
+
+proc textureSizeLimit(device: MTLDevice): int =
+  ## Reads Metal's family-specific 2D texture limit, including Simulator.
+  # https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
+  # Simulator exposes Apple2 even when its host supports newer families.
+  if device.supportsFamily(1010): # MTLGPUFamilyApple10.
+    32768
+  elif device.supportsFamily(1003) or # MTLGPUFamilyApple3.
+      device.supportsFamily(2001) or # MTLGPUFamilyMac1.
+      device.supportsFamily(2002): # MTLGPUFamilyMac2.
+    16384
+  else:
+    8192
+
+proc maxTextureSize*(drawer: Drawer): int =
+  ## Returns the active GPU's maximum 2D texture width and height.
+  drawer.textureLimit
 
 proc clampViewport(size: IVec2): IVec2 =
   ## Clamps the viewport to valid drawable dimensions.
@@ -91,8 +111,11 @@ proc newTexture(state: Drawer, width, height: int): MTLTexture =
   ## Allocates a shader-readable texture using the supported 2D size limit.
   if width <= 0 or height <= 0:
     raise newException(SilkyError, "Image texture dimensions must be positive.")
-  if width > MaximumTextureSize or height > MaximumTextureSize:
-    raise newException(SilkyError, "Image texture exceeds the Metal size limit.")
+  if width > state.textureLimit or height > state.textureLimit:
+    raise newException(SilkyError,
+      "Image texture " & $width & "x" & $height &
+      " exceeds this Metal device's " & $state.textureLimit &
+      " pixel size limit.")
   let descriptor = MTLTextureDescriptor.texture2DDescriptorWithPixelFormat(
     MTLPixelFormatRGBA8Unorm,
     width.uint,
@@ -207,6 +230,7 @@ proc uploadAtlasRegion*(
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
   ## Creates the Metal pipeline, atlas texture, and dynamic buffers.
+  state.textureLimit = state.ctx.device.textureSizeLimit()
   var error: NSError
   let vertexLibrary = state.ctx.device.newLibraryWithSource(
     @VertexShaderSource,

@@ -146,6 +146,13 @@ when defined(macosx) and not defined(ios):
       discard drawer.allocateTexture(0, 1)
     expectSilkyError:
       discard drawer.allocateTexture(1, -1)
+    doAssert drawer.maxTextureSize in [8192, 16384, 32768]
+    expectSilkyError:
+      discard drawer.allocateTexture(drawer.maxTextureSize + 1, 1)
+    expectSilkyError:
+      discard drawer.allocateTexture(1, drawer.maxTextureSize + 1)
+    expectSilkyError:
+      drawer.uploadAtlas(newImage(drawer.maxTextureSize + 1, 1))
     expectSilkyError:
       drawer.uploadTextureRows(0, image, 0, 1)
     expectSilkyError:
