@@ -884,12 +884,12 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
     if ctrl:
       state.selectAll()
   of KeyC:
-    if ctrl:
+    if ctrl and not state.password:
       let copied = state.copyText()
       if copied.len > 0:
         setClipboardString(copied)
   of KeyX:
-    if ctrl:
+    if ctrl and not state.password:
       let cut = state.cutText()
       if cut.len > 0:
         setClipboardString(cut)
@@ -1223,7 +1223,7 @@ proc textBox*(
       window.scrollDelta.y != 0:
     state.scrollBy(
       window.scrollDelta.y * TextBoxScrollSpeed, innerRect.h)
-  if state.focused and enabled and not password:
+  if state.focused and enabled and (not password or defined(ios)):
     let selection = state.selection
     var
       visibleStart = state.runes.len
@@ -1246,7 +1246,8 @@ proc textBox*(
       visibleStart: visibleStart,
       visibleEnd: visibleEnd,
       bounds: rect(innerRect.xy * sk.uiScale, innerRect.wh * sk.uiScale),
-      multiline: not singleLine
+      multiline: not singleLine,
+      password: password
     ), textLayer, firstVertex)
   sk.advance(vec2(boxWidth, boxHeight))
 
