@@ -322,6 +322,7 @@ proc frameScrollbars*(
   ## overflow. At rest (t = 0) the origin edge is pinned: a bottom-origin
   ## frame rests scrolled to the bottom, and its thumb rests at the
   ## bottom of the track, moving away from the origin as t grows.
+  const MinThumbSize = 16.0'f
   if frameState.scrollingY and
       (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
     frameState.scrollingY = false
@@ -362,9 +363,12 @@ proc frameScrollbars*(
         frameRect.x + frameRect.w - 10,
         frameRect.y + 2,
         8,
-        frameRect.h - 4 - 10
+        max(0.0'f, frameRect.h - 4 - 10)
       )
-      thumbH = track.h * (frameRect.h / contentSize.y)
+      thumbH = min(
+        track.h,
+        max(MinThumbSize, track.h * (frameRect.h / contentSize.y))
+      )
       travel = track.h - thumbH
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
 
@@ -397,10 +401,13 @@ proc frameScrollbars*(
       track = rect(
         frameRect.x + 2,
         frameRect.y + frameRect.h - 10,
-        frameRect.w - 4 - 10,
+        max(0.0'f, frameRect.w - 4 - 10),
         8
       )
-      thumbW = track.w * (frameRect.w / contentSize.x)
+      thumbW = min(
+        track.w,
+        max(MinThumbSize, track.w * (frameRect.w / contentSize.x))
+      )
       travel = track.w - thumbW
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
 
@@ -449,26 +456,40 @@ template frame*(id: string, framePos, frameSize: Vec2, body: untyped) =
     sk.frameEnd(window, frameCtx.state, frameCtx.originPos)
   sk.endWidget()
 
-template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
-  ## Create a button with enabled and error states.
+template sizedButton(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  isError: bool,
+  body: untyped
+) =
+  ## Creates a native button with a minimum size and a left-aligned label.
   let
-    textSize = sk.getTextSize(sk.textStyle, label)
-    buttonSize = textSize + vec2(sk.theme.padding) * 2
+    buttonLabel = label
+    minimum = minimumSize
+    enabled = isEnabled
+    error = isError
+    padding = vec2(sk.theme.padding)
+    textSize = sk.getTextSize(sk.textStyle, buttonLabel)
+    intrinsicSize = textSize + padding * 2
+    buttonSize = vec2(
+      max(intrinsicSize.x, minimum.x), max(intrinsicSize.y, minimum.y)
+    )
     buttonOrigin = sk.placedAt(buttonSize)
     buttonRect = rect(buttonOrigin, buttonSize)
 
   when defined(silkyTesting):
-    sk.beginWidget("Button", text = label, rect = buttonRect)
+    sk.beginWidget("Button", text = buttonLabel, rect = buttonRect)
 
   let
     textColor =
-      if not isEnabled:
+      if not enabled:
         sk.theme.disabledTextColor
-      elif isError:
+      elif error:
         sk.theme.errorTextColor
       else:
         sk.theme.defaultTextColor
-    interaction = sk.interact(buttonRect, isEnabled, isError)
+    interaction = sk.interact(buttonRect, enabled, error)
 
   let patch = case interaction
     of Error:
@@ -491,21 +512,48 @@ template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
     let
       pressed = interaction == Pressed or interaction == Held
       hovered = pressed or interaction == Hovered
-    sk.setWidgetState(enabled = isEnabled, pressed = pressed, hovered = hovered)
+    sk.setWidgetState(enabled = enabled, pressed = pressed, hovered = hovered)
 
-  let at = buttonOrigin + vec2(sk.theme.padding)
-  discard sk.drawText(sk.textStyle, label, at, textColor)
+  let at = buttonOrigin + vec2(padding.x, (buttonSize.y - textSize.y) / 2)
+  discard sk.drawText(sk.textStyle, buttonLabel, at, textColor)
   when defined(silkyTesting):
     sk.endWidget()
-  sk.advance(buttonSize + vec2(sk.theme.padding))
+  sk.advance(buttonSize + padding)
+
+template button*(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  isError: bool,
+  body: untyped
+) =
+  ## Creates a minimum-size button with enabled and error states.
+  sizedButton(label, minimumSize, isEnabled, isError, body)
+
+template button*(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  body: untyped
+) =
+  ## Creates a native button with a minimum size and an enabled state.
+  sizedButton(label, minimumSize, isEnabled, false, body)
+
+template button*(label: string, minimumSize: Vec2, body: untyped) =
+  ## Creates a native button with a minimum size.
+  sizedButton(label, minimumSize, true, false, body)
+
+template button*(label: string, isEnabled: bool, isError: bool, body: untyped) =
+  ## Creates an intrinsic-size button with enabled and error states.
+  sizedButton(label, vec2(0), isEnabled, isError, body)
 
 template button*(label: string, body: untyped) =
   ## Create a button.
-  button(label, true, false, body)
+  sizedButton(label, vec2(0), true, false, body)
 
 template button*(label: string, isEnabled: bool, body: untyped) =
   ## Create a button.
-  button(label, isEnabled, false, body)
+  sizedButton(label, vec2(0), isEnabled, false, body)
 
 template icon*(image: string) =
   ## Draw an icon.
@@ -1002,6 +1050,9 @@ template tooltip*(text: string) =
     sk.tooltipFadeInTime = 0
   sk.tooltipLastAnchor = sk.tooltipAnchor
   sk.showTooltip = true
+  if sk.renderMode == OnDemandRender and
+    sk.tooltipFadeInTime < sk.tooltipFadeInDuration:
+      sk.requestFrame(16)
 
   let
     fadeAlpha = clamp(

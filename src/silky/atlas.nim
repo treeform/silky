@@ -24,6 +24,8 @@ type
     y*: int
     width*: int
     height*: int
+    pixelScale*: int = 1
+      ## The number of texture pixels per logical pixel.
 
   LetterEntry* = object
     ## The position and size of a letter in the font atlas.
@@ -48,13 +50,13 @@ type
   FontAtlas* = ref object
     ## The font atlas that is used to draw text.
     size*: float32
-    pixelScale*: float32 = 1.0'f
-    ## Atlas pixels per logical point; layout metrics remain in points.
     lineHeight*: float32
     descent*: float32
     ascent*: float32
     lineGap*: float32
     subpixelSteps*: int
+    pixelScale*: float32 = 1
+      ## The glyph raster density; font metrics remain logical.
     entries*: Table[string, seq[LetterEntry]]
     lookup*: GlyphLookup
 
@@ -79,7 +81,7 @@ proc skipHook*(T: typedesc[FontAtlasObject], key: static string): bool =
   key == "lookup"
 
 proc rasterScale*(fontAtlas: FontAtlas): float32 {.inline.} =
-  ## Returns atlas pixels per logical point, including legacy atlas metadata.
+  ## Returns physical glyph density while accepting legacy atlas metadata.
   if fontAtlas.pixelScale > 0:
     fontAtlas.pixelScale
   else:
@@ -300,9 +302,12 @@ proc writePng*(path, json: string, image: Image) =
 proc addImage*(
   builder: AtlasBuilder,
   name: string,
-  image: Image
+  image: Image,
+  pixelScale: int = 1
 ): bool =
   ## Pack one image into the atlas. False when the atlas is full.
+  if pixelScale < 1:
+    raise newException(SilkyAtlasError, "Image pixel scale must be positive")
   let allocation = builder.allocator.allocate(image.width, image.height)
   if not allocation.success:
     return false
@@ -315,7 +320,8 @@ proc addImage*(
     x: allocation.x,
     y: allocation.y,
     width: image.width,
-    height: image.height
+    height: image.height,
+    pixelScale: pixelScale
   )
   true
 
@@ -346,12 +352,12 @@ proc newAtlasBuilderFromAtlas*(
   for _, e in atlas.entries:
     result.markOccupiedEntry(e.x, e.y, e.width, e.height)
   for fontAtlas in atlas.fonts.values:
-    let pixelScale = fontAtlas.rasterScale
     for variants in fontAtlas.entries.values:
       for letter in variants:
         let
-          w = round(letter.boundsWidth * pixelScale).int
-          h = round(letter.boundsHeight * pixelScale).int
+          density = max(fontAtlas.pixelScale, 0.001'f)
+          w = (letter.boundsWidth * density).ceil.int
+          h = (letter.boundsHeight * density).ceil.int
         if w > 0 and h > 0:
           result.markOccupiedEntry(letter.x, letter.y, w, h)
 
@@ -370,7 +376,12 @@ proc growAtlas*(builder: AtlasBuilder, newSize: int) =
   builder.allocator = newSkylineAllocator(newSize, builder.margin)
   builder.allocator.markRegion(0, 0, oldSize, oldSize)
 
-proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
+proc addDir*(
+  builder: AtlasBuilder,
+  path: string,
+  removePrefix: string = "",
+  pixelScale: int = 1
+) =
   ## Add all images in the given directory to the atlas.
   for file in walkDir(path):
     if file.path.endsWith(".png"):
@@ -379,19 +390,24 @@ proc addDir*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
       if removePrefix.len > 0:
         key.removePrefix(removePrefix)
       key.removeSuffix(".png")
-      if not builder.addImage(key, image):
+      if not builder.addImage(key, image, pixelScale):
         raise newException(
           ValueError,
           "Failed to allocate space for " & file.path & "\n" &
           "You need to increase the size of the atlas"
         )
 
-proc addDirRecursive*(builder: AtlasBuilder, path: string, removePrefix: string = "") =
+proc addDirRecursive*(
+  builder: AtlasBuilder,
+  path: string,
+  removePrefix: string = "",
+  pixelScale: int = 1
+) =
   ## Add all images in the given directory and its subdirectories to the atlas.
-  builder.addDir(path, removePrefix)
+  builder.addDir(path, removePrefix, pixelScale)
   for entry in walkDir(path):
     if entry.kind == pcDir:
-      builder.addDirRecursive(entry.path, removePrefix)
+      builder.addDirRecursive(entry.path, removePrefix, pixelScale)
 
 proc finiteBounds(bounds: Rect): Rect =
   ## Glyphs with no outline (such as space) compute to infinite/NaN bounds,
@@ -405,32 +421,32 @@ proc finiteBounds(bounds: Rect): Rect =
 
 proc addFont*(
   builder: AtlasBuilder,
-  path: string,
+  typeface: Typeface,
   name: string,
   size: float32,
   chars: seq[string] = AsciiGlyphs,
   subpixelSteps: int = 0,
-  pixelScale = 1.0'f
+  pixelScale: float32 = 1
 ) =
-  ## Rasterizes a font at pixelScale density while preserving logical metrics.
-  if pixelScale <= 0 or pixelScale.classify notin {fcNormal, fcSubnormal}:
-    raise newException(
-      SilkyAtlasError,
-      "Font pixelScale must be finite and positive"
-    )
-  let fontAtlas = FontAtlas()
+  ## Rasterizes a font at pixelScale with logical layout metrics.
+  if pixelScale <= 0 or
+    pixelScale.classify notin {fcNormal, fcSubnormal}:
+      raise newException(SilkyAtlasError, "Font pixel scale must be positive")
+  let
+    density = pixelScale.float32
+    fontAtlas = FontAtlas()
   fontAtlas.size = size
-  fontAtlas.pixelScale = pixelScale
   fontAtlas.subpixelSteps = subpixelSteps
-  let typeface = readTypeface(path)
-  var fontObj = newFont(typeface)
+  fontAtlas.pixelScale = pixelScale
+  let fontObj = newFont(typeface)
   fontObj.size = size
   let logicalScale = fontObj.scale
-  fontAtlas.lineHeight = (typeface.ascent - typeface.descent + typeface.lineGap) * fontObj.scale
-  fontAtlas.ascent = typeface.ascent * fontObj.scale
-  fontAtlas.descent = typeface.descent * fontObj.scale
-  fontAtlas.lineGap = typeface.lineGap * fontObj.scale
-  fontObj.size = size * pixelScale
+  fontAtlas.lineHeight =
+    (typeface.ascent - typeface.descent + typeface.lineGap) * logicalScale
+  fontAtlas.ascent = typeface.ascent * logicalScale
+  fontAtlas.descent = typeface.descent * logicalScale
+  fontAtlas.lineGap = typeface.lineGap * logicalScale
+  fontObj.size = size * density
   # If subpixelSteps > 0, generates multiple versions of each glyph shifted by 1/subpixelSteps pixels.
   # For example, subpixelSteps=10 generates 10 versions per glyph at 0.0, 0.1, 0.2, ... 0.9 pixel offsets.
   let numVariants = if subpixelSteps > 0: subpixelSteps else: 1
@@ -467,7 +483,7 @@ proc addFont*(
         let allocation = builder.allocator.allocate(glyphImage.width, glyphImage.height)
         if not allocation.success:
           raise newException(
-            ValueError,
+            SilkyAtlasError,
             "Failed to allocate space for glyph: " & glyphStr & " variant " & $variant & "\n" &
             "You need to increase the size of the atlas"
           )
@@ -479,20 +495,20 @@ proc addFont*(
         fontAtlas.entries[glyphStr].add(LetterEntry(
           x: allocation.x,
           y: allocation.y,
-          boundsX: (baseBounds.x + subpixelOffset.floor) / pixelScale,
-          boundsY: baseBounds.y / pixelScale,
-          boundsWidth: offsetBounds.w.ceil / pixelScale,
-          boundsHeight: offsetBounds.h.ceil / pixelScale,
+          boundsX: (baseBounds.x + subpixelOffset.floor) / density,
+          boundsY: baseBounds.y / density,
+          boundsWidth: offsetBounds.w.ceil / density,
+          boundsHeight: offsetBounds.h.ceil / density,
           advance: advance
         ))
       else:
         fontAtlas.entries[glyphStr].add(LetterEntry(
           x: 0,
           y: 0,
-          boundsX: baseBounds.x / pixelScale,
-          boundsY: baseBounds.y / pixelScale,
-          boundsWidth: baseBounds.w / pixelScale,
-          boundsHeight: baseBounds.h / pixelScale,
+          boundsX: baseBounds.x / density,
+          boundsY: baseBounds.y / density,
+          boundsWidth: baseBounds.w / density,
+          boundsHeight: baseBounds.h / density,
           advance: advance
         ))
     # Kerning only needs to be stored once per base glyph (variant 0).
@@ -504,6 +520,23 @@ proc addFont*(
           kerning * logicalScale
   fontAtlas.rebuildGlyphLookups()
   builder.atlas.fonts[name] = fontAtlas
+
+proc addFont*(
+  builder: AtlasBuilder,
+  path: string,
+  name: string,
+  size: float32,
+  chars: seq[string] = AsciiGlyphs,
+  subpixelSteps: int = 0,
+  pixelScale: float32 = 1
+) =
+  ## Loads a font file and rasterizes it at the requested pixel density.
+  try:
+    builder.addFont(
+      readTypeface(path), name, size, chars, subpixelSteps, pixelScale
+    )
+  except PixieError as error:
+    raise newException(SilkyAtlasError, "Could not load font: " & error.msg)
 
 proc write*(builder: AtlasBuilder, outputPngPath: string) =
   ## Write atlas image and JSON metadata into a single PNG.
