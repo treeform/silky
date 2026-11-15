@@ -48,6 +48,8 @@ type
   FontAtlas* = ref object
     ## The font atlas that is used to draw text.
     size*: float32
+    pixelScale*: float32 = 1.0'f
+    ## Atlas pixels per logical point; layout metrics remain in points.
     lineHeight*: float32
     descent*: float32
     ascent*: float32
@@ -75,6 +77,13 @@ type
 proc skipHook*(T: typedesc[FontAtlasObject], key: static string): bool =
   ## Skips runtime-only lookup tables during atlas JSON serialization.
   key == "lookup"
+
+proc rasterScale*(fontAtlas: FontAtlas): float32 {.inline.} =
+  ## Returns atlas pixels per logical point, including legacy atlas metadata.
+  if fontAtlas.pixelScale > 0:
+    fontAtlas.pixelScale
+  else:
+    1.0'f
 
 proc kerningKey(left, right: Rune): uint64 {.inline.} =
   ## Packs two Unicode scalar values into one table key.
@@ -337,11 +346,12 @@ proc newAtlasBuilderFromAtlas*(
   for _, e in atlas.entries:
     result.markOccupiedEntry(e.x, e.y, e.width, e.height)
   for fontAtlas in atlas.fonts.values:
+    let pixelScale = fontAtlas.rasterScale
     for variants in fontAtlas.entries.values:
       for letter in variants:
         let
-          w = letter.boundsWidth.ceil.int
-          h = letter.boundsHeight.ceil.int
+          w = round(letter.boundsWidth * pixelScale).int
+          h = round(letter.boundsHeight * pixelScale).int
         if w > 0 and h > 0:
           result.markOccupiedEntry(letter.x, letter.y, w, h)
 
@@ -393,18 +403,34 @@ proc finiteBounds(bounds: Rect): Rect =
   else:
     rect(0, 0, 0, 0)
 
-proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, chars: seq[string] = AsciiGlyphs, subpixelSteps: int = 0) =
-  ## Add a font to the atlas.
+proc addFont*(
+  builder: AtlasBuilder,
+  path: string,
+  name: string,
+  size: float32,
+  chars: seq[string] = AsciiGlyphs,
+  subpixelSteps: int = 0,
+  pixelScale = 1.0'f
+) =
+  ## Rasterizes a font at pixelScale density while preserving logical metrics.
+  if pixelScale <= 0 or pixelScale.classify notin {fcNormal, fcSubnormal}:
+    raise newException(
+      SilkyAtlasError,
+      "Font pixelScale must be finite and positive"
+    )
   let fontAtlas = FontAtlas()
   fontAtlas.size = size
+  fontAtlas.pixelScale = pixelScale
   fontAtlas.subpixelSteps = subpixelSteps
   let typeface = readTypeface(path)
   var fontObj = newFont(typeface)
   fontObj.size = size
+  let logicalScale = fontObj.scale
   fontAtlas.lineHeight = (typeface.ascent - typeface.descent + typeface.lineGap) * fontObj.scale
   fontAtlas.ascent = typeface.ascent * fontObj.scale
   fontAtlas.descent = typeface.descent * fontObj.scale
   fontAtlas.lineGap = typeface.lineGap * fontObj.scale
+  fontObj.size = size * pixelScale
   # If subpixelSteps > 0, generates multiple versions of each glyph shifted by 1/subpixelSteps pixels.
   # For example, subpixelSteps=10 generates 10 versions per glyph at 0.0, 0.1, 0.2, ... 0.9 pixel offsets.
   let numVariants = if subpixelSteps > 0: subpixelSteps else: 1
@@ -416,7 +442,7 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
       scale = fontObj.scale
       scaleMat = scale(vec2(scale))
       baseBounds = glyphPath.computeBounds(scaleMat).snapToPixels().finiteBounds()
-      advance = typeface.getAdvance(rune) * scale
+      advance = typeface.getAdvance(rune) * logicalScale
     fontAtlas.entries[glyphStr] = @[]
     for variant in 0 ..< numVariants:
       let
@@ -453,20 +479,20 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
         fontAtlas.entries[glyphStr].add(LetterEntry(
           x: allocation.x,
           y: allocation.y,
-          boundsX: baseBounds.x + subpixelOffset.floor,
-          boundsY: baseBounds.y,
-          boundsWidth: offsetBounds.w.ceil,
-          boundsHeight: offsetBounds.h.ceil,
+          boundsX: (baseBounds.x + subpixelOffset.floor) / pixelScale,
+          boundsY: baseBounds.y / pixelScale,
+          boundsWidth: offsetBounds.w.ceil / pixelScale,
+          boundsHeight: offsetBounds.h.ceil / pixelScale,
           advance: advance
         ))
       else:
         fontAtlas.entries[glyphStr].add(LetterEntry(
           x: 0,
           y: 0,
-          boundsX: baseBounds.x,
-          boundsY: baseBounds.y,
-          boundsWidth: baseBounds.w,
-          boundsHeight: baseBounds.h,
+          boundsX: baseBounds.x / pixelScale,
+          boundsY: baseBounds.y / pixelScale,
+          boundsWidth: baseBounds.w / pixelScale,
+          boundsHeight: baseBounds.h / pixelScale,
           advance: advance
         ))
     # Kerning only needs to be stored once per base glyph (variant 0).
@@ -474,7 +500,8 @@ proc addFont*(builder: AtlasBuilder, path: string, name: string, size: float32, 
       let rune2 = glyphStr2.runeAt(0)
       let kerning = typeface.getKerningAdjustment(rune, rune2)
       if kerning != 0:
-        fontAtlas.entries[glyphStr][0].kerning[glyphStr2] = kerning * scale
+        fontAtlas.entries[glyphStr][0].kerning[glyphStr2] =
+          kerning * logicalScale
   fontAtlas.rebuildGlyphLookups()
   builder.atlas.fonts[name] = fontAtlas
 

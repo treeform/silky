@@ -1,11 +1,15 @@
-when not defined(macosx):
-  {.error: "The Silky Metal 4 backend requires macOS.".}
+when not (defined(macosx) or defined(ios)):
+  {.error: "The Silky Metal backend requires macOS or iOS.".}
 
 import
-  pixie, vmath, windy, pkg/metal4
+  pixie, shady, vmath, windy, pkg/metal4,
+  shader
 
 const
   InitialVertexCapacity = 4096
+  VertexBufferIndex = 1
+  VertexShaderSource = toMSL(silkyVert, shaderVertex)
+  FragmentShaderSource = toMSL(silkyFrag, shaderFragment)
 
 type
   DrawerVertex* {.packed.} = object
@@ -17,6 +21,11 @@ type
     clipSize*: Vec2
     maskUv*: Vec2
 
+  ShaderUniforms = object
+    ## Matches the Shady vertex shader's constant buffer layout.
+    viewportSize: Vec2
+    atlasSize: Vec2
+
   Drawer* = ref object
     ## Metal 4-backed drawer state.
     ctx: MetalContext
@@ -27,41 +36,34 @@ type
     vertexBufferPtr: pointer
     maxVertexCount: int
     viewportSize: IVec2
+    atlasSize: IVec2
     clearColor: MTLClearColor
     layers*: array[2, seq[DrawerVertex]]
     currentLayer*: int
     layerStack*: seq[int]
 
+static:
+  doAssert sizeof(DrawerVertex) == 44
+  doAssert sizeof(ShaderUniforms) == 16
+  doAssert offsetOf(ShaderUniforms, viewportSize) == 0
+  doAssert offsetOf(ShaderUniforms, atlasSize) == 8
+
 proc clampViewport(size: IVec2): IVec2 =
   ## Clamps the viewport to valid drawable dimensions.
   ivec2(max(1'i32, size.x), max(1'i32, size.y))
 
-proc normalizeVertices(
-  vertices: var seq[DrawerVertex],
-  viewportSize: IVec2,
-  atlasSize: Vec2
-) =
-  ## Converts queued pixel-space vertices to clip-space and normalized UVs.
-  let
-    width = max(1.0'f, viewportSize.x.float32)
-    height = max(1.0'f, viewportSize.y.float32)
-  for i in 0 ..< vertices.len:
-    let p = vertices[i].pos
-    vertices[i].pos = vec2(
-      (p.x / width) * 2.0'f - 1.0'f,
-      1.0'f - (p.y / height) * 2.0'f
-    )
-    vertices[i].uv = vertices[i].uv / atlasSize
-
 proc createVertexBuffer(state: Drawer, maxVertexCount: int) =
   ## Creates or replaces the persistently mapped vertex buffer.
-  state.vertexBuffer = state.ctx.device.newBufferWithLength(
+  let buffer = state.ctx.device.newBufferWithLength(
     (maxVertexCount * sizeof(DrawerVertex)).uint,
     0
   )
-  checkNil(state.vertexBuffer, "Could not create a Metal vertex buffer")
-  state.vertexBufferPtr = state.vertexBuffer.contents()
-  checkNil(state.vertexBufferPtr, "Could not map the Metal vertex buffer")
+  checkNil(buffer, "Could not create a Metal vertex buffer")
+  let bufferPtr = buffer.contents()
+  checkNil(bufferPtr, "Could not map the Metal vertex buffer")
+  state.vertexBuffer.release()
+  state.vertexBuffer = buffer
+  state.vertexBufferPtr = bufferPtr
   state.maxVertexCount = maxVertexCount
 
 proc uploadTexture(state: Drawer, image: Image) =
@@ -73,10 +75,10 @@ proc uploadTexture(state: Drawer, image: Image) =
     false
   )
   descriptor.setUsage(MTLTextureUsageShaderRead)
-  state.texture = state.ctx.device.newTextureWithDescriptor(descriptor)
-  checkNil(state.texture, "Could not create the atlas texture")
+  let texture = state.ctx.device.newTextureWithDescriptor(descriptor)
+  checkNil(texture, "Could not create the atlas texture")
 
-  state.texture.replaceRegion(
+  texture.replaceRegion(
     MTLRegion(
       origin: MTLOrigin(x: 0, y: 0, z: 0),
       size: MTLSize(
@@ -89,96 +91,68 @@ proc uploadTexture(state: Drawer, image: Image) =
     unsafeAddr image.data[0],
     (image.width * 4).uint
   )
+  state.texture.release()
+  state.texture = texture
+  state.atlasSize = ivec2(image.width.int32, image.height.int32)
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
   ## Creates the Metal pipeline, atlas texture, and dynamic buffers.
-  const ShaderSource = """
-#include <metal_stdlib>
-using namespace metal;
-
-struct DrawerVertex {
-  packed_float2 pos;
-  packed_float2 uv;
-  uchar4 color;
-  packed_float2 clipPos;
-  packed_float2 clipSize;
-  packed_float2 maskUv;
-};
-
-struct VertexOut {
-  float4 position [[position]];
-  float2 uv;
-  float4 color;
-  float2 clipPos;
-  float2 clipSize;
-  float2 maskUv;
-};
-
-vertex VertexOut vertexMain(
-  uint vertexId [[vertex_id]],
-  constant DrawerVertex *vertices [[buffer(0)]]
-) {
-  VertexOut out;
-  DrawerVertex inVertex = vertices[vertexId];
-  out.position = float4(float2(inVertex.pos), 0.0, 1.0);
-  out.uv = float2(inVertex.uv);
-  out.color = float4(inVertex.color) / 255.0;
-  out.clipPos = float2(inVertex.clipPos);
-  out.clipSize = float2(inVertex.clipSize);
-  out.maskUv = float2(inVertex.maskUv);
-  return out;
-}
-
-fragment float4 fragmentMain(VertexOut in [[stage_in]]) {
-  if (in.position.x < in.clipPos.x ||
-      in.position.y < in.clipPos.y ||
-      in.position.x > in.clipPos.x + in.clipSize.x ||
-      in.position.y > in.clipPos.y + in.clipSize.y) {
-    discard_fragment();
-  }
-  return float4(1.0);
-}
-
-fragment float4 texturedFragmentMain(
-  VertexOut in [[stage_in]],
-  texture2d<float> tex [[texture(0)]],
-  sampler texSampler [[sampler(0)]]
-) {
-  if (in.position.x < in.clipPos.x ||
-      in.position.y < in.clipPos.y ||
-      in.position.x > in.clipPos.x + in.clipSize.x ||
-      in.position.y > in.clipPos.y + in.clipSize.y) {
-    discard_fragment();
-  }
-  float4 base = tex.sample(texSampler, in.uv);
-  if (in.maskUv.x >= 0.0) {
-    float maskR = tex.sample(texSampler, in.maskUv).r;
-    return float4(base.rgb * mix(float3(1.0), in.color.rgb, maskR), base.a * in.color.a);
-  }
-  return base * in.color;
-}
-"""
-
   var error: NSError
-  let library = state.ctx.device.newLibraryWithSource(
-    @ShaderSource,
+  let vertexLibrary = state.ctx.device.newLibraryWithSource(
+    @VertexShaderSource,
     0.ID,
     error.addr
   )
-  checkNSError(error, "Could not compile the Metal shaders")
-  checkNil(library, "Metal shader library was nil")
+  checkNSError(error, "Could not compile the Shady Metal vertex shader")
+  checkNil(vertexLibrary, "Metal vertex library was nil")
+  defer: vertexLibrary.release()
 
-  let vertexFunction = library.newFunctionWithName(@"vertexMain")
-  checkNil(vertexFunction, "Could not load Metal shader entry point: vertexMain")
-
-  let fragmentFunction = library.newFunctionWithName(@"texturedFragmentMain")
-  checkNil(
-    fragmentFunction,
-    "Could not load Metal shader entry point: texturedFragmentMain"
+  error = 0.NSError
+  let fragmentLibrary = state.ctx.device.newLibraryWithSource(
+    @FragmentShaderSource,
+    0.ID,
+    error.addr
   )
+  checkNSError(error, "Could not compile the Shady Metal fragment shader")
+  checkNil(fragmentLibrary, "Metal fragment library was nil")
+  defer: fragmentLibrary.release()
+
+  let
+    vertexFunction = vertexLibrary.newFunctionWithName(@"vertexMain")
+    fragmentFunction = fragmentLibrary.newFunctionWithName(@"fragmentMain")
+  checkNil(vertexFunction, "Could not load Shady's Metal vertex entry point")
+  checkNil(fragmentFunction, "Could not load Shady's Metal fragment entry point")
+  defer: vertexFunction.release()
+  defer: fragmentFunction.release()
+
+  let vertexDescriptor = MTLVertexDescriptor.alloc().init()
+  checkNil(vertexDescriptor, "Could not create a Metal vertex descriptor")
+  defer: vertexDescriptor.release()
+  const Offsets = [
+    offsetOf(DrawerVertex, pos),
+    offsetOf(DrawerVertex, uv),
+    offsetOf(DrawerVertex, color),
+    offsetOf(DrawerVertex, clipPos),
+    offsetOf(DrawerVertex, clipSize),
+    offsetOf(DrawerVertex, maskUv)
+  ]
+  for i, offset in Offsets:
+    let attribute = vertexDescriptor.attributes().objectAtIndexedSubscript(
+      i.uint
+    )
+    attribute.setFormat(
+      if i == 2: MTLVertexFormatUChar4Normalized else: MTLVertexFormatFloat2
+    )
+    attribute.setOffset(offset.uint)
+    attribute.setBufferIndex(VertexBufferIndex)
+  vertexDescriptor.layouts().objectAtIndexedSubscript(
+    VertexBufferIndex
+  ).setStride(sizeof(DrawerVertex).uint)
 
   let pipelineDescriptor = MTLRenderPipelineDescriptor.alloc().init()
   checkNil(pipelineDescriptor, "Could not create a pipeline descriptor")
+  defer: pipelineDescriptor.release()
+  pipelineDescriptor.setVertexDescriptor(vertexDescriptor)
   let colorAttachment =
     pipelineDescriptor.colorAttachments().objectAtIndexedSubscript(0)
   pipelineDescriptor.setVertexFunction(vertexFunction)
@@ -206,6 +180,7 @@ fragment float4 texturedFragmentMain(
 
   let samplerDescriptor = MTLSamplerDescriptor.alloc().init()
   checkNil(samplerDescriptor, "Could not create a sampler descriptor")
+  defer: samplerDescriptor.release()
   samplerDescriptor.setMinFilter(MTLSamplerMinMagFilterLinear)
   samplerDescriptor.setMagFilter(MTLSamplerMinMagFilterLinear)
   samplerDescriptor.setMipFilter(MTLSamplerMipFilterNotMipmapped)
@@ -219,6 +194,10 @@ fragment float4 texturedFragmentMain(
   state.viewportSize = clampViewport(size)
   state.createVertexBuffer(InitialVertexCapacity)
   state.uploadTexture(image)
+
+proc uploadAtlas*(drawer: Drawer, image: Image) =
+  ## Replaces the atlas texture after runtime glyph or image additions.
+  drawer.uploadTexture(image)
 
 proc newDrawer*(window: Window, image: Image): Drawer =
   ## Creates a new Metal drawer and eagerly initializes its resources.
@@ -282,7 +261,12 @@ proc recordDraw(state: Drawer, vertexCount: int) =
     )
   )
   encoder.setCullMode(MTLCullModeNone)
-  encoder.setVertexBuffer(state.vertexBuffer, 0, 0)
+  encoder.setVertexBuffer(state.vertexBuffer, 0, VertexBufferIndex)
+  var uniforms = ShaderUniforms(
+    viewportSize: state.viewportSize.vec2,
+    atlasSize: state.atlasSize.vec2
+  )
+  encoder.setVertexBytes(uniforms.addr, sizeof(uniforms).uint, 0)
   encoder.setFragmentTexture(state.texture, 0)
   encoder.setFragmentSamplerState(state.sampler, 0)
   if vertexCount > 0:
@@ -290,6 +274,9 @@ proc recordDraw(state: Drawer, vertexCount: int) =
   encoder.endEncoding()
   commandBuffer.presentDrawable(drawable)
   commandBuffer.commit()
+  # Keep the shared vertex buffer available for the next CPU frame.
+  commandBuffer.waitUntilCompleted()
+  checkNSError(commandBuffer.error(), "Metal failed to render the Silky frame")
 
 proc endFrame*(
   drawer: Drawer,
@@ -300,21 +287,15 @@ proc endFrame*(
 ) =
   ## Flushes the queued quads through Metal 4.
   discard size
-  let
-    atlasSize = vec2(image.width.float32, image.height.float32)
-    vertexCount = quadCount
+  let vertexCount = quadCount
+  if drawer.atlasSize != ivec2(image.width.int32, image.height.int32):
+    drawer.uploadTexture(image)
   drawer.ensureVertexCapacity(vertexCount)
-
-  var vertices = newSeqOfCap[DrawerVertex](vertexCount)
-  let quadsArr = cast[ptr UncheckedArray[DrawerVertex]](quads)
-  for i in 0 ..< quadCount:
-    vertices.add(quadsArr[i])
-  vertices.normalizeVertices(drawer.viewportSize, atlasSize)
 
   if vertexCount > 0:
     copyMem(
       drawer.vertexBufferPtr,
-      unsafeAddr vertices[0],
+      quads,
       vertexCount * sizeof(DrawerVertex)
     )
 

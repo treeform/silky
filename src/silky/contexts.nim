@@ -527,6 +527,7 @@ proc drawText*(
 
   let
     fontData = sk.atlas.fonts[font]
+    pixelScale = fontData.rasterScale
     maxPos = pos + vec2(maxWidth, maxHeight)
     hasSubpixel = fontData.subpixelSteps > 0
     layer = sk.drawer.currentLayer
@@ -597,7 +598,9 @@ proc drawText*(
 
     let variant =
       if hasSubpixel:
-        let frac = currentPos.x - currentPos.x.floor
+        let
+          pixelX = currentPos.x * pixelScale
+          frac = pixelX - pixelX.floor
         (frac * fontData.subpixelSteps.float32).int mod
           fontData.subpixelSteps
       else:
@@ -627,14 +630,14 @@ proc drawText*(
 
     if entry.boundsWidth > 0 and entry.boundsHeight > 0:
       let glyphPos = vec2(
-        floor(currentPos.x) + entry.boundsX,
-        round(currentPos.y + entry.boundsY)
+        floor(currentPos.x * pixelScale) / pixelScale + entry.boundsX,
+        round((currentPos.y + entry.boundsY) * pixelScale) / pixelScale
       )
       sk.drawQuad(
         glyphPos,
         vec2(entry.boundsWidth, entry.boundsHeight),
         vec2(entry.x.float32, entry.y.float32),
-        vec2(entry.boundsWidth, entry.boundsHeight),
+        vec2(entry.boundsWidth, entry.boundsHeight) * pixelScale,
         color
       )
 
@@ -721,7 +724,6 @@ proc uploadAtlas*(sk: Silky) =
   ## Push the current CPU atlas image to the GPU drawer.
   when not defined(useDirectX) and
       not defined(useVulkan) and
-      not defined(useMetal4) and
       not defined(useCpu):
     sk.drawer.uploadAtlas(sk.image)
 
