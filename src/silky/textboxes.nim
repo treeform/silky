@@ -884,8 +884,9 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
   else:
     discard
 
-proc handleSelectionInput*(state: TextBoxState, inputs: TextInputs) =
-  ## Drains read-only navigation and copy events without accepting edits.
+proc handleSelectionInput*(state: TextBoxState, inputs: TextInputs): bool
+    {.discardable.} =
+  ## Drains read-only input and reports keyboard navigation for parent scrolling.
   assert not state.enabled
   let
     epoch = inputs.focusEpoch
@@ -895,6 +896,11 @@ proc handleSelectionInput*(state: TextBoxState, inputs: TextInputs) =
       break
     if event.kind == InputKind.KeyDown:
       state.handleKey(event)
+      if event.button in {
+        KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd,
+        KeyPageUp, KeyPageDown
+      }:
+        result = true
   if events.len > 0:
     state.scrollToCursor()
 
