@@ -49,11 +49,13 @@ Raster image and button skin assets have their own density requirements.
 
 The generated entry points are `vertexMain` and `fragmentMain`. Vertex
 buffer 0 contains two `Vec2` uniforms: viewport size at byte 0 and atlas
-size at byte 8. Vertex buffer 1 contains packed 44-byte `DrawerVertex`
+size at byte 8. Vertex buffer 1 contains packed 48-byte `DrawerVertex`
 values. Attributes 0 through 5 are position, UV, color, clip position,
 clip size, and mask UV. The color attribute uses `UChar4Normalized`; the
 other attributes use `Float2`. The atlas texture and sampler use fragment
-index 0.
+index 0. The final `uint32` is a CPU texture handle used for batching;
+it is not a shader attribute. Zero selects the atlas. Each contiguous
+texture batch receives the bound texture's size in the uniform buffer.
 
 Positions and atlas coordinates stay in pixels until the generated shader
 transforms them. This also applies to tint-mask coordinates. The fragment
@@ -61,20 +63,32 @@ shader uses interpolated pixel positions for clipping.
 
 ## Current scope
 
-The drawer renders atlas images, text, clipping, tint masks, and Silky
-controls. It uses the ordinary Metal API exposed by the `metal4` Nim
+The drawer renders atlas images, independent images, text, clipping, tint
+masks, rich documents, and Silky controls. It uses the ordinary Metal API exposed by the `metal4` Nim
 package, without requiring Apple's newer Metal 4 GPU features.
 
 Each frame waits for GPU completion before reusing the shared vertex
 buffer. This keeps the first port correct and reports command errors, but
 does not overlap CPU and GPU work. A bounded set of buffers can replace
 this synchronization after profiling. Runtime atlas changes are uploaded
-through `uploadAtlas`.
+through `uploadAtlas`, or `uploadAtlasRegion` for a changed rectangle.
 
-Windy supplies basic committed text input through UIKit's software keyboard;
-Silky's text fields use that input. Native iOS text selection, IME composition,
-accessibility, multitouch gestures and remote development transport remain
-separate Windy and application milestones.
+Use `allocateTexture`, `uploadTextureRows`, `drawTexture` and `deleteTexture`
+for images that should not consume font atlas space. Upload all image rows
+before drawing the texture. Batches preserve the original layer and draw
+order, including when atlas controls and independent images alternate.
+Call the drawer's `close` after rendering has stopped to release its GPU
+resources. Closing a drawer does not destroy Windy's UIKit view.
+
+Atlas icons and skins accept an integer `pixelScale` through `addImage`,
+`addDir` and `addDirRecursive`. Their physical texture sizes remain intact;
+layout uses the corresponding logical dimensions.
+
+Silky accepts Windy's text commits and range-based native edits, and publishes
+focused text, selection and caret geometry through `TextInputState`. The
+platform owns the software keyboard and composition interface. Accessibility,
+multitouch gestures and remote development transport remain separate Windy
+and application milestones.
 
 ## Verification
 
@@ -95,6 +109,13 @@ macOS, links the pipeline with Silky's packed vertex layout, renders to an
 offscreen texture, and verifies colors, tint masks, and clipping by pixel
 readback. This host test uses Metal's runtime compiler and does not need
 the optional Xcode MetalToolchain download.
+
+`tests/test_metal_texture_pixels.nim`, built with `-d:silkyMetalTesting`,
+exercises the production drawer's allocation, row uploads, atlas rectangles,
+texture growth, batching, stale handles, clipping and tint masks. It renders
+offscreen on macOS and checks the actual GPU pixels. `test_inputs`,
+`test_cursor_scroll` and `test_rendering`, built with `-d:silkyTesting`, cover
+native edit ordering, parent scrolling and on-demand frame scheduling.
 
 `tests/test_retina_atlas.nim` checks unchanged logical metrics at 1x, 2x
 and 3x, compares 3x glyph pixels against a physical-size reference,

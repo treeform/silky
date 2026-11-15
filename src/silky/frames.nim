@@ -39,7 +39,7 @@ proc requestFrame*(
     schedule.deadline = min(schedule.deadline, nowMs + delayMs.int64)
   if (schedule.dirty != dirty or schedule.deadline < deadline) and
     schedule.wake != nil:
-    schedule.wake()
+      schedule.wake()
 
 proc needsFrame*(schedule: FrameSchedule, nowMs = frameMilliseconds()): bool
     {.raises: [].} =
