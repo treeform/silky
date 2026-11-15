@@ -119,7 +119,10 @@ the optional Xcode MetalToolchain download.
 `tests/test_metal_texture_pixels.nim`, built with `-d:silkyMetalTesting`,
 exercises the production drawer's allocation, row uploads, atlas rectangles,
 texture growth, batching, stale handles, clipping and tint masks. It renders
-offscreen on macOS and checks the actual GPU pixels. `test_inputs`,
+offscreen on macOS or iOS Simulator and checks the actual GPU pixels. The
+Simulator build uses `--os:ios --cpu:arm64 --noMain -d:iosSimulator` with the
+Simulator SDK and target flags; run it with `simctl spawn`. It also asserts
+the detected 8192-pixel texture limit. `test_inputs`,
 `test_cursor_scroll` and `test_rendering`, built with `-d:silkyTesting`, cover
 native edit ordering, parent scrolling and on-demand frame scheduling.
 

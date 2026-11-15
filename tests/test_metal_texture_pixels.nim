@@ -1,7 +1,8 @@
 ## Exercises the production Metal drawer with an offscreen render target.
 ## Run on macOS with nim r -d:silkyMetalTesting tests/test_metal_texture_pixels.nim.
+## iOS Simulator builds use --noMain so Windy's native entry initializes Nim.
 
-when defined(macosx) and not defined(ios):
+when defined(macosx) or defined(ios):
   when not defined(silkyMetalTesting):
     {.error: "Build this test with -d:silkyMetalTesting.".}
 
@@ -147,6 +148,8 @@ when defined(macosx) and not defined(ios):
     expectSilkyError:
       discard drawer.allocateTexture(1, -1)
     doAssert drawer.maxTextureSize in [8192, 16384, 32768]
+    when defined(iosSimulator):
+      doAssert drawer.maxTextureSize == 8192
     expectSilkyError:
       discard drawer.allocateTexture(drawer.maxTextureSize + 1, 1)
     expectSilkyError:
@@ -236,5 +239,8 @@ when defined(macosx) and not defined(ios):
   checkAtlasUpdates()
   checkMasksAndClipping()
   echo "Metal texture pixels passed: batches, uploads, atlas, masks, clipping."
+  when defined(ios):
+    # Complete the headless test before Windy's entry starts UIKit.
+    quit(0)
 else:
-  echo "Skipped Metal texture pixels: requires macOS with a Metal device."
+  echo "Skipped Metal texture pixels: requires a macOS or iOS Metal device."
