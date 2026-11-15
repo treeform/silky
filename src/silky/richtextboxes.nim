@@ -121,6 +121,8 @@ type
     blocks*: seq[TextBlock]
     activatedSpan*: int = -1
     hoveredSpan*: int = -1
+    cursorNavigated*: bool
+      ## Reports consumed navigation keys during the latest widget draw.
     runeSpans: seq[int]
     runs: seq[TextRun]
     blockLayouts: seq[BlockLayout]
@@ -1274,6 +1276,7 @@ proc richTextBox*(
   editor.enabled = false
   state.activatedSpan = -1
   state.hoveredSpan = -1
+  state.cursorNavigated = false
   if editor.focused and state.focusEpoch != inputs.focusEpoch:
     editor.focused = false
     editor.dragging = false
@@ -1365,7 +1368,7 @@ proc richTextBox*(
   inputs.submitInput(window, "rich-textbox:" & id, editor.focused, false)
   if editor.focused:
     state.focusEpoch = inputs.focusEpoch
-    editor.handleSelectionInput(inputs)
+    state.cursorNavigated = editor.handleSelectionInput(inputs)
   let maxScrollY = max(0.0'f, editor.innerHeight - innerRect.h)
   editor.scrollPos.y = clamp(editor.scrollPos.y, 0.0'f, maxScrollY)
   let maxScrollX =
