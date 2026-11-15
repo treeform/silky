@@ -65,6 +65,7 @@ jobs:
           nim r -d:silkyTesting tests/test_cursor_scroll.nim
           nim r -d:silkyTesting tests/test_input_hooks.nim
           nim r -d:silkyTesting tests/test_secure_inputs.nim
+          nim r -d:silkyTesting tests/test_first_touch.nim
           nim r -d:silkyTesting tests/test_rendering.nim
           nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim

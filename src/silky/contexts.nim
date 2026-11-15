@@ -1,10 +1,10 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, clips, common, frames, layout, profiles],
+  silky/[atlas, clips, common, frames, interactions, layout, profiles],
   silky/internal/inputs
 
-export frames, layout, profiles
+export frames, interactions, layout, profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -68,13 +68,6 @@ type
     menuItemBgColor*: ColorRGBX = rgbx(40, 40, 50, 255)
     menuPopupHoverColor*: ColorRGBX = rgbx(80, 80, 100, 255)
     menuPopupSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 255)
-
-  Interactor* = object
-    ## Solve which widget the mouse is interacting with.
-    currentId*: int = -1
-    warmId*: int = -1
-    warmLayer*: int = -1
-    hotId*: int = -1
 
   Silky* = ref object
     ## Main Silky context shared across rendering backends.
@@ -357,10 +350,8 @@ proc shouldShowTooltip*(sk: Silky): bool =
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc resetInteractions*(sk: Silky) =
-  ## Clear all interaction state.
-  sk.interactor.hotId = -1
-  sk.interactor.warmId = -1
-  sk.interactor.warmLayer = -1
+  ## Invalidates cached pointer targets.
+  sk.interactor.resetInteractions()
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
@@ -404,13 +395,6 @@ proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
 
 proc clear*(sk: Silky)
 
-proc endInteractions(interactor: var Interactor) =
-  ## Commit warm state and resets per-frame counters.
-  interactor.hotId = interactor.warmId
-  interactor.warmId = -1
-  interactor.warmLayer = -1
-  interactor.currentId = -1
-
 proc endUiShared*(sk: Silky) =
   ## Ends a frame after the backend has finished drawing.
   if sk.frames.mode == OnDemandRender:
@@ -424,8 +408,6 @@ proc endUiShared*(sk: Silky) =
       (previousCursor.image != sk.cursor.image or
         previousCursor.hotspot != sk.cursor.hotspot)):
       sk.window.cursor = sk.cursor
-  if sk.window.buttonReleased[MouseLeft]:
-    sk.resetInteractions()
   sk.interactor.endInteractions()
   sk.clear()
   sk.popLayout()

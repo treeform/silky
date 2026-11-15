@@ -29,6 +29,10 @@ Windy reports drawable sizes and pointer positions in pixels. Set
 and use `sk.size` for the resulting logical layout dimensions. Account for
 the device's safe area when positioning controls.
 
+Touch presses resolve against the previous displayed frame's hit rectangles,
+including layer order and clipping, so controls need no preceding hover event.
+Call `resetInteractions` when replacing a modal or reorganizing controls.
+
 Generate the atlas on the host and bundle its PNG with the application.
 The PNG includes the font metrics and sprite metadata, so the device does
 not need the original fonts or skin files. For the example skin, add

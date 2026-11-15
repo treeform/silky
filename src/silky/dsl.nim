@@ -908,7 +908,7 @@ template onDown*(body: untyped) =
 template onClick*(body: untyped) =
   block:
     let interaction = sk.nodeInteraction(current)
-    if interaction == Released:
+    if interaction.isReleased(window):
       sk.hover = true
       sk.mouseConsumed = true
       body

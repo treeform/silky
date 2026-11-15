@@ -56,24 +56,6 @@ var
   scrubberStates*: Table[string, ScrubberState]
   dropDownStates*: Table[uint, DropDownState]
 
-proc mouseHover(
-  interactor: var Interactor,
-  mousePos: Vec2,
-  clipRect: Rect,
-  layer: int,
-  widgetRect: Rect
-): bool =
-  ## Resolve mouse hovering by taking information from the last frame.
-  inc interactor.currentId
-
-  let hovering = mousePos.overlaps(widgetRect) and mousePos.overlaps(clipRect)
-
-  if hovering and layer >= interactor.warmLayer:
-    interactor.warmLayer = layer
-    interactor.warmId = interactor.currentId
-
-  return interactor.hotId == interactor.currentId and hovering
-
 proc mouseHover*(sk: Silky, window: Window, r: Rect): bool =
   discard window
   let hit = sk.interactor.mouseHover(sk.mousePos, sk.clipRect, sk.currentDrawLayer, r)
@@ -107,6 +89,11 @@ proc interact*(
   if released:
     return Released
   return Hovered
+
+proc isReleased*(interaction: Interaction, window: Window): bool =
+  ## Includes a complete press and release delivered before one UI frame.
+  interaction == Released or
+    (interaction == Pressed and window.buttonReleased[MouseLeft])
 
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
@@ -170,7 +157,7 @@ proc subWindowStart*(
     sk.draw9Patch("header.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Pressed:
     subWindowState.dragOffset = sk.mousePos - subWindowState.pos
-    subWindowState.dragging = true
+    subWindowState.dragging = window.buttonDown[MouseLeft]
     sk.draw9Patch("header.dragging.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Held:
     discard
@@ -250,7 +237,7 @@ proc subWindowEnd*(sk: Silky, window: Window, subWindowState: SubWindowState) =
 
   case resizeHandleInteraction
   of Pressed:
-    subWindowState.resizing = true
+    subWindowState.resizing = window.buttonDown[MouseLeft]
     subWindowState.resizeOffset = sk.mousePos - subWindowState.size
   of Hovered, Released, ReleasedOutside:
     subWindowState.resizing = false
@@ -390,7 +377,7 @@ proc frameScrollbars*(
     else:
       let thumb = thumbRectY()
       if sk.interact(thumb, true) == Pressed:
-        frameState.scrollingY = true
+        frameState.scrollingY = window.buttonDown[MouseLeft]
         frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
     let thumb = thumbRectY()
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
@@ -429,7 +416,7 @@ proc frameScrollbars*(
     else:
       let thumb = thumbRectX()
       if sk.interact(thumb, true) == Pressed:
-        frameState.scrollingX = true
+        frameState.scrollingX = window.buttonDown[MouseLeft]
         frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
     let thumb = thumbRectX()
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
@@ -505,7 +492,7 @@ template sizedButton(
 
   sk.draw9Patch(patch, sk.theme.buttonPatch, buttonOrigin, buttonSize)
 
-  if interaction == Released:
+  if interaction.isReleased(window):
     body
 
   when defined(silkyTesting):
@@ -580,6 +567,8 @@ template iconButton*(image: string, body) =
     sk.hover = true
     sk.tooltipAnchor = buttonRect
     patch = "button.down.9patch"
+    if interaction.isReleased(window):
+      body
   of Released:
     sk.hover = false
     body
@@ -636,7 +625,7 @@ template radioButton*[T](label: string, variable: var T, value: T) =
 
   let interaction = sk.interact(hitRect, true)
 
-  if interaction == Released:
+  if interaction.isReleased(window):
     variable = value
 
   let
@@ -676,7 +665,7 @@ template checkBox*(label: string, value: var bool) =
 
   let interaction = sk.interact(hitRect, true)
 
-  if interaction == Released:
+  if interaction.isReleased(window):
     value = not value
 
   let
@@ -728,7 +717,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   if interaction == Pressed:
     state.pressed = true
   if window.buttonReleased[MouseLeft]:
-    if state.pressed and interaction == Released:
+    if state.pressed and interaction.isReleased(window):
       state.open = not state.open
     state.pressed = false
 
@@ -774,7 +763,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
       if interaction == Pressed:
         state.pressedOption = i
-      if interaction == Released and state.pressedOption == i:
+      if interaction.isReleased(window) and state.pressedOption == i:
         selected = opt
         state.open = false
 
@@ -820,7 +809,7 @@ template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
         interaction = sk.interact(rowRect, true)
         rowHover = interaction in [Pressed, Held, Hovered]
 
-      if interaction == Released:
+      if interaction.isReleased(window):
         selectedIndex = i
 
       if rowHover:
@@ -990,7 +979,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
   elif pressed:
-    scrubState.dragging = true
+    scrubState.dragging = window.buttonDown[MouseLeft]
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
 

@@ -3,12 +3,12 @@
 import
   std/[algorithm, strutils, tables, unicode, times],
   vmath, bumpy, chroma, pixie,
-  silky/[atlas, clips, common, frames, layout], testwindow,
+  silky/[atlas, clips, common, frames, interactions, layout], testwindow,
   silky/internal/inputs
 
 from windy/common import Button, CursorKind, Cursor
 
-export frames, layout
+export frames, interactions, layout
 
 const
   LineFeedRune = Rune(10)
@@ -266,13 +266,6 @@ type
     color*: ColorRGBX
     clipPos*: Vec2
     clipSize*: Vec2
-
-  Interactor* = object
-    ## Solve which widget the mouse is interacting with.
-    currentId*: int = -1
-    warmId*: int = -1
-    warmLayer*: int = -1
-    hotId*: int = -1
 
   Silky* = ref object
     ## Main Silky context for testing mode without GPU.
@@ -727,16 +720,9 @@ proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   sk.pushClipRect(rect(0, 0, sk.size.x, sk.size.y))
   sk.semantic.reset()
 
-proc endInteractions(interactor: var Interactor) =
-  ## Commit warm state and resets per-frame counters.
-  interactor.hotId = interactor.warmId
-  interactor.warmId = -1
-  interactor.warmLayer = -1
-  interactor.currentId = -1
-
 proc resetInteractions*(sk: Silky) =
-  ## Clear all interaction state.
-  sk.interactor.hotId = -1
+  ## Invalidates cached pointer targets.
+  sk.interactor.resetInteractions()
 
 proc endUi*(sk: Silky) =
   ## Ends the current UI frame.
