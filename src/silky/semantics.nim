@@ -3,12 +3,12 @@
 import
   std/[algorithm, strutils, tables, unicode, times],
   vmath, bumpy, chroma, pixie,
-  silky/[atlas, clips, common, frames, interactions, layout], testwindow,
+  silky/[atlas, clips, common, frames, interactions, scrolls, layout], testwindow,
   silky/internal/inputs
 
 from windy/common import Button, CursorKind, Cursor
 
-export frames, interactions, layout
+export frames, interactions, scrolls, layout
 
 const
   LineFeedRune = Rune(10)
@@ -310,6 +310,9 @@ type
     avgFrameTime*: float64
     semantic*: SemanticCapture
     interactor*: Interactor
+    touchScroll*: TouchScroll
+    touchOrigin*: Vec2
+      ## Logical window offset applied when the app removes safe-area insets.
     window*: Window
 
 proc currentDrawLayer*(sk: Silky): int =
@@ -696,6 +699,13 @@ proc beginUi*(sk: Silky, window: auto, size: IVec2) =
       window, sk.inputs.hasPendingEvents()
     )
     sk.frames.beginFrame()
+  sk.touchScroll.beginTouchFrame(
+    window.pointerSource == TouchPointer,
+    window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
+    window.buttonReleased[MouseLeft], window.focused,
+    window.mousePos.vec2 / sk.uiScale,
+    window.mouseDelta.vec2 / sk.uiScale
+  )
   sk.inputs.beginInputFrame(window)
   sk.tooltipActive = sk.showTooltip
   sk.showTooltip = false
@@ -723,6 +733,7 @@ proc beginUi*(sk: Silky, window: auto, size: IVec2) =
 proc resetInteractions*(sk: Silky) =
   ## Invalidates cached pointer targets.
   sk.interactor.resetInteractions()
+  sk.touchScroll.resetTouchScroll()
 
 proc endUi*(sk: Silky) =
   ## Ends the current UI frame.
@@ -738,6 +749,7 @@ proc endUi*(sk: Silky) =
         previousCursor.hotspot != sk.cursor.hotspot)):
       sk.window.cursor = sk.cursor
   sk.interactor.endInteractions()
+  sk.touchScroll.endTouchFrame()
   sk.clear()
   sk.popLayout()
   sk.popClipRect()
@@ -748,15 +760,21 @@ proc endUi*(sk: Silky) =
 
 proc buttonDown*(sk: Silky): array[Button, bool] =
   ## Returns held buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonDown)
+  result = sk.inputs.filterButtons(sk.window.buttonDown)
+  if sk.touchScrolling:
+    result[MouseLeft] = false
 
 proc buttonPressed*(sk: Silky): array[Button, bool] =
   ## Returns pressed buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonPressed)
+  result = sk.inputs.filterButtons(sk.window.buttonPressed)
+  if sk.touchScrolling:
+    result[MouseLeft] = false
 
 proc buttonReleased*(sk: Silky): array[Button, bool] =
   ## Returns released buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonReleased)
+  result = sk.inputs.filterButtons(sk.window.buttonReleased)
+  if sk.touchScrolling:
+    result[MouseLeft] = false
 
 proc beginWidget*(sk: Silky, kind: string, name = "", text = "", rect = rect(0f, 0f, 0f, 0f)) {.inline.} =
   ## Begins a new semantic widget node.

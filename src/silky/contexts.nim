@@ -1,10 +1,10 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, clips, common, frames, interactions, layout, profiles],
+  silky/[atlas, clips, common, frames, interactions, scrolls, layout, profiles],
   silky/internal/inputs
 
-export frames, interactions, layout, profiles
+export frames, interactions, scrolls, layout, profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -112,6 +112,9 @@ type
     frameTime*: float64
     avgFrameTime*: float64
     interactor*: Interactor
+    touchScroll*: TouchScroll
+    touchOrigin*: Vec2
+      ## Logical window offset applied when the app removes safe-area insets.
     window: Window
 
 proc currentDrawLayer*(sk: Silky): int =
@@ -352,6 +355,7 @@ proc shouldShowTooltip*(sk: Silky): bool =
 proc resetInteractions*(sk: Silky) =
   ## Invalidates cached pointer targets.
   sk.interactor.resetInteractions()
+  sk.touchScroll.resetTouchScroll()
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
@@ -361,6 +365,13 @@ proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
       window, sk.inputs.hasPendingEvents()
     )
     sk.frames.beginFrame()
+  sk.touchScroll.beginTouchFrame(
+    window.pointerSource == TouchPointer,
+    window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
+    window.buttonReleased[MouseLeft], window.focused,
+    window.mousePos.vec2 / sk.uiScale,
+    window.mouseDelta.vec2 / sk.uiScale
+  )
   sk.inputs.beginInputFrame(window)
   beginProfileFrame()
 
@@ -409,6 +420,7 @@ proc endUiShared*(sk: Silky) =
         previousCursor.hotspot != sk.cursor.hotspot)):
       sk.window.cursor = sk.cursor
   sk.interactor.endInteractions()
+  sk.touchScroll.endTouchFrame()
   sk.clear()
   sk.popLayout()
   sk.popClipRect()
@@ -1142,15 +1154,21 @@ proc endUi*(sk: Silky) =
 
 proc buttonDown*(sk: Silky): ButtonView =
   ## Returns held buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonDown)
+  result = sk.inputs.filterButtons(sk.window.buttonDown)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 proc buttonPressed*(sk: Silky): ButtonView =
   ## Returns pressed buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonPressed)
+  result = sk.inputs.filterButtons(sk.window.buttonPressed)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 proc buttonReleased*(sk: Silky): ButtonView =
   ## Returns released buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonReleased)
+  result = sk.inputs.filterButtons(sk.window.buttonReleased)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 when not defined(useDirectX) and
     not defined(useVulkan) and

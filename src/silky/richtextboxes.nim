@@ -1316,7 +1316,13 @@ proc richTextBox*(
     mouseInside = mouseVec.overlaps(outerRect) and
       mouseVec.overlaps(sk.clipRect)
     onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
-  if window.buttonPressed[MouseLeft]:
+  if sk.touchScrolling:
+    if editor.dragging:
+      editor.selector = editor.cursor
+    editor.dragging = false
+    state.pressedSpan = -1
+    state.spanDragged = true
+  if sk.buttonPressed[MouseLeft]:
     state.pressedSpan = -1
     if mouseInside and not onScrollbar:
       editor.focused = true
@@ -1360,7 +1366,7 @@ proc richTextBox*(
     elif not window.buttonDown[MouseLeft]:
       state.pressedSpan = -1
   if editor.dragging and not editor.scrollingX and not editor.scrollingY:
-    if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
+    if sk.buttonDown[MouseLeft] and not sk.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + editor.scrollPos
       state.mouseAction(localMouse, click = false, shift = true)
     if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:

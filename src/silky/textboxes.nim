@@ -1000,13 +1000,7 @@ proc drawScrollbars*(
   let scrollMaxX = max(0.0f, contentW - innerRect.w)
   let hasScrollY = contentH > innerRect.h
   let hasScrollX = not state.wordWrap and contentW > innerRect.w
-  # Release scrollbar drag when mouse released.
-  if state.scrollingY and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    state.scrollingY = false
-  if state.scrollingX and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    state.scrollingX = false
+  var tracks, thumbs: array[2, Rect]
   # Y scrollbar.
   if hasScrollY:
     let trackRect = rect(
@@ -1016,23 +1010,28 @@ proc drawScrollbars*(
       innerRect.h - 4 - (if hasScrollX: 10.0f else: 0.0f)
     )
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
-    let posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
-    let sizePct = innerRect.h / contentH
+    let
+      posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
+      thumbHeight = min(trackRect.h,
+        max(16.0'f, trackRect.h * innerRect.h / contentH))
     let handleRect = rect(
       trackRect.x,
-      trackRect.y + (trackRect.h - trackRect.h * sizePct) * posPct,
+      trackRect.y + (trackRect.h - thumbHeight) * posPct,
       8,
-      trackRect.h * sizePct
+      thumbHeight
     )
+    tracks[1] = trackRect
+    thumbs[1] = handleRect
     if state.scrollingY:
       let relY = mouseVec.y - state.scrollDragOffset.y - trackRect.y
       let availH = trackRect.h - handleRect.h
       if availH > 0:
         state.scrollPos.y = clamp(relY / availH, 0.0f, 1.0f) * scrollMaxY
-    elif mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
-      if window.buttonPressed[MouseLeft]:
-        state.scrollingY = true
-        state.scrollDragOffset.y = mouseVec.y - handleRect.y
+    elif window.pointerSource != TouchPointer and
+      mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
+        if window.buttonPressed[MouseLeft]:
+          state.scrollingY = window.buttonDown[MouseLeft]
+          state.scrollDragOffset.y = mouseVec.y - handleRect.y
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
   # X scrollbar.
   if hasScrollX:
@@ -1043,24 +1042,44 @@ proc drawScrollbars*(
       8
     )
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
-    let posPct = if scrollMaxX > 0: state.scrollPos.x / scrollMaxX else: 0.0f
-    let sizePct = innerRect.w / contentW
+    let
+      posPct = if scrollMaxX > 0: state.scrollPos.x / scrollMaxX else: 0.0f
+      thumbWidth = min(trackRect.w,
+        max(16.0'f, trackRect.w * innerRect.w / contentW))
     let handleRect = rect(
-      trackRect.x + (trackRect.w - trackRect.w * sizePct) * posPct,
+      trackRect.x + (trackRect.w - thumbWidth) * posPct,
       trackRect.y,
-      trackRect.w * sizePct,
+      thumbWidth,
       8
     )
+    tracks[0] = trackRect
+    thumbs[0] = handleRect
     if state.scrollingX:
       let relX = mouseVec.x - state.scrollDragOffset.x - trackRect.x
       let availW = trackRect.w - handleRect.w
       if availW > 0:
         state.scrollPos.x = clamp(relX / availW, 0.0f, 1.0f) * scrollMaxX
-    elif mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
-      if window.buttonPressed[MouseLeft]:
-        state.scrollingX = true
-        state.scrollDragOffset.x = mouseVec.x - handleRect.x
+    elif window.pointerSource != TouchPointer and
+      mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
+        if window.buttonPressed[MouseLeft]:
+          state.scrollingX = window.buttonDown[MouseLeft]
+          state.scrollDragOffset.x = mouseVec.x - handleRect.x
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+
+  # Release scrollbar drag when mouse released.
+  if state.scrollingY and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    state.scrollingY = false
+  if state.scrollingX and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    state.scrollingX = false
+  sk.registerTouchScroll(
+    cast[pointer](state), outerRect, state.scrollPos,
+    vec2(if hasScrollX: scrollMaxX else: 0.0'f, scrollMaxY),
+    vec2(1, 1), tracks, thumbs, sk.layoutStack.len + 1,
+    proc(position: Vec2) =
+      state.scrollPos = position
+  )
 
 proc textBox*(
   sk: Silky,
@@ -1137,7 +1156,11 @@ proc textBox*(
   let mouseInside = mouseVec.overlaps(outerRect) and
     mouseVec.overlaps(sk.clipRect)
   let onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
-  if window.buttonPressed[MouseLeft]:
+  if sk.touchScrolling:
+    if state.dragging:
+      state.selector = state.cursor
+    state.dragging = false
+  if sk.buttonPressed[MouseLeft]:
     if mouseInside and not onScrollbar:
       state.focused = true
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
@@ -1160,7 +1183,7 @@ proc textBox*(
       if not enabled:
         state.selector = state.cursor
   if state.dragging and not state.scrollingX and not state.scrollingY:
-    if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
+    if sk.buttonDown[MouseLeft] and not sk.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
       state.mouseAction(localMouse, click = false, shift = true)
     if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:

@@ -68,6 +68,7 @@ proc interact*(
   isError: bool = false
 ): Interaction =
   ## Determine the interaction given mouse and widget states.
+  sk.registerTouchBlocker(widgetRect)
   let
     hover = sk.interactor.mouseHover(sk.mousePos, sk.clipRect, sk.currentDrawLayer, widgetRect)
     pressed = sk.buttonPressed[MouseLeft]
@@ -78,6 +79,9 @@ proc interact*(
     return Disabled
   if isError:
     return Error
+  if released and sk.touchScroll.touchInput and
+    not sk.touchTap(widgetRect):
+      return ReleasedOutside
   if not hover and released:
     return ReleasedOutside
   if not hover:
@@ -310,12 +314,7 @@ proc frameScrollbars*(
   ## frame rests scrolled to the bottom, and its thumb rests at the
   ## bottom of the track, moving away from the origin as t grows.
   const MinThumbSize = 16.0'f
-  if frameState.scrollingY and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    frameState.scrollingY = false
-  if frameState.scrollingX and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    frameState.scrollingX = false
+  var tracks, thumbs: array[2, Rect]
 
   let scrollMax = max(contentSize - frameRect.wh, vec2(0, 0))
 
@@ -367,6 +366,7 @@ proc frameScrollbars*(
         offsetFrac = if signs.y >= 0: frac else: 1.0'f - frac
       rect(track.x, track.y + travel * offsetFrac, 8, thumbH)
 
+    tracks[1] = track
     if frameState.scrollingY:
       if travel > 0:
         let rel = sk.mousePos.y - frameState.scrollDragOffset.y - track.y
@@ -376,10 +376,12 @@ proc frameScrollbars*(
         frameState.scrollPos.y = frac * scrollMax.y
     else:
       let thumb = thumbRectY()
-      if sk.interact(thumb, true) == Pressed:
-        frameState.scrollingY = window.buttonDown[MouseLeft]
-        frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
+      if sk.interact(thumb, true) == Pressed and
+        window.pointerSource != TouchPointer:
+          frameState.scrollingY = window.buttonDown[MouseLeft]
+          frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
     let thumb = thumbRectY()
+    thumbs[1] = thumb
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
 
   # X scrollbar.
@@ -406,6 +408,7 @@ proc frameScrollbars*(
         offsetFrac = if signs.x >= 0: frac else: 1.0'f - frac
       rect(track.x + travel * offsetFrac, track.y, thumbW, 8)
 
+    tracks[0] = track
     if frameState.scrollingX:
       if travel > 0:
         let rel = sk.mousePos.x - frameState.scrollDragOffset.x - track.x
@@ -415,11 +418,27 @@ proc frameScrollbars*(
         frameState.scrollPos.x = frac * scrollMax.x
     else:
       let thumb = thumbRectX()
-      if sk.interact(thumb, true) == Pressed:
-        frameState.scrollingX = window.buttonDown[MouseLeft]
-        frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
+      if sk.interact(thumb, true) == Pressed and
+        window.pointerSource != TouchPointer:
+          frameState.scrollingX = window.buttonDown[MouseLeft]
+          frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
     let thumb = thumbRectX()
+    thumbs[0] = thumb
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
+
+  if frameState.scrollingY and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    frameState.scrollingY = false
+  if frameState.scrollingX and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    frameState.scrollingX = false
+
+  sk.registerTouchScroll(
+    cast[pointer](frameState), frameRect, frameState.scrollPos, scrollMax,
+    signs, tracks, thumbs, sk.layoutStack.len,
+    proc(position: Vec2) =
+      frameState.scrollPos = position
+  )
 
 proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec2) =
   ## Finish a scrollable frame and handle scrollbars.
@@ -604,7 +623,10 @@ template clickableIcon*(image: string, on: bool, body) =
   if sk.hover:
     sk.tooltipAnchor = iconRect
 
-  if interaction == Pressed:
+  if window.pointerSource == TouchPointer:
+    if interaction.isReleased(window) and sk.touchTap(iconRect):
+      body
+  elif interaction == Pressed:
     body
 
   sk.drawImage(image, sk.at, color)
