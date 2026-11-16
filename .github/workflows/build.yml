@@ -94,6 +94,7 @@ jobs:
           nim r -d:silkyTesting -d:nimTypeNames tests/test_inputs.nim
           nim r -d:silkyTesting tests/test_buttons.nim
           nim r -d:silkyTesting tests/test_focus.nim
+          nim r -d:silkyTesting tests/test_text_menus.nim
           nim r -d:silkyTesting tests/test_cursor_scroll.nim
           nim r -d:silkyTesting tests/test_input_hooks.nim
           nim r -d:silkyTesting tests/test_paste_hooks.nim
@@ -101,9 +102,11 @@ jobs:
           nim r -d:silkyTesting tests/test_first_touch.nim
           nim r -d:silkyTesting tests/test_touch_scroll.nim
           nim r -d:silkyTesting tests/test_scroll_momentum.nim
+          nim r -d:silkyTesting tests/test_scroll_indicators.nim
           nim r -d:silkyTesting tests/test_rendering.nim
           nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim
+          nim r tests/test_atlas_paths.nim
           nim r tests/test_retina_atlas.nim
           nim r tests/test_shader_codegen.nim
           nim r ${{ matrix.build_flags }} tests/test_density.nim

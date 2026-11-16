@@ -1,7 +1,7 @@
 import
   std/[tables, unicode, times],
   vmath, bumpy, chroma,
-  silky/atlas, silky/internal/inputs
+  silky/atlas, silky/internal/[inputs, textpresses]
 
 ## Multi-line text box widget.
 ##
@@ -56,9 +56,12 @@ type
     cursor*: int
     selector*: int
     scrollPos*: Vec2
+    scrollIndicator*: ScrollIndicator
     savedX*: float32
     focused*: bool
     focusEpoch: uint64
+    touchBlur: bool
+    touchPress*: TextPress
     layout*: seq[Rect]
     positionedLayout*: bool
       ## Selection geometry may have variable line heights and gaps.
@@ -120,6 +123,8 @@ proc focus*(state: TextBoxState, sk: Silky, window: Window, id: string) =
   state.focused = true
   state.focusEpoch = inputs.focusEpoch
   state.dragging = false
+  state.touchBlur = false
+  state.touchPress = TextPress()
   state.resetBlink()
   sk.requestFrame()
 
@@ -809,6 +814,48 @@ proc selectParagraph*(state: TextBoxState, mousePos: Vec2) =
       state.runes[state.selector] != LF:
     inc state.selector
 
+proc selectionContains*(state: TextBoxState, point: Vec2): bool =
+  ## Tests actual selected glyph rectangles instead of nearby whitespace.
+  let selected = state.selection
+  for i in selected.a ..< min(selected.b, state.layout.len):
+    if point.overlaps(state.layout[i]):
+      return true
+
+proc glyphContains*(state: TextBoxState, point: Vec2): bool =
+  ## Reports whether a touch is over a laid-out text glyph.
+  for bounds in state.layout:
+    if point.overlaps(bounds):
+      return true
+
+proc textMenuActions*(state: TextBoxState): set[TextEditAction] =
+  ## Exposes only operations allowed by this field's editing policy.
+  if state.enabled:
+    result.incl(PasteTextAction)
+  if not state.password:
+    if state.cursor != state.selector:
+      result.incl(CopyTextAction)
+      if state.enabled:
+        result.incl(CutTextAction)
+    if state.runes.len > 0:
+      result.incl(SelectAllTextAction)
+
+proc touchMenu*(
+  state: TextBoxState, sk: Silky, window: Window, inside: bool
+): TextPressResult =
+  ## Advances a text hold without letting scrolling or hidden widgets claim it.
+  when defined(ios) or defined(silkyTesting):
+    result = state.touchPress.updateTextPress(
+      sk.mousePos, window.buttonDown[MouseLeft],
+      window.buttonReleased[MouseLeft],
+      not inside or not window.focused or not state.focused or
+        sk.touchScrolling or window.scrollDelta != vec2(0),
+      scrollMilliseconds()
+    )
+    if result == WaitingTextPress:
+      sk.requestFrame(max(1, int(
+        TextPressDelay - (scrollMilliseconds() - state.touchPress.started)
+      )))
+
 proc scrollBy*(state: TextBoxState, amount, viewportHeight: float32) =
   ## Scrolls the text box vertically by the given amount.
   state.scrollPos.y += amount
@@ -1011,6 +1058,17 @@ proc drawScrollbars*(
   let scrollMaxX = max(0.0f, contentW - innerRect.w)
   let hasScrollY = contentH > innerRect.h
   let hasScrollX = not state.wordWrap and contentW > innerRect.w
+  let
+    wheel = mouseVec.overlaps(outerRect) and mouseVec.overlaps(clipRect) and
+      ((hasScrollX and window.scrollDelta.x != 0) or
+        (hasScrollY and window.scrollDelta.y != 0) or
+        (hasScrollX and window.scrollDelta.y != 0 and
+          (window.buttonDown[KeyLeftShift] or window.buttonDown[KeyRightShift])))
+    opacity = sk.scrollbarOpacity(
+      state.scrollIndicator, cast[pointer](state),
+      wheel or state.scrollingX or state.scrollingY
+    )
+    scrollbarColor = rgbx(255, 255, 255, (opacity * 255).uint8)
   var tracks, thumbs: array[2, Rect]
   # Y scrollbar.
   if hasScrollY:
@@ -1020,7 +1078,9 @@ proc drawScrollbars*(
       8,
       innerRect.h - 4 - (if hasScrollX: 10.0f else: 0.0f)
     )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        trackRect.xy, trackRect.wh, scrollbarColor)
     let
       posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
       thumbHeight = min(trackRect.h,
@@ -1043,7 +1103,9 @@ proc drawScrollbars*(
         if window.buttonPressed[MouseLeft]:
           state.scrollingY = window.buttonDown[MouseLeft]
           state.scrollDragOffset.y = mouseVec.y - handleRect.y
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        handleRect.xy, handleRect.wh, scrollbarColor)
   # X scrollbar.
   if hasScrollX:
     let trackRect = rect(
@@ -1052,7 +1114,9 @@ proc drawScrollbars*(
       innerRect.w - 4 - (if hasScrollY: 10.0f else: 0.0f),
       8
     )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        trackRect.xy, trackRect.wh, scrollbarColor)
     let
       posPct = if scrollMaxX > 0: state.scrollPos.x / scrollMaxX else: 0.0f
       thumbWidth = min(trackRect.w,
@@ -1075,7 +1139,9 @@ proc drawScrollbars*(
         if window.buttonPressed[MouseLeft]:
           state.scrollingX = window.buttonDown[MouseLeft]
           state.scrollDragOffset.x = mouseVec.x - handleRect.x
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        handleRect.xy, handleRect.wh, scrollbarColor)
 
   # Release scrollbar drag when mouse released.
   if state.scrollingY and
@@ -1127,6 +1193,8 @@ proc textBox*(
   let inputs = sk.textInputs
   if state.focused and state.focusEpoch != inputs.focusEpoch:
     state.focused = false
+    state.touchBlur = false
+    state.touchPress = TextPress()
     state.dragging = false
     if not enabled:
       state.selector = state.cursor
@@ -1166,33 +1234,69 @@ proc textBox*(
   let mouseVec = sk.mousePos
   let mouseInside = mouseVec.overlaps(outerRect) and
     mouseVec.overlaps(sk.clipRect)
-  let onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
+  let
+    onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
+    touchPointer =
+      when defined(ios) or defined(silkyTesting):
+        sk.touchScroll.touchInput
+      else:
+        false
+    localMouse = mouseVec - innerRect.xy + state.scrollPos
+  var openMenu = false
   if sk.touchScrolling:
     if state.dragging:
       state.selector = state.cursor
     state.dragging = false
   if sk.buttonPressed[MouseLeft]:
+    state.touchBlur = sk.touchScroll.touchInput and state.focused and
+      not mouseInside
     if mouseInside and not onScrollbar:
       state.focused = true
-      let localMouse = mouseVec - innerRect.xy + state.scrollPos
+      let preserve = touchPointer and state.selectionContains(localMouse)
+      if touchPointer:
+        state.touchPress = beginTextPress(
+          mouseVec - window.mouseDelta.vec2 / sk.uiScale,
+          scrollMilliseconds(), preserve
+        )
       let now = epochTime()
       if now - state.lastClickTime < DoubleClickTime:
         inc state.clickCount
       else:
         state.clickCount = 1
       state.lastClickTime = now
-      case state.clickCount:
-      of 1:
-        state.mouseAction(localMouse, click = true, shift = shift)
-        state.dragging = true
-      of 2: state.selectWord(localMouse)
-      of 3: state.selectParagraph(localMouse)
-      else: state.selectAll()
-    elif not mouseInside:
-      state.focused = false
-      state.dragging = false
-      if not enabled:
-        state.selector = state.cursor
+      if not preserve:
+        case state.clickCount:
+        of 1:
+          state.mouseAction(localMouse, click = true, shift = shift)
+          state.dragging = not touchPointer
+        of 2: state.selectWord(localMouse)
+        of 3: state.selectParagraph(localMouse)
+        else: state.selectAll()
+  case state.touchMenu(sk, window, mouseInside and not onScrollbar)
+  of HeldTextPress:
+    if state.cursor == state.selector and not state.password:
+      state.selectWord(localMouse)
+    state.dragging = false
+    openMenu = true
+    sk.resetInteractions()
+  of ReleasedTextPress:
+    if state.touchPress.preserve:
+      state.mouseAction(localMouse)
+  else:
+    discard
+  let
+    outsidePress = sk.buttonPressed[MouseLeft] and
+      not sk.touchScroll.touchInput
+    outsideTap = sk.buttonReleased[MouseLeft] and
+      state.touchBlur and sk.touchTap()
+  if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
+    state.touchBlur = false
+  if not mouseInside and (outsidePress or outsideTap):
+    # Keep keyboard-driven layout stable until a finger finishes its tap.
+    state.focused = false
+    state.dragging = false
+    if not enabled:
+      state.selector = state.cursor
   if state.dragging and not state.scrollingX and not state.scrollingY:
     if sk.buttonDown[MouseLeft] and not sk.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
@@ -1283,6 +1387,15 @@ proc textBox*(
       multiline: not singleLine,
       password: password
     ), textLayer, firstVertex)
+  when defined(ios) or defined(silkyTesting):
+    if openMenu:
+      let anchor = rect(
+        (mouseVec - vec2(1, state.lineHeight)) * sk.uiScale,
+        vec2(2, state.lineHeight) * sk.uiScale
+      )
+      inputs.publishTextMenu(
+        id, anchor, state.textMenuActions(), textLayer, firstVertex
+      )
   sk.advance(vec2(boxWidth, boxHeight))
 
 template textBox*(

@@ -383,12 +383,13 @@ proc addDir*(
   pixelScale: int = 1
 ) =
   ## Add all images in the given directory to the atlas.
+  let prefix = removePrefix.replace("\\", "/")
   for file in walkDir(path):
     if file.path.endsWith(".png"):
       let image = readImage(file.path)
       var key = file.path.replace("\\", "/")
-      if removePrefix.len > 0:
-        key.removePrefix(removePrefix)
+      if prefix.len > 0:
+        key.removePrefix(prefix)
       key.removeSuffix(".png")
       if not builder.addImage(key, image, pixelScale):
         raise newException(

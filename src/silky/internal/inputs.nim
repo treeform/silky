@@ -1,6 +1,6 @@
 import
   std/unicode,
-  vmath,
+  vmath, bumpy,
   silky/common
 
 when defined(silkyTesting):
@@ -42,6 +42,13 @@ type
     releaseCallback: proc(button: Button)
     pendingText: TextInputState
     placementSerial, placementLayer, placementVertex: int
+    when defined(ios) or defined(silkyTesting):
+      menuPending, menuVisible: bool
+      menuBounds: Rect
+      menuActions: set[TextEditAction]
+      menuId: string
+      menuEpoch, menuGeneration: uint64
+      menuSerial, menuLayer, menuVertex: int
 
 proc identity[T](callback: T): CallbackIdentity =
   ## Identifies a callback without retaining its closure environment.
@@ -72,8 +79,18 @@ else:
     else:
       buttons
 
+proc dismissInputMenu(inputs: TextInputs, window: Window) =
+  ## Invalidates actions belonging to a menu that no longer owns focus.
+  when defined(ios) or defined(silkyTesting):
+    inc inputs.menuGeneration
+    inputs.menuPending = false
+    if inputs.menuVisible:
+      window.dismissTextEditMenu()
+      inputs.menuVisible = false
+
 proc stopInput*(inputs: TextInputs, window: Window) =
   ## Ends text capture and discards input for the previous field.
+  inputs.dismissInputMenu(window)
   if inputs.active:
     inc inputs.epoch
   inputs.active = false
@@ -81,9 +98,9 @@ proc stopInput*(inputs: TextInputs, window: Window) =
   inputs.id.setLen(0)
   inputs.events.setLen(0)
   inputs.pendingText = TextInputState()
-  window.setTextInputState(TextInputState())
   if window.runeInputEnabled:
     window.runeInputEnabled = false
+  window.setTextInputState(TextInputState())
 
 proc modifiers(inputs: TextInputs, window: Window): InputEvent =
   ## Captures modifier state at the time of a callback.
@@ -111,6 +128,7 @@ proc installPress(inputs: TextInputs, window: Window) =
   let previousPress = window.onButtonPress
   window.onButtonPress = proc(button: Button) =
     let window = cast[Window](windowPointer)
+    inputs.dismissInputMenu(window)
     if inputs.active and button >= Key0:
       var event = inputs.modifiers(window)
       event.kind = KeyDown
@@ -254,6 +272,8 @@ proc beginInputFrame*(inputs: TextInputs, window: Window) =
   inputs.consumed = false
   inputs.pendingText = TextInputState()
   inputs.placementSerial = 0
+  when defined(ios) or defined(silkyTesting):
+    inputs.menuPending = false
 
 proc textPlacementMark*(inputs: TextInputs): int =
   ## Marks the start of a deferred layout containing a focused editor.
@@ -269,11 +289,32 @@ proc publishTextInput*(
   inputs.placementVertex = firstVertex
   inc inputs.placementSerial
 
+proc publishTextMenu*(
+  inputs: TextInputs, id: string, bounds: Rect,
+  actions: set[TextEditAction], layer, firstVertex: int
+) =
+  ## Defers a native menu until the owning widget's final placement is known.
+  when defined(ios) or defined(silkyTesting):
+    if inputs.active and inputs.id == id and actions != {}:
+      inc inputs.placementSerial
+      inputs.menuPending = true
+      inputs.menuId = id
+      inputs.menuEpoch = inputs.epoch
+      inputs.menuBounds = bounds
+      inputs.menuActions = actions
+      inputs.menuSerial = inputs.placementSerial
+      inputs.menuLayer = layer
+      inputs.menuVertex = firstVertex
+
 proc translateTextInput*(inputs: TextInputs, first: int, offset: Vec2) =
   ## Moves an editor published inside a deferred layout span.
   if inputs != nil and inputs.placementSerial > first:
     inputs.pendingText.bounds.x += offset.x
     inputs.pendingText.bounds.y += offset.y
+  when defined(ios) or defined(silkyTesting):
+    if inputs != nil and inputs.menuPending and inputs.menuSerial > first:
+      inputs.menuBounds.x += offset.x
+      inputs.menuBounds.y += offset.y
 
 proc translateTextInputVertices*(
   inputs: TextInputs, layer, first: int, offset: Vec2
@@ -283,11 +324,23 @@ proc translateTextInputVertices*(
     inputs.placementLayer == layer and inputs.placementVertex >= first:
       inputs.pendingText.bounds.x += offset.x
       inputs.pendingText.bounds.y += offset.y
+  when defined(ios) or defined(silkyTesting):
+    if inputs != nil and inputs.menuPending and inputs.menuLayer == layer and
+      inputs.menuVertex >= first:
+        inputs.menuBounds.x += offset.x
+        inputs.menuBounds.y += offset.y
 
 proc moveTextInputBehind*(
   inputs: TextInputs, layer, spanStart, chromeStart, total: int
 ) =
   ## Preserves the editor's vertex position when parent chrome is reordered.
+  when defined(ios) or defined(silkyTesting):
+    if inputs != nil and inputs.menuPending and inputs.menuLayer == layer and
+      inputs.menuVertex >= spanStart and inputs.menuVertex < total:
+        if inputs.menuVertex < chromeStart:
+          inputs.menuVertex += total - chromeStart
+        else:
+          inputs.menuVertex -= chromeStart - spanStart
   if inputs == nil or inputs.placementSerial == 0:
     return
   if inputs.placementLayer != layer or
@@ -310,6 +363,7 @@ proc submitInput*(
       inputs.stopInput(window)
     return
   if not inputs.active or inputs.id != id:
+    inputs.dismissInputMenu(window)
     inputs.events.setLen(0)
     inc inputs.epoch
     inputs.id = id
@@ -332,6 +386,50 @@ proc takeInput*(inputs: TextInputs): seq[InputEvent] =
   inputs.consumed = true
   swap(result, inputs.events)
 
+when defined(ios) or defined(silkyTesting):
+  proc showInputMenu(inputs: TextInputs, window: Window) =
+    ## Allocates a native action callback only when a menu is requested.
+    let
+      id = inputs.menuId
+      epoch = inputs.menuEpoch
+      actions = inputs.menuActions
+      generation = inputs.menuGeneration + 1
+    inputs.menuGeneration = generation
+    inputs.menuVisible = window.showTextEditMenu(
+      inputs.menuBounds, actions,
+      proc(action: TextEditAction) =
+        ## Routes native actions through the current field's input hooks.
+        if not inputs.active or inputs.id != id or
+          inputs.epoch != epoch or inputs.menuGeneration != generation or
+          action notin actions:
+            return
+        inputs.menuVisible = false
+        inc inputs.menuGeneration
+        if action == PasteTextAction:
+          if not inputs.editable:
+            return
+          if inputs.onPaste != nil and inputs.onPaste(id):
+            if inputs.onEvent != nil:
+              inputs.onEvent()
+            return
+          if not inputs.active or inputs.id != id or
+            not inputs.editable or inputs.epoch != epoch:
+              return
+          let text = getClipboardString()
+          if text.len > 0:
+            inputs.addEvent(InputEvent(kind: TextCommit, text: text))
+        else:
+          let button =
+            case action
+            of CopyTextAction: KeyC
+            of CutTextAction: KeyX
+            of SelectAllTextAction: KeyA
+            of PasteTextAction: KeyV
+          inputs.addEvent(InputEvent(
+            kind: KeyDown, button: button, control: true
+          ))
+    )
+
 proc endInputFrame*(inputs: TextInputs, window: Window) =
   ## Ends capture when the active field was not submitted this frame.
   if not inputs.submitted:
@@ -340,3 +438,8 @@ proc endInputFrame*(inputs: TextInputs, window: Window) =
     window.setTextInputState(inputs.pendingText)
   else:
     window.setTextInputState(TextInputState())
+
+  when defined(ios) or defined(silkyTesting):
+    if inputs.menuPending and inputs.active and inputs.submitted and
+      inputs.id == inputs.menuId and inputs.epoch == inputs.menuEpoch:
+        inputs.showInputMenu(window)

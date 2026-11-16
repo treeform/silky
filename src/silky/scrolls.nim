@@ -10,8 +10,15 @@ const
   MinimumFlingSpeed = 50.0
   ScrollStopSpeed = 5.0
   MaximumFrameGap = 250.0
+  ScrollIndicatorDelay* = 150.0
+  ScrollIndicatorFade* = 250.0
 
 type
+  ScrollIndicator* = object
+    ## Retains only user scrolling activity for one viewport's fading bars.
+    shown*: bool
+    lastActivity*: float64
+
   TouchBlocker = object
     bounds, clip: Rect
     layer: int
@@ -30,6 +37,7 @@ type
     previousBlockers, currentBlockers: seq[TouchBlocker]
     start, last: Vec2
     target: pointer
+    activityTarget: pointer
     axis: int
     offset: float32
     coastPosition, coastVelocity, coastTime: float64
@@ -40,6 +48,41 @@ type
 proc scrollMilliseconds*(): float64 {.raises: [].} =
   ## Reads monotonic time without quantizing high-refresh animation frames.
   getMonoTime().ticks.float64 / 1_000_000
+
+proc indicatorOpacity*(
+  indicator: var ScrollIndicator, scrolling: bool,
+  nowMs: float64 = scrollMilliseconds()
+): float32 =
+  ## Shows scrolling immediately, then fades after a short release delay.
+  if scrolling:
+    indicator.shown = true
+    indicator.lastActivity = nowMs
+  if not indicator.shown:
+    return 0
+  let elapsed = max(0.0, nowMs - indicator.lastActivity)
+  if elapsed >= ScrollIndicatorDelay + ScrollIndicatorFade:
+    indicator.shown = false
+    return 0
+  (1.0 - max(0.0, elapsed - ScrollIndicatorDelay) /
+    ScrollIndicatorFade).float32
+
+proc scrollbarOpacity*(
+  sk: auto, indicator: var ScrollIndicator, target: pointer,
+  scrolling = false, nowMs: float64 = scrollMilliseconds()
+): float32 =
+  ## Schedules fading mobile bars while preserving always visible desktop bars.
+  let transient =
+    when defined(ios): true
+    elif defined(silkyTesting): sk.touchScroll.touchInput
+    else: false
+  if not transient:
+    return 1
+  result = indicator.indicatorOpacity(
+    scrolling or sk.touchScroll.activityTarget == target, nowMs
+  )
+  if result > 0:
+    let untilFade = ScrollIndicatorDelay - (nowMs - indicator.lastActivity)
+    sk.requestFrame(if untilFade > 0: max(1, int(ceil(untilFade))) else: 16)
 
 proc momentumActive*(touch: TouchScroll): bool =
   ## Reports whether another animation frame is needed after finger release.
@@ -94,6 +137,7 @@ proc beginTouchFrame*(
 ) =
   ## Resolves ownership before widgets draw or virtualize their contents.
   touch.suppress = false
+  touch.activityTarget = nil
   touch.touchInput = isTouch
   touch.tap = false
   if not isTouch or not focused or point.x < 0 or point.y < 0 or interrupted:
@@ -146,6 +190,7 @@ proc beginTouchFrame*(
       var position = region.position
       position.setComponent(touch.axis, nextPosition.float32)
       region.apply(position)
+      touch.activityTarget = region.target
       touch.coastPosition = nextPosition
       touch.coastVelocity *= decay
       touch.coastTime = nowMs
@@ -232,6 +277,7 @@ proc beginTouchFrame*(
           0.0'f, maximum
         ))
       region.apply(position)
+      touch.activityTarget = region.target
       if released and not touch.scrollbar:
         let speed = -component(region.signs, touch.axis).float64 *
           component(velocity, touch.axis).float64
@@ -256,6 +302,7 @@ proc beginTouchFrame*(
 
 proc resetTouchScroll*(touch: var TouchScroll) =
   ## Invalidates scroll targets when the application replaces its scene.
+  touch.activityTarget = nil
   touch.cancelled = touch.pending or touch.dragging
   touch.pending = false
   touch.dragging = false
@@ -265,10 +312,13 @@ proc resetTouchScroll*(touch: var TouchScroll) =
   touch.previousBlockers.setLen(0)
   touch.invalidated = true
 
+proc touchTap*(sk: auto): bool =
+  ## Reports a completed tap without accepting a pan or cancellation.
+  sk.touchScroll.tap and not sk.touchScrolling
+
 proc touchTap*(sk: auto, bounds: Rect): bool =
   ## Accepts a touch release only in the control where the tap began.
-  sk.touchScroll.tap and not sk.touchScrolling and
-    (sk.touchScroll.start - sk.touchOrigin).overlaps(bounds)
+  sk.touchTap() and (sk.touchScroll.start - sk.touchOrigin).overlaps(bounds)
 
 proc endTouchFrame*(touch: var TouchScroll) =
   ## Retains displayed geometry and releases callbacks for vanished widgets.

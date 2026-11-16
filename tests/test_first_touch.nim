@@ -21,6 +21,8 @@ var
   invalidateOnPress: bool
   selected: int
   showWindow = true
+  modalOpen = true
+  maskBackground = true
 
 block:
   let builder = newAtlasBuilder(1024, 4)
@@ -66,6 +68,27 @@ proc drawSubwindow(sk: Silky, window: Window) =
     some(vec2(100, 100)), some(vec2(300, 200))
   )
   sk.subWindowEnd(window, state)
+
+proc drawModal(sk: Silky, window: Window) =
+  ## Masks background input before restoring the pointer for popup controls.
+  let mouse = sk.mousePos
+  if modalOpen and maskBackground:
+    sk.mousePos = vec2(-1000)
+  let background = sk.interact(rect(20, 20, 360, 280), true)
+  if background.isReleased(window):
+    inc counts[0]
+  sk.mousePos = mouse
+  if modalOpen:
+    sk.pushLayer(PopupsLayer)
+    discard sk.interact(rect(40, 40, 240, 200), true)
+    sk.at = vec2(60, 100)
+    radioButton("Allow edits", selected, 1)
+    sk.at = vec2(240, 60)
+    clickableIcon("close", true):
+      inc counts[1]
+      modalOpen = false
+      sk.resetInteractions()
+    sk.popLayer()
 
 proc tap(
   harness: var TestHarness,
@@ -179,5 +202,27 @@ block:
   harness.window.moveMouse(500, 400)
   discard harness.pumpFrame(drawSubwindow)
   doAssert state.pos == vec2(100, 100)
+
+block:
+  echo "Testing masked background preserves popup radio and close targets"
+  for source in [TouchPointer, MousePointer]:
+    for coalesced in [false, true]:
+      for masked in [false, true]:
+        counts = default(typeof(counts))
+        selected = 0
+        modalOpen = true
+        maskBackground = masked
+        var harness = newTestHarness(atlas)
+        harness.window.pointerSource = source
+        discard harness.pumpFrame(drawModal)
+        harness.tap(drawModal, vec2(70, 110), coalesced)
+        doAssert selected == 1 and modalOpen,
+          $source & " coalesced=" & $coalesced & " masked=" & $masked
+        doAssert counts == [0, 0, 0, 0]
+        harness.tap(drawModal, vec2(248, 68), coalesced)
+        doAssert not modalOpen
+        doAssert counts == [0, 1, 0, 0]
+        discard harness.pumpFrame(drawModal)
+        doAssert counts == [0, 1, 0, 0]
 
 echo "First-touch hit resolution tests passed."
