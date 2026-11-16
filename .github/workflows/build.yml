@@ -96,6 +96,7 @@ jobs:
           nim r -d:silkyTesting tests/test_focus.nim
           nim r -d:silkyTesting tests/test_cursor_scroll.nim
           nim r -d:silkyTesting tests/test_input_hooks.nim
+          nim r -d:silkyTesting tests/test_paste_hooks.nim
           nim r -d:silkyTesting tests/test_secure_inputs.nim
           nim r -d:silkyTesting tests/test_first_touch.nim
           nim r -d:silkyTesting tests/test_touch_scroll.nim
@@ -110,6 +111,7 @@ jobs:
           nim r ${{ matrix.build_flags }} tests/test_rules.nim
           nim r ${{ matrix.build_flags }} tests/test_quotes.nim
           nim r ${{ matrix.build_flags }} tests/test_richimages.nim
+          nim r ${{ matrix.build_flags }} tests/test_richscrolls.nim
           nim r ${{ matrix.build_flags }} tests/test_button_vertices.nim
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim
