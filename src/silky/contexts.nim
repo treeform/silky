@@ -370,7 +370,9 @@ proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
     window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
     window.buttonReleased[MouseLeft], window.focused,
     window.mousePos.vec2 / sk.uiScale,
-    window.mouseDelta.vec2 / sk.uiScale
+    window.mouseDelta.vec2 / sk.uiScale,
+    velocity = window.pointerVelocity / sk.uiScale,
+    interrupted = window.scrollDelta != vec2(0)
   )
   sk.inputs.beginInputFrame(window)
   beginProfileFrame()
@@ -411,7 +413,9 @@ proc endUiShared*(sk: Silky) =
   if sk.frames.mode == OnDemandRender:
     if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
       sk.requestFrame()
-    if sk.window.buttonDown[MouseLeft]:
+    if sk.touchScroll.momentumActive():
+      sk.requestFrame()
+    elif sk.window.buttonDown[MouseLeft]:
       sk.requestFrame(16)
   let previousCursor = sk.window.cursor
   if previousCursor.kind != sk.cursor.kind or

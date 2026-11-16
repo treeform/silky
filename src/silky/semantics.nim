@@ -311,6 +311,7 @@ type
     semantic*: SemanticCapture
     interactor*: Interactor
     touchScroll*: TouchScroll
+    touchTimeMs*: float64 = -1
     touchOrigin*: Vec2
       ## Logical window offset applied when the app removes safe-area insets.
     window*: Window
@@ -704,7 +705,10 @@ proc beginUi*(sk: Silky, window: auto, size: IVec2) =
     window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
     window.buttonReleased[MouseLeft], window.focused,
     window.mousePos.vec2 / sk.uiScale,
-    window.mouseDelta.vec2 / sk.uiScale
+    window.mouseDelta.vec2 / sk.uiScale,
+    velocity = window.pointerVelocity / sk.uiScale,
+    nowMs = (if sk.touchTimeMs >= 0: sk.touchTimeMs else: scrollMilliseconds()),
+    interrupted = window.scrollDelta != vec2(0)
   )
   sk.inputs.beginInputFrame(window)
   sk.tooltipActive = sk.showTooltip
@@ -740,7 +744,9 @@ proc endUi*(sk: Silky) =
   if sk.frames.mode == OnDemandRender:
     if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
       sk.requestFrame()
-    if sk.window.buttonDown[MouseLeft]:
+    if sk.touchScroll.momentumActive():
+      sk.requestFrame()
+    elif sk.window.buttonDown[MouseLeft]:
       sk.requestFrame(16)
   let previousCursor = sk.window.cursor
   if previousCursor.kind != sk.cursor.kind or

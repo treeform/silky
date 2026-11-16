@@ -22,6 +22,7 @@ type Window* = ref object
   buttonReleased*: array[Button, bool]
   scrollDelta*: Vec2
   pointerSource*: PointerSource
+  pointerVelocity*: Vec2
   ## Starts true so `while not window.closeRequested` loops exit immediately in tests.
   closeRequested*: bool = true
   cursor*: Cursor = Cursor(kind: ArrowCursor)
@@ -95,6 +96,7 @@ proc pressButton*(w: Window, button: Button) =
   ## Simulates pressing a button, including repeated presses.
   if button == MouseLeft and w.pointerSource == TouchPointer:
     w.mouseDelta = ivec2(0, 0)
+    w.pointerVelocity = vec2(0)
   w.buttonDown[button] = true
   w.buttonPressed[button] = true
   if w.onButtonPress != nil:
