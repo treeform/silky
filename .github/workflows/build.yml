@@ -106,6 +106,7 @@ jobs:
           nim r -d:silkyTesting tests/test_rendering.nim
           nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim
+          nim r tests/test_atlas_paths.nim
           nim r tests/test_retina_atlas.nim
           nim r tests/test_shader_codegen.nim
           nim r ${{ matrix.build_flags }} tests/test_density.nim
