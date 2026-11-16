@@ -1,10 +1,10 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, clips, frames, layout, profiles],
+  silky/[atlas, clips, common, frames, interactions, scrolls, layout, profiles],
   silky/internal/inputs
 
-export frames, layout, profiles
+export frames, interactions, scrolls, layout, profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -69,13 +69,6 @@ type
     menuPopupHoverColor*: ColorRGBX = rgbx(80, 80, 100, 255)
     menuPopupSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 255)
 
-  Interactor* = object
-    ## Solve which widget the mouse is interacting with.
-    currentId*: int = -1
-    warmId*: int = -1
-    warmLayer*: int = -1
-    hotId*: int = -1
-
   Silky* = ref object
     ## Main Silky context shared across rendering backends.
     inFrame: bool = false
@@ -119,6 +112,9 @@ type
     frameTime*: float64
     avgFrameTime*: float64
     interactor*: Interactor
+    touchScroll*: TouchScroll
+    touchOrigin*: Vec2
+      ## Logical window offset applied when the app removes safe-area insets.
     window: Window
 
 proc currentDrawLayer*(sk: Silky): int =
@@ -133,7 +129,7 @@ proc renderMode*(sk: Silky): RenderMode =
   sk.frames.mode
 
 proc requestFrame*(sk: Silky, delayMs = 0) =
-  ## Invalidates app data or schedules a visible animation on the UI thread.
+  ## Invalidates data or schedules an animation frame on the UI thread.
   sk.frames.requestFrame(delayMs)
 
 proc `renderMode=`*(sk: Silky, mode: RenderMode) =
@@ -357,19 +353,27 @@ proc shouldShowTooltip*(sk: Silky): bool =
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc resetInteractions*(sk: Silky) =
-  ## Clear all interaction state.
-  sk.interactor.hotId = -1
-  sk.interactor.warmId = -1
-  sk.interactor.warmLayer = -1
+  ## Invalidates cached pointer targets.
+  sk.interactor.resetInteractions()
+  sk.touchScroll.resetTouchScroll()
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
+  sk.cursor = Cursor(kind: ArrowCursor)
   if sk.frames.mode == OnDemandRender:
     sk.frameHadInput = sk.frameInput.inputChanged(
       window, sk.inputs.hasPendingEvents()
     )
     sk.frames.beginFrame()
-  sk.cursor = Cursor(kind: ArrowCursor)
+  sk.touchScroll.beginTouchFrame(
+    window.pointerSource == TouchPointer,
+    window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
+    window.buttonReleased[MouseLeft], window.focused,
+    window.mousePos.vec2 / sk.uiScale,
+    window.mouseDelta.vec2 / sk.uiScale,
+    velocity = window.pointerVelocity / sk.uiScale,
+    interrupted = window.scrollDelta != vec2(0)
+  )
   sk.inputs.beginInputFrame(window)
   beginProfileFrame()
 
@@ -404,19 +408,14 @@ proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
 
 proc clear*(sk: Silky)
 
-proc endInteractions(interactor: var Interactor) =
-  ## Commit warm state and resets per-frame counters.
-  interactor.hotId = interactor.warmId
-  interactor.warmId = -1
-  interactor.warmLayer = -1
-  interactor.currentId = -1
-
 proc endUiShared*(sk: Silky) =
   ## Ends a frame after the backend has finished drawing.
   if sk.frames.mode == OnDemandRender:
     if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
       sk.requestFrame()
-    if sk.window.buttonDown[MouseLeft]:
+    if sk.touchScroll.momentumActive():
+      sk.requestFrame()
+    elif sk.window.buttonDown[MouseLeft]:
       sk.requestFrame(16)
   let previousCursor = sk.window.cursor
   if previousCursor.kind != sk.cursor.kind or
@@ -424,9 +423,8 @@ proc endUiShared*(sk: Silky) =
       (previousCursor.image != sk.cursor.image or
         previousCursor.hotspot != sk.cursor.hotspot)):
       sk.window.cursor = sk.cursor
-  if sk.window.buttonReleased[MouseLeft]:
-    sk.resetInteractions()
   sk.interactor.endInteractions()
+  sk.touchScroll.endTouchFrame()
   sk.clear()
   sk.popLayout()
   sk.popClipRect()
@@ -542,6 +540,29 @@ proc drawQuad*(
     clipSize: cSize,
     maskUv: m3
   ))
+
+proc drawTexture*(
+  sk: Silky,
+  texture: uint32,
+  pos, size, pixels: Vec2,
+  color = rgbx(255, 255, 255, 255)
+) =
+  ## Queues an independent image with ordinary clipping and layer ordering.
+  if texture == 0 or size.x <= 0 or size.y <= 0:
+    return
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    let
+      layer = sk.drawer.currentLayer
+      first = sk.drawer.layers[layer].len
+    sk.drawQuad(pos, size, vec2(0), pixels, color)
+    for i in first ..< sk.drawer.layers[layer].len:
+      sk.drawer.layers[layer][i].texture = texture
+  else:
+    raise newException(
+      SilkyError, "Independent image textures require the OpenGL or Metal drawer."
+    )
 
 proc drawTriangle*(
   sk: Silky,
@@ -810,9 +831,49 @@ proc uploadAtlas*(sk: Silky) =
   ## Push the current CPU atlas image to the GPU drawer.
   when not defined(useDirectX) and
       not defined(useVulkan) and
-      not defined(useMetal4) and
       not defined(useCpu):
     sk.drawer.uploadAtlas(sk.image)
+
+proc uploadAtlasRegion*(sk: Silky, x, y, width, height: int) =
+  ## Uploads a changed atlas rectangle without replacing the whole texture.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.uploadAtlasRegion(sk.image, x, y, width, height)
+
+proc allocateTexture*(sk: Silky, width, height: int): uint32 =
+  ## Reserves independent image storage without changing the font atlas.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.allocateTexture(width, height)
+  else:
+    raise newException(
+      SilkyError, "Independent image textures require the OpenGL or Metal drawer."
+    )
+
+proc uploadTextureRows*(
+  sk: Silky,
+  texture: uint32,
+  image: Image,
+  firstRow, rowCount: int
+) =
+  ## Uploads selected image rows for incremental preparation across frames.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.uploadTextureRows(texture, image, firstRow, rowCount)
+  else:
+    raise newException(
+      SilkyError, "Independent image textures require the OpenGL or Metal drawer."
+    )
+
+proc deleteTexture*(sk: Silky, texture: uint32) =
+  ## Releases independent image storage after its last queued frame.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.deleteTexture(texture)
 
 proc addAtlasImage*(sk: Silky, name: string, image: Image) =
   ## Pack an image into the runtime atlas and reupload the GPU texture.
@@ -903,21 +964,14 @@ proc draw9Patch*(
     rightS = right * scale * density
     bottomS = bottom * scale * density
     leftS = left * scale * density
-    l = (left * scale).float32
-    r = (right * scale).float32
-    u = (top * scale).float32
-    d = (bottom * scale).float32
     displayScale = max(sk.uiScale, 0.001'f)
-    alignedPos =
-      if density > 1:
-        alignPixels(pos, displayScale)
-      else:
-        pos
-    alignedSize =
-      if density > 1:
-        alignPixels(pos + size, displayScale) - alignedPos
-      else:
-        size
+    l = round((left * scale).float32 * displayScale) / displayScale
+    r = round((right * scale).float32 * displayScale) / displayScale
+    u = round((top * scale).float32 * displayScale) / displayScale
+    d = round((bottom * scale).float32 * displayScale) / displayScale
+    alignedPos = alignPixels(pos, displayScale)
+    # Size must not change as the position crosses a pixel boundary.
+    alignedSize = alignPixels(size, displayScale)
     srcXOffsets = [0.int, leftS, uv.width - rightS]
     srcWidths = [leftS, uv.width - leftS - rightS, rightS]
     srcYOffsets = [0.int, topS, uv.height - bottomS]
@@ -1104,15 +1158,21 @@ proc endUi*(sk: Silky) =
 
 proc buttonDown*(sk: Silky): ButtonView =
   ## Returns held buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonDown)
+  result = sk.inputs.filterButtons(sk.window.buttonDown)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 proc buttonPressed*(sk: Silky): ButtonView =
   ## Returns pressed buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonPressed)
+  result = sk.inputs.filterButtons(sk.window.buttonPressed)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 proc buttonReleased*(sk: Silky): ButtonView =
   ## Returns released buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonReleased)
+  result = sk.inputs.filterButtons(sk.window.buttonReleased)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 when not defined(useDirectX) and
     not defined(useVulkan) and

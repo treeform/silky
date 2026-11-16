@@ -3,6 +3,8 @@ import
   bumpy, pixie, vmath, windy,
   silky, silky/internal/inputs
 
+privateAccess(Silky)
+
 const
   FontPath = "tests/data/IBMPlexSans-Regular.ttf"
   TextColor = rgbx(90, 150, 220, 255)
@@ -13,13 +15,13 @@ proc close(a, b: float32): bool =
 
 proc fixture(builder: AtlasBuilder, density: float32): Silky =
   ## Queues native widget vertices without a platform window or GPU.
-  privateAccess(Silky)
   result = Silky(
     atlas: builder.atlas,
     image: builder.atlasImage,
     uiScale: density,
     inFrame: true,
-    inputs: TextInputs()
+    inputs: TextInputs(),
+    window: Window()
   )
   new(result.drawer)
   result.theme.padding = 0
@@ -63,14 +65,13 @@ proc transition(
   sk.drawer.layers[NormalLayer].setLen(0)
   sk.at = vec2(10.17'f, 20.29'f)
   sk.richTextBox(
-    Window(), "transitions", text, 180, 160,
+    sk.window, "transitions", text, 180, 160,
     wrapWords = true, blocks = blocks
   )
   result = richTextBoxStates["transitions"]
 
 block:
   echo "Testing native strikethrough wrapping, hover, and pixel alignment"
-  let window = Window()
   for density in [1.0'f, 1.25'f, 1.5'f, 2.0'f]:
     let
       builder = newAtlasBuilder(256, 2)
@@ -85,6 +86,7 @@ block:
     doAssert builder.addImage("textbox.disabled.9patch", newImage(16, 16))
     let
       sk = fixture(builder, density)
+      window = sk.window
       text = "WW WW WW"
     var spans = @[
       TextSpan(

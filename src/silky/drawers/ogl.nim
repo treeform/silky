@@ -1,7 +1,7 @@
 import
-  std/[strformat, strutils],
+  std/[strformat, strutils, tables],
   pixie, opengl, shady, vmath, windy,
-  silky/drawers/shader
+  silky/common, silky/drawers/shader
 
 type
   BufferKind* = enum
@@ -40,6 +40,11 @@ type
     clipPos*: Vec2
     clipSize*: Vec2
     maskUv*: Vec2
+    texture*: uint32
+
+  DrawerTexture = object
+    id: GLuint
+    size: IVec2
 
   Drawer* = ref object
     ## OpenGL-backed drawer state.
@@ -47,6 +52,9 @@ type
     vao: GLuint
     instanceVbo: GLuint
     atlasTexture: GLuint
+    atlasSize: IVec2
+    textures: Table[uint32, DrawerTexture]
+    nextTexture: uint32
     layers*: array[2, seq[DrawerVertex]]
     currentLayer*: int
     layerStack*: seq[int]
@@ -479,6 +487,225 @@ proc uploadAtlas*(drawer: Drawer, image: Image) =
     cast[pointer](image.data[0].addr)
   )
   glGenerateMipmap(GL_TEXTURE_2D)
+  drawer.atlasSize = ivec2(image.width.int32, image.height.int32)
+
+proc allocateTexture*(drawer: Drawer, width, height: int): uint32 =
+  ## Allocates an independent image texture without growing the font atlas.
+  if width <= 0 or height <= 0:
+    raise newException(SilkyError, "Image texture dimensions must be positive.")
+  var maximum: GLint
+  glGetIntegerv(GL_MAX_TEXTURE_SIZE, maximum.addr)
+  if width > maximum or height > maximum:
+    raise newException(SilkyError, "Image texture exceeds the GPU size limit.")
+  var
+    texture, unpackBuffer: GLint
+    id: GLuint
+    allocated = false
+  glGetIntegerv(GL_TEXTURE_BINDING_2D, texture.addr)
+  glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, unpackBuffer.addr)
+  defer:
+    glBindTexture(GL_TEXTURE_2D, texture.GLuint)
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpackBuffer.GLuint)
+    if not allocated and id != 0:
+      glDeleteTextures(1, id.addr)
+  glGenTextures(1, id.addr)
+  glBindTexture(GL_TEXTURE_2D, id)
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR.GLint)
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR.GLint)
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE.GLint)
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE.GLint)
+  glTexImage2D(
+    GL_TEXTURE_2D,
+    0,
+    GL_RGBA8.GLint,
+    width.GLsizei,
+    height.GLsizei,
+    0,
+    GL_RGBA,
+    GL_UNSIGNED_BYTE,
+    nil
+  )
+  inc drawer.nextTexture
+  result = drawer.nextTexture
+  drawer.textures[result] = DrawerTexture(
+    id: id, size: ivec2(width.int32, height.int32)
+  )
+  allocated = true
+
+proc uploadTextureRows*(
+  drawer: Drawer,
+  texture: uint32,
+  image: Image,
+  firstRow, rowCount: int
+) =
+  ## Transfers a bounded set of image rows without touching other textures.
+  if texture notin drawer.textures or image == nil:
+    raise newException(SilkyError, "Cannot upload an unknown image texture.")
+  let target = drawer.textures[texture]
+  if target.size != ivec2(image.width.int32, image.height.int32) or
+    firstRow < 0 or rowCount < 0 or firstRow > image.height or
+    rowCount > image.height - firstRow:
+      raise newException(SilkyError, "Image texture upload bounds are invalid.")
+  if rowCount == 0:
+    return
+  var
+    boundTexture, alignment, rowLength, skipRows, skipPixels: GLint
+    unpackBuffer: GLint
+  glGetIntegerv(GL_TEXTURE_BINDING_2D, boundTexture.addr)
+  glGetIntegerv(GL_UNPACK_ALIGNMENT, alignment.addr)
+  glGetIntegerv(GL_UNPACK_ROW_LENGTH, rowLength.addr)
+  glGetIntegerv(GL_UNPACK_SKIP_ROWS, skipRows.addr)
+  glGetIntegerv(GL_UNPACK_SKIP_PIXELS, skipPixels.addr)
+  glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, unpackBuffer.addr)
+  defer:
+    glBindTexture(GL_TEXTURE_2D, boundTexture.GLuint)
+    glPixelStorei(GL_UNPACK_ALIGNMENT, alignment)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, rowLength)
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, skipRows)
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, skipPixels)
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpackBuffer.GLuint)
+  glBindTexture(GL_TEXTURE_2D, target.id)
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, image.width.GLint)
+  glPixelStorei(GL_UNPACK_SKIP_ROWS, 0)
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0)
+  glTexSubImage2D(
+    GL_TEXTURE_2D,
+    0,
+    0,
+    firstRow.GLint,
+    image.width.GLsizei,
+    rowCount.GLsizei,
+    GL_RGBA,
+    GL_UNSIGNED_BYTE,
+    cast[pointer](image.data[firstRow * image.width].addr)
+  )
+
+proc deleteTexture*(drawer: Drawer, texture: uint32) =
+  ## Releases an independent texture once its queued draws are finished.
+  if texture notin drawer.textures:
+    return
+  var id = drawer.textures[texture].id
+  glDeleteTextures(1, id.addr)
+  drawer.textures.del(texture)
+
+proc uploadAtlasRegion*(
+  drawer: Drawer,
+  image: Image,
+  x, y, width, height: int
+) =
+  ## Updates changed atlas pixels and only their dependent mipmap rectangles.
+  if width <= 0 or height <= 0:
+    return
+  if drawer.atlasSize != ivec2(image.width.int32, image.height.int32) or
+    (image.width and (image.width - 1)) != 0 or
+    (image.height and (image.height - 1)) != 0:
+      drawer.uploadAtlas(image)
+      return
+  var
+    left = clamp(x, 0, image.width)
+    top = clamp(y, 0, image.height)
+    right = clamp(x + width, 0, image.width)
+    bottom = clamp(y + height, 0, image.height)
+  if right <= left or bottom <= top:
+    return
+  var
+    alignment, rowLength, skipRows, skipPixels, unpackBuffer: GLint
+    readFramebuffer, drawFramebuffer: GLint
+    framebuffers: array[2, GLuint]
+  glGetIntegerv(GL_UNPACK_ALIGNMENT, alignment.addr)
+  glGetIntegerv(GL_UNPACK_ROW_LENGTH, rowLength.addr)
+  glGetIntegerv(GL_UNPACK_SKIP_ROWS, skipRows.addr)
+  glGetIntegerv(GL_UNPACK_SKIP_PIXELS, skipPixels.addr)
+  glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, unpackBuffer.addr)
+  glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, readFramebuffer.addr)
+  glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, drawFramebuffer.addr)
+  let scissor = glIsEnabled(GL_SCISSOR_TEST)
+  defer:
+    glPixelStorei(GL_UNPACK_ALIGNMENT, alignment)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, rowLength)
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, skipRows)
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, skipPixels)
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpackBuffer.GLuint)
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, readFramebuffer.GLuint)
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, drawFramebuffer.GLuint)
+    if scissor.bool:
+      glEnable(GL_SCISSOR_TEST)
+    glDeleteFramebuffers(2, framebuffers[0].addr)
+  glActiveTexture(GL_TEXTURE0)
+  glBindTexture(GL_TEXTURE_2D, drawer.atlasTexture)
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0)
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, image.width.GLint)
+  glPixelStorei(GL_UNPACK_SKIP_ROWS, 0)
+  glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0)
+  glTexSubImage2D(
+    GL_TEXTURE_2D,
+    0,
+    left.GLint,
+    top.GLint,
+    (right - left).GLsizei,
+    (bottom - top).GLsizei,
+    GL_RGBA,
+    GL_UNSIGNED_BYTE,
+    cast[pointer](image.data[top * image.width + left].addr)
+  )
+  glDisable(GL_SCISSOR_TEST)
+  glGenFramebuffers(2, framebuffers[0].addr)
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffers[0])
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffers[1])
+  glReadBuffer(GL_COLOR_ATTACHMENT0)
+  var attachment = GL_COLOR_ATTACHMENT0
+  glDrawBuffers(1, attachment.addr)
+  var
+    level = 0
+    levelWidth = image.width
+    levelHeight = image.height
+  while levelWidth > 1 or levelHeight > 1:
+    let
+      nextLeft = left div 2
+      nextTop = top div 2
+      nextRight = (right + 1) div 2
+      nextBottom = (bottom + 1) div 2
+    glFramebufferTexture2D(
+      GL_READ_FRAMEBUFFER,
+      GL_COLOR_ATTACHMENT0,
+      GL_TEXTURE_2D,
+      drawer.atlasTexture,
+      level.GLint
+    )
+    glFramebufferTexture2D(
+      GL_DRAW_FRAMEBUFFER,
+      GL_COLOR_ATTACHMENT0,
+      GL_TEXTURE_2D,
+      drawer.atlasTexture,
+      (level + 1).GLint
+    )
+    if glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE or
+      glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+        glGenerateMipmap(GL_TEXTURE_2D)
+        return
+    glBlitFramebuffer(
+      (nextLeft * 2).GLint,
+      (nextTop * 2).GLint,
+      min(nextRight * 2, levelWidth).GLint,
+      min(nextBottom * 2, levelHeight).GLint,
+      nextLeft.GLint,
+      nextTop.GLint,
+      nextRight.GLint,
+      nextBottom.GLint,
+      GL_COLOR_BUFFER_BIT,
+      GL_LINEAR.GLenum
+    )
+    left = nextLeft
+    top = nextTop
+    right = nextRight
+    bottom = nextBottom
+    levelWidth = max(1, levelWidth div 2)
+    levelHeight = max(1, levelHeight div 2)
+    inc level
 
 proc newDrawer*(window: Window, image: Image): Drawer =
   ## Creates a new OpenGL drawer and eagerly uploads its resources.
@@ -633,17 +860,31 @@ proc endFrame*(
 
   glUseProgram(drawer.shader.programId)
   drawer.shader.setUniform("viewportSize", size)
-  drawer.shader.setUniform(
-    "atlasSize",
-    vec2(image.width.float32, image.height.float32)
-  )
   glActiveTexture(GL_TEXTURE0)
-  glBindTexture(GL_TEXTURE_2D, drawer.atlasTexture)
   drawer.shader.setUniform("atlasSampler", 0)
-  drawer.shader.bindUniforms()
-
   glBindVertexArray(drawer.vao)
-  glDrawArrays(GL_TRIANGLES, 0, quadCount.GLsizei)
+  let vertices = cast[ptr UncheckedArray[DrawerVertex]](quads)
+  var first = 0
+  while first < quadCount:
+    let texture = vertices[first].texture
+    var last = first + 1
+    while last < quadCount and vertices[last].texture == texture:
+      inc last
+    if texture == 0:
+      glBindTexture(GL_TEXTURE_2D, drawer.atlasTexture)
+      drawer.shader.setUniform(
+        "atlasSize", vec2(image.width.float32, image.height.float32)
+      )
+    elif texture in drawer.textures:
+      let target = drawer.textures[texture]
+      glBindTexture(GL_TEXTURE_2D, target.id)
+      drawer.shader.setUniform("atlasSize", target.size.vec2)
+    else:
+      first = last
+      continue
+    drawer.shader.bindUniforms()
+    glDrawArrays(GL_TRIANGLES, first.GLint, (last - first).GLsizei)
+    first = last
 
   glBindVertexArray(0)
   glUseProgram(0)

@@ -3,12 +3,12 @@
 import
   std/[algorithm, strutils, tables, unicode, times],
   vmath, bumpy, chroma, pixie,
-  silky/[atlas, clips, frames, layout], testwindow,
+  silky/[atlas, clips, common, frames, interactions, scrolls, layout], testwindow,
   silky/internal/inputs
 
 from windy/common import Button, CursorKind, Cursor
 
-export frames, layout
+export frames, interactions, scrolls, layout
 
 const
   LineFeedRune = Rune(10)
@@ -267,13 +267,6 @@ type
     clipPos*: Vec2
     clipSize*: Vec2
 
-  Interactor* = object
-    ## Solve which widget the mouse is interacting with.
-    currentId*: int = -1
-    warmId*: int = -1
-    warmLayer*: int = -1
-    hotId*: int = -1
-
   Silky* = ref object
     ## Main Silky context for testing mode without GPU.
     inFrame: bool = false
@@ -306,6 +299,8 @@ type
     lastMousePos*: Vec2
     tooltipThreshold*: float64 = 0.5
     atlas*: SilkyAtlas
+    textures: Table[uint32, IVec2]
+    nextTexture: uint32
     layers*: array[2, seq[SilkyVertex]]
     currentLayer*: int
     layerStack*: seq[int]
@@ -315,6 +310,10 @@ type
     avgFrameTime*: float64
     semantic*: SemanticCapture
     interactor*: Interactor
+    touchScroll*: TouchScroll
+    touchTimeMs*: float64 = -1
+    touchOrigin*: Vec2
+      ## Logical window offset applied when the app removes safe-area insets.
     window*: Window
 
 proc currentDrawLayer*(sk: Silky): int =
@@ -329,7 +328,7 @@ proc renderMode*(sk: Silky): RenderMode =
   sk.frames.mode
 
 proc requestFrame*(sk: Silky, delayMs = 0) =
-  ## Invalidates app data or schedules a visible animation on the UI thread.
+  ## Invalidates data or schedules an animation frame on the UI thread.
   sk.frames.requestFrame(delayMs)
 
 proc `renderMode=`*(sk: Silky, mode: RenderMode) =
@@ -560,6 +559,41 @@ proc drawQuad*(sk: Silky, pos: Vec2, size: Vec2, uvPos: Vec2, uvSize: Vec2, colo
   ## Stub for drawing a textured quad.
   discard
 
+proc allocateTexture*(sk: Silky, width, height: int): uint32 =
+  ## Records independent image storage without allocating GPU resources.
+  if width <= 0 or height <= 0:
+    raise newException(SilkyError, "Image texture dimensions must be positive.")
+  inc sk.nextTexture
+  result = sk.nextTexture
+  sk.textures[result] = ivec2(width.int32, height.int32)
+
+proc uploadTextureRows*(
+  sk: Silky,
+  texture: uint32,
+  image: Image,
+  firstRow, rowCount: int
+) =
+  ## Validates incremental image transfers without touching a GPU.
+  if texture notin sk.textures or image == nil:
+    raise newException(SilkyError, "Cannot upload an unknown image texture.")
+  if sk.textures[texture] != ivec2(image.width.int32, image.height.int32) or
+    firstRow < 0 or rowCount < 0 or firstRow > image.height or
+    rowCount > image.height - firstRow:
+      raise newException(SilkyError, "Image texture upload bounds are invalid.")
+
+proc deleteTexture*(sk: Silky, texture: uint32) =
+  ## Releases a semantic texture record while leaving other images intact.
+  sk.textures.del(texture)
+
+proc drawTexture*(
+  sk: Silky,
+  texture: uint32,
+  pos, size, pixels: Vec2,
+  color = rgbx(255, 255, 255, 255)
+) =
+  ## Preserves the native image API during semantic tests without GPU draws.
+  discard
+
 proc drawImage*(
   sk: Silky,
   name: string,
@@ -660,12 +694,22 @@ proc newSilky*(window: Window, atlasPngPath: string): Silky =
 
 proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   ## Begins a new UI frame.
+  sk.cursor = Cursor(kind: ArrowCursor)
   if sk.frames.mode == OnDemandRender:
     sk.frameHadInput = sk.frameInput.inputChanged(
       window, sk.inputs.hasPendingEvents()
     )
     sk.frames.beginFrame()
-  sk.cursor = Cursor(kind: ArrowCursor)
+  sk.touchScroll.beginTouchFrame(
+    window.pointerSource == TouchPointer,
+    window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
+    window.buttonReleased[MouseLeft], window.focused,
+    window.mousePos.vec2 / sk.uiScale,
+    window.mouseDelta.vec2 / sk.uiScale,
+    velocity = window.pointerVelocity / sk.uiScale,
+    nowMs = (if sk.touchTimeMs >= 0: sk.touchTimeMs else: scrollMilliseconds()),
+    interrupted = window.scrollDelta != vec2(0)
+  )
   sk.inputs.beginInputFrame(window)
   sk.tooltipActive = sk.showTooltip
   sk.showTooltip = false
@@ -690,23 +734,19 @@ proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   sk.pushClipRect(rect(0, 0, sk.size.x, sk.size.y))
   sk.semantic.reset()
 
-proc endInteractions(interactor: var Interactor) =
-  ## Commit warm state and resets per-frame counters.
-  interactor.hotId = interactor.warmId
-  interactor.warmId = -1
-  interactor.warmLayer = -1
-  interactor.currentId = -1
-
 proc resetInteractions*(sk: Silky) =
-  ## Clear all interaction state.
-  sk.interactor.hotId = -1
+  ## Invalidates cached pointer targets.
+  sk.interactor.resetInteractions()
+  sk.touchScroll.resetTouchScroll()
 
 proc endUi*(sk: Silky) =
   ## Ends the current UI frame.
   if sk.frames.mode == OnDemandRender:
     if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
       sk.requestFrame()
-    if sk.window.buttonDown[MouseLeft]:
+    if sk.touchScroll.momentumActive():
+      sk.requestFrame()
+    elif sk.window.buttonDown[MouseLeft]:
       sk.requestFrame(16)
   let previousCursor = sk.window.cursor
   if previousCursor.kind != sk.cursor.kind or
@@ -715,6 +755,7 @@ proc endUi*(sk: Silky) =
         previousCursor.hotspot != sk.cursor.hotspot)):
       sk.window.cursor = sk.cursor
   sk.interactor.endInteractions()
+  sk.touchScroll.endTouchFrame()
   sk.clear()
   sk.popLayout()
   sk.popClipRect()
@@ -725,15 +766,21 @@ proc endUi*(sk: Silky) =
 
 proc buttonDown*(sk: Silky): array[Button, bool] =
   ## Returns held buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonDown)
+  result = sk.inputs.filterButtons(sk.window.buttonDown)
+  if sk.touchScrolling:
+    result[MouseLeft] = false
 
 proc buttonPressed*(sk: Silky): array[Button, bool] =
   ## Returns pressed buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonPressed)
+  result = sk.inputs.filterButtons(sk.window.buttonPressed)
+  if sk.touchScrolling:
+    result[MouseLeft] = false
 
 proc buttonReleased*(sk: Silky): array[Button, bool] =
   ## Returns released buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonReleased)
+  result = sk.inputs.filterButtons(sk.window.buttonReleased)
+  if sk.touchScrolling:
+    result[MouseLeft] = false
 
 proc beginWidget*(sk: Silky, kind: string, name = "", text = "", rect = rect(0f, 0f, 0f, 0f)) {.inline.} =
   ## Begins a new semantic widget node.

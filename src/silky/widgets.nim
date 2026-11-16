@@ -56,24 +56,6 @@ var
   scrubberStates*: Table[string, ScrubberState]
   dropDownStates*: Table[uint, DropDownState]
 
-proc mouseHover(
-  interactor: var Interactor,
-  mousePos: Vec2,
-  clipRect: Rect,
-  layer: int,
-  widgetRect: Rect
-): bool =
-  ## Resolve mouse hovering by taking information from the last frame.
-  inc interactor.currentId
-
-  let hovering = mousePos.overlaps(widgetRect) and mousePos.overlaps(clipRect)
-
-  if hovering and layer >= interactor.warmLayer:
-    interactor.warmLayer = layer
-    interactor.warmId = interactor.currentId
-
-  return interactor.hotId == interactor.currentId and hovering
-
 proc mouseHover*(sk: Silky, window: Window, r: Rect): bool =
   discard window
   let hit = sk.interactor.mouseHover(sk.mousePos, sk.clipRect, sk.currentDrawLayer, r)
@@ -86,6 +68,7 @@ proc interact*(
   isError: bool = false
 ): Interaction =
   ## Determine the interaction given mouse and widget states.
+  sk.registerTouchBlocker(widgetRect)
   let
     hover = sk.interactor.mouseHover(sk.mousePos, sk.clipRect, sk.currentDrawLayer, widgetRect)
     pressed = sk.buttonPressed[MouseLeft]
@@ -96,6 +79,9 @@ proc interact*(
     return Disabled
   if isError:
     return Error
+  if released and sk.touchScroll.touchInput and
+    not sk.touchTap(widgetRect):
+      return ReleasedOutside
   if not hover and released:
     return ReleasedOutside
   if not hover:
@@ -107,6 +93,11 @@ proc interact*(
   if released:
     return Released
   return Hovered
+
+proc isReleased*(interaction: Interaction, window: Window): bool =
+  ## Includes a complete press and release delivered before one UI frame.
+  interaction == Released or
+    (interaction == Pressed and window.buttonReleased[MouseLeft])
 
 proc vec2(v: SomeNumber): Vec2 =
   ## Create a Vec2 from a number.
@@ -170,7 +161,7 @@ proc subWindowStart*(
     sk.draw9Patch("header.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Pressed:
     subWindowState.dragOffset = sk.mousePos - subWindowState.pos
-    subWindowState.dragging = true
+    subWindowState.dragging = window.buttonDown[MouseLeft]
     sk.draw9Patch("header.dragging.9patch", sk.theme.headerPatch, sk.pos, sk.size)
   of Held:
     discard
@@ -250,7 +241,7 @@ proc subWindowEnd*(sk: Silky, window: Window, subWindowState: SubWindowState) =
 
   case resizeHandleInteraction
   of Pressed:
-    subWindowState.resizing = true
+    subWindowState.resizing = window.buttonDown[MouseLeft]
     subWindowState.resizeOffset = sk.mousePos - subWindowState.size
   of Hovered, Released, ReleasedOutside:
     subWindowState.resizing = false
@@ -322,12 +313,8 @@ proc frameScrollbars*(
   ## overflow. At rest (t = 0) the origin edge is pinned: a bottom-origin
   ## frame rests scrolled to the bottom, and its thumb rests at the
   ## bottom of the track, moving away from the origin as t grows.
-  if frameState.scrollingY and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    frameState.scrollingY = false
-  if frameState.scrollingX and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    frameState.scrollingX = false
+  const MinThumbSize = 16.0'f
+  var tracks, thumbs: array[2, Rect]
 
   let scrollMax = max(contentSize - frameRect.wh, vec2(0, 0))
 
@@ -362,9 +349,12 @@ proc frameScrollbars*(
         frameRect.x + frameRect.w - 10,
         frameRect.y + 2,
         8,
-        frameRect.h - 4 - 10
+        max(0.0'f, frameRect.h - 4 - 10)
       )
-      thumbH = track.h * (frameRect.h / contentSize.y)
+      thumbH = min(
+        track.h,
+        max(MinThumbSize, track.h * (frameRect.h / contentSize.y))
+      )
       travel = track.h - thumbH
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
 
@@ -376,6 +366,7 @@ proc frameScrollbars*(
         offsetFrac = if signs.y >= 0: frac else: 1.0'f - frac
       rect(track.x, track.y + travel * offsetFrac, 8, thumbH)
 
+    tracks[1] = track
     if frameState.scrollingY:
       if travel > 0:
         let rel = sk.mousePos.y - frameState.scrollDragOffset.y - track.y
@@ -385,10 +376,12 @@ proc frameScrollbars*(
         frameState.scrollPos.y = frac * scrollMax.y
     else:
       let thumb = thumbRectY()
-      if sk.interact(thumb, true) == Pressed:
-        frameState.scrollingY = true
-        frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
+      if sk.interact(thumb, true) == Pressed and
+        window.pointerSource != TouchPointer:
+          frameState.scrollingY = window.buttonDown[MouseLeft]
+          frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
     let thumb = thumbRectY()
+    thumbs[1] = thumb
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
 
   # X scrollbar.
@@ -397,10 +390,13 @@ proc frameScrollbars*(
       track = rect(
         frameRect.x + 2,
         frameRect.y + frameRect.h - 10,
-        frameRect.w - 4 - 10,
+        max(0.0'f, frameRect.w - 4 - 10),
         8
       )
-      thumbW = track.w * (frameRect.w / contentSize.x)
+      thumbW = min(
+        track.w,
+        max(MinThumbSize, track.w * (frameRect.w / contentSize.x))
+      )
       travel = track.w - thumbW
     sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
 
@@ -412,6 +408,7 @@ proc frameScrollbars*(
         offsetFrac = if signs.x >= 0: frac else: 1.0'f - frac
       rect(track.x + travel * offsetFrac, track.y, thumbW, 8)
 
+    tracks[0] = track
     if frameState.scrollingX:
       if travel > 0:
         let rel = sk.mousePos.x - frameState.scrollDragOffset.x - track.x
@@ -421,11 +418,27 @@ proc frameScrollbars*(
         frameState.scrollPos.x = frac * scrollMax.x
     else:
       let thumb = thumbRectX()
-      if sk.interact(thumb, true) == Pressed:
-        frameState.scrollingX = true
-        frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
+      if sk.interact(thumb, true) == Pressed and
+        window.pointerSource != TouchPointer:
+          frameState.scrollingX = window.buttonDown[MouseLeft]
+          frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
     let thumb = thumbRectX()
+    thumbs[0] = thumb
     sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
+
+  if frameState.scrollingY and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    frameState.scrollingY = false
+  if frameState.scrollingX and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    frameState.scrollingX = false
+
+  sk.registerTouchScroll(
+    cast[pointer](frameState), frameRect, frameState.scrollPos, scrollMax,
+    signs, tracks, thumbs, sk.layoutStack.len,
+    proc(position: Vec2) =
+      frameState.scrollPos = position
+  )
 
 proc frameEnd*(sk: Silky, window: Window, frameState: FrameState, originPos: Vec2) =
   ## Finish a scrollable frame and handle scrollbars.
@@ -498,7 +511,7 @@ template sizedButton(
 
   sk.draw9Patch(patch, sk.theme.buttonPatch, buttonOrigin, buttonSize)
 
-  if interaction == Released:
+  if interaction.isReleased(window):
     body
 
   when defined(silkyTesting):
@@ -573,6 +586,8 @@ template iconButton*(image: string, body) =
     sk.hover = true
     sk.tooltipAnchor = buttonRect
     patch = "button.down.9patch"
+    if interaction.isReleased(window):
+      body
   of Released:
     sk.hover = false
     body
@@ -608,7 +623,10 @@ template clickableIcon*(image: string, on: bool, body) =
   if sk.hover:
     sk.tooltipAnchor = iconRect
 
-  if interaction == Pressed:
+  if window.pointerSource == TouchPointer:
+    if interaction.isReleased(window) and sk.touchTap(iconRect):
+      body
+  elif interaction == Pressed:
     body
 
   sk.drawImage(image, sk.at, color)
@@ -629,7 +647,7 @@ template radioButton*[T](label: string, variable: var T, value: T) =
 
   let interaction = sk.interact(hitRect, true)
 
-  if interaction == Released:
+  if interaction.isReleased(window):
     variable = value
 
   let
@@ -669,7 +687,7 @@ template checkBox*(label: string, value: var bool) =
 
   let interaction = sk.interact(hitRect, true)
 
-  if interaction == Released:
+  if interaction.isReleased(window):
     value = not value
 
   let
@@ -721,7 +739,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
   if interaction == Pressed:
     state.pressed = true
   if window.buttonReleased[MouseLeft]:
-    if state.pressed and interaction == Released:
+    if state.pressed and interaction.isReleased(window):
       state.open = not state.open
     state.pressed = false
 
@@ -767,7 +785,7 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
       if interaction == Pressed:
         state.pressedOption = i
-      if interaction == Released and state.pressedOption == i:
+      if interaction.isReleased(window) and state.pressedOption == i:
         selected = opt
         state.open = false
 
@@ -813,7 +831,7 @@ template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
         interaction = sk.interact(rowRect, true)
         rowHover = interaction in [Pressed, Held, Hovered]
 
-      if interaction == Released:
+      if interaction.isReleased(window):
         selectedIndex = i
 
       if rowHover:
@@ -983,7 +1001,7 @@ template scrubber*[T, U](id: string, value: var T, minVal: T, maxVal: U, label: 
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
   elif pressed:
-    scrubState.dragging = true
+    scrubState.dragging = window.buttonDown[MouseLeft]
     let t = clamp((sk.mousePos.x - trackStart) / travelSafe, 0f, 1f)
     value = (minF + t * range).T
 

@@ -29,8 +29,7 @@ proc requestFrame*(
   delayMs = 0,
   nowMs = frameMilliseconds()
 ) =
-  ## Requests an immediate or timed redraw from the owning UI thread.
-  ## Timed requests keep the earliest deadline; visible animations renew them.
+  ## Requests a redraw on the UI thread, immediately or after a delay.
   let
     dirty = schedule.dirty
     deadline = schedule.deadline

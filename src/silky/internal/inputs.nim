@@ -26,7 +26,9 @@ type
 
   TextInputs* = ref object
     onEvent*: proc()
-      ## Wakes an on-demand UI after editor input has been queued.
+      ## Wakes an on-demand UI after native text input has been queued.
+    onPaste*: proc(id: string): bool
+      ## Returns true to consume a paste for the active editable field.
     events: seq[InputEvent]
     active: bool
     editable: bool
@@ -116,6 +118,11 @@ proc installPress(inputs: TextInputs, window: Window) =
       inputs.consumedKeys.incl(button)
       if inputs.editable and button == KeyV and
         (event.super or (event.control and not event.alt)):
+          let epoch = inputs.epoch
+          if inputs.onPaste != nil and inputs.onPaste(inputs.id):
+            return
+          if not inputs.active or not inputs.editable or inputs.epoch != epoch:
+            return
           event.kind = TextCommit
           event.text = getClipboardString()
           if event.text.len > 0:

@@ -80,6 +80,13 @@ proc skipHook*(T: typedesc[FontAtlasObject], key: static string): bool =
   ## Skips runtime-only lookup tables during atlas JSON serialization.
   key == "lookup"
 
+proc rasterScale*(fontAtlas: FontAtlas): float32 {.inline.} =
+  ## Returns physical glyph density while accepting legacy atlas metadata.
+  if fontAtlas.pixelScale > 0:
+    fontAtlas.pixelScale
+  else:
+    1.0'f
+
 proc kerningKey(left, right: Rune): uint64 {.inline.} =
   ## Packs two Unicode scalar values into one table key.
   (uint64(uint32(int32(left))) shl 32) or uint64(uint32(int32(right)))
@@ -439,6 +446,7 @@ proc addFont*(
   fontAtlas.ascent = typeface.ascent * logicalScale
   fontAtlas.descent = typeface.descent * logicalScale
   fontAtlas.lineGap = typeface.lineGap * logicalScale
+  fontObj.size = size * density
   # If subpixelSteps > 0, generates multiple versions of each glyph shifted by 1/subpixelSteps pixels.
   # For example, subpixelSteps=10 generates 10 versions per glyph at 0.0, 0.1, 0.2, ... 0.9 pixel offsets.
   let numVariants = if subpixelSteps > 0: subpixelSteps else: 1
@@ -447,7 +455,7 @@ proc addFont*(
     let
       rune = glyphStr.runeAt(0)
       glyphPath = typeface.getGlyphPath(rune)
-      scale = logicalScale * density
+      scale = fontObj.scale
       scaleMat = scale(vec2(scale))
       baseBounds = glyphPath.computeBounds(scaleMat).snapToPixels().finiteBounds()
       advance = typeface.getAdvance(rune) * logicalScale

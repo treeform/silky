@@ -4,10 +4,10 @@ import
   std/unicode,
   vmath
 from windy/common import
-  Button, CursorKind, Cursor, TextInputState, TextInputEdit,
+  Button, PointerSource, CursorKind, Cursor, TextInputState, TextInputEdit,
   TextInputEditKind, TextInputEditCallback
 export
-  Button, CursorKind, Cursor, unicode, TextInputState, TextInputEdit,
+  Button, PointerSource, CursorKind, Cursor, unicode, TextInputState, TextInputEdit,
   TextInputEditKind, TextInputEditCallback
 
 type Window* = ref object
@@ -21,6 +21,8 @@ type Window* = ref object
   buttonPressed*: array[Button, bool]
   buttonReleased*: array[Button, bool]
   scrollDelta*: Vec2
+  pointerSource*: PointerSource
+  pointerVelocity*: Vec2
   ## Starts true so `while not window.closeRequested` loops exit immediately in tests.
   closeRequested*: bool = true
   cursor*: Cursor = Cursor(kind: ArrowCursor)
@@ -92,6 +94,9 @@ proc resetInputState*(w: Window) =
 
 proc pressButton*(w: Window, button: Button) =
   ## Simulates pressing a button, including repeated presses.
+  if button == MouseLeft and w.pointerSource == TouchPointer:
+    w.mouseDelta = ivec2(0, 0)
+    w.pointerVelocity = vec2(0)
   w.buttonDown[button] = true
   w.buttonPressed[button] = true
   if w.onButtonPress != nil:
@@ -137,7 +142,10 @@ proc moveMouse*(w: Window, x, y: int) =
   ## Moves the simulated mouse cursor to the given position.
   let newPos = ivec2(x.int32, y.int32)
   w.mousePrevPos = w.mousePos
-  w.mouseDelta = newPos - w.mousePos
+  if w.pointerSource == TouchPointer:
+    w.mouseDelta += newPos - w.mousePos
+  else:
+    w.mouseDelta = newPos - w.mousePos
   w.mousePos = newPos
 
 template mousePos*(w: Window): Vec2 =

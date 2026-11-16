@@ -221,4 +221,35 @@ block:
   doAssert s.editor.cursor >= bodyStart and s.editor.cursor < codeStart
   doAssert s.editor.selector == codeStart
 
+block:
+  echo "Testing preformatted rows stay intact beside wrapped prose"
+  const
+    Prose = "A paragraph that wraps over several narrow lines."
+    Row = "Name | Count | Description"
+    Sample = Prose & "\n" & Row & "\n" & Row
+    Start = Prose.len + 1
+  let state = newState(Sample, 100)
+  state.blocks = @[
+    TextBlock(first: 0, last: Prose.len, padding: vec2(6)),
+    TextBlock(
+      first: Start,
+      last: Sample.len,
+      noWrap: true,
+      padding: vec2(6)
+    )
+  ]
+  state.computeLayout(silkyAtlas.fonts, "Default", 100)
+  doAssert state.editor.layout[Prose.high].y > state.editor.layout[0].y
+  let firstRow = state.editor.layout[Start ..< Start + Row.len]
+  for i, bounds in firstRow:
+    doAssert bounds.y == firstRow[0].y
+    doAssert bounds.x == state.editor.layout[Start + Row.len + 1 + i].x
+  doAssert state.editor.innerWidth > 100
+  doAssert state.horizontalScrollbarHeight(100) == 10
+  state.editor.selectAll()
+  doAssert state.editor.copyText() == Sample
+  state.computeLayout(silkyAtlas.fonts, "Default", 600)
+  doAssert state.horizontalScrollbarHeight(600) == 0
+  doAssert state.editor.wordWrap
+
 echo "All rich textbox layout tests passed."

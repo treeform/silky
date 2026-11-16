@@ -3,6 +3,8 @@ import
   bumpy, pixie, vmath, windy,
   silky, silky/internal/inputs
 
+privateAccess(Silky)
+
 const FontPath = "tests/data/IBMPlexSans-Regular.ttf"
 
 proc close(a, b: float32): bool =
@@ -11,7 +13,6 @@ proc close(a, b: float32): bool =
 
 proc fixture(builder: AtlasBuilder, density: float32): Silky =
   ## Queues native button vertices without a platform window or GPU.
-  privateAccess(Silky)
   result = Silky(
     atlas: builder.atlas,
     image: builder.atlasImage,
@@ -45,6 +46,7 @@ block:
     doAssert builder.addImage("button.9patch", newImage(24, 24))
     let
       sk = fixture(builder, density)
+      window = sk.window
       reference = fixture(builder, density)
       origin = vec2(20.17'f, 30.29'f)
       textSize = sk.getTextSize("Default", "W")

@@ -1,4 +1,4 @@
-import strutils, shady, silky/drawers/shader
+import std/[strutils, tables], shady, silky/drawers/shader
 
 proc checkSampleOrder(source, base, mask: string) =
   ## Keeps texture derivatives valid at fragment clipping boundaries.
@@ -84,5 +84,29 @@ block:
     "atlasSampler.sample(atlasSamplerSampler, fragmentUv)",
     "atlasSampler.sample(atlasSamplerSampler, fragmentMaskUv)"
   )
+
+block:
+  let
+    vertex = toMSL(silkyVert, shaderVertex)
+    uniforms = metalUniformLayout(vertex)
+  doAssert uniforms.size == 16
+  doAssert uniforms.offsets["viewportSize"] == 0
+  doAssert uniforms.offsets["atlasSize"] == 8
+  doAssert "vertex VertexOut vertexMain(" in vertex
+  doAssert "constant ShadyUniforms0 &shadyUniforms0 [[buffer(0)]]" in vertex
+  doAssert "float2 pos [[attribute(0)]];" in vertex
+  doAssert "float4 color [[attribute(2)]];" in vertex
+  doAssert "float2 maskUv [[attribute(5)]];" in vertex
+  doAssert "fragmentMaskUv = maskUv / atlasSize;" in vertex
+  doAssert "output.fragmentPos = fragmentPos;" in vertex
+
+  let fragment = toMSL(silkyFrag, shaderFragment)
+  doAssert "fragment float4 fragmentMain(" in fragment
+  doAssert "texture2d<float> atlasSampler [[texture(0)]]" in fragment
+  doAssert "sampler atlasSamplerSampler [[sampler(0)]]" in fragment
+  doAssert "float2 fragmentPos = input.fragmentPos;" in fragment
+  doAssert "discard_fragment();" in fragment
+  doAssert "atlasSampler.sample(atlasSamplerSampler, fragmentUv)" in fragment
+  doAssert "atlasSampler.sample(atlasSamplerSampler, fragmentMaskUv)" in fragment
 
 echo "Silky Shady shader codegen tests passed"
