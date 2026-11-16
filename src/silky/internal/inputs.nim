@@ -386,6 +386,50 @@ proc takeInput*(inputs: TextInputs): seq[InputEvent] =
   inputs.consumed = true
   swap(result, inputs.events)
 
+when defined(ios) or defined(silkyTesting):
+  proc showInputMenu(inputs: TextInputs, window: Window) =
+    ## Allocates a native action callback only when a menu is requested.
+    let
+      id = inputs.menuId
+      epoch = inputs.menuEpoch
+      actions = inputs.menuActions
+      generation = inputs.menuGeneration + 1
+    inputs.menuGeneration = generation
+    inputs.menuVisible = window.showTextEditMenu(
+      inputs.menuBounds, actions,
+      proc(action: TextEditAction) =
+        ## Routes native actions through the current field's input hooks.
+        if not inputs.active or inputs.id != id or
+          inputs.epoch != epoch or inputs.menuGeneration != generation or
+          action notin actions:
+            return
+        inputs.menuVisible = false
+        inc inputs.menuGeneration
+        if action == PasteTextAction:
+          if not inputs.editable:
+            return
+          if inputs.onPaste != nil and inputs.onPaste(id):
+            if inputs.onEvent != nil:
+              inputs.onEvent()
+            return
+          if not inputs.active or inputs.id != id or
+            not inputs.editable or inputs.epoch != epoch:
+              return
+          let text = getClipboardString()
+          if text.len > 0:
+            inputs.addEvent(InputEvent(kind: TextCommit, text: text))
+        else:
+          let button =
+            case action
+            of CopyTextAction: KeyC
+            of CutTextAction: KeyX
+            of SelectAllTextAction: KeyA
+            of PasteTextAction: KeyV
+          inputs.addEvent(InputEvent(
+            kind: KeyDown, button: button, control: true
+          ))
+    )
+
 proc endInputFrame*(inputs: TextInputs, window: Window) =
   ## Ends capture when the active field was not submitted this frame.
   if not inputs.submitted:
@@ -398,43 +442,4 @@ proc endInputFrame*(inputs: TextInputs, window: Window) =
   when defined(ios) or defined(silkyTesting):
     if inputs.menuPending and inputs.active and inputs.submitted and
       inputs.id == inputs.menuId and inputs.epoch == inputs.menuEpoch:
-        let
-          id = inputs.menuId
-          epoch = inputs.menuEpoch
-          actions = inputs.menuActions
-          generation = inputs.menuGeneration + 1
-        inputs.menuGeneration = generation
-        inputs.menuVisible = window.showTextEditMenu(
-          inputs.menuBounds, actions,
-          proc(action: TextEditAction) =
-            ## Routes native actions through the current field's input hooks.
-            if not inputs.active or inputs.id != id or
-              inputs.epoch != epoch or inputs.menuGeneration != generation or
-              action notin actions:
-                return
-            inputs.menuVisible = false
-            inc inputs.menuGeneration
-            if action == PasteTextAction:
-              if not inputs.editable:
-                return
-              if inputs.onPaste != nil and inputs.onPaste(id):
-                if inputs.onEvent != nil:
-                  inputs.onEvent()
-                return
-              if not inputs.active or inputs.id != id or
-                not inputs.editable or inputs.epoch != epoch:
-                  return
-              let text = getClipboardString()
-              if text.len > 0:
-                inputs.addEvent(InputEvent(kind: TextCommit, text: text))
-            else:
-              let button =
-                case action
-                of CopyTextAction: KeyC
-                of CutTextAction: KeyX
-                of SelectAllTextAction: KeyA
-                of PasteTextAction: KeyV
-              inputs.addEvent(InputEvent(
-                kind: KeyDown, button: button, control: true
-              ))
-        )
+        inputs.showInputMenu(window)
