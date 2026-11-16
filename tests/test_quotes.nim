@@ -3,6 +3,8 @@ import
   bumpy, pixie, vmath, windy,
   silky, silky/internal/inputs
 
+privateAccess(Silky)
+
 const
   FontPath = "tests/data/IBMPlexSans-Regular.ttf"
   QuoteColor = rgbx(90, 150, 220, 255)
@@ -15,13 +17,13 @@ proc close(a, b: float32): bool =
 
 proc fixture(builder: AtlasBuilder, density: float32): Silky =
   ## Queues native widget vertices without a platform window or GPU.
-  privateAccess(Silky)
   result = Silky(
     atlas: builder.atlas,
     image: builder.atlasImage,
     uiScale: density,
     inFrame: true,
-    inputs: TextInputs()
+    inputs: TextInputs(),
+    window: Window()
   )
   new(result.drawer)
   result.theme.padding = 0
@@ -39,7 +41,7 @@ proc render(
   richTextBoxStates.del("quotes")
   sk.at = vec2(10.17'f, 20.29'f)
   sk.richTextBox(
-    Window(), "quotes", source, width, 220,
+    sk.window, "quotes", source, width, 220,
     wrapWords = true, blocks = blocks
   )
   result = richTextBoxStates["quotes"]

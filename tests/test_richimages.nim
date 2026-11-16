@@ -3,15 +3,17 @@ import
   bumpy, pixie, vmath, windy,
   silky, silky/internal/inputs
 
+privateAccess(Silky)
+
 proc fixture(builder: AtlasBuilder): Silky =
   ## Queues native image and text vertices without opening a platform window.
-  privateAccess(Silky)
   result = Silky(
     atlas: builder.atlas,
     image: builder.atlasImage,
     uiScale: 2,
     inFrame: true,
-    inputs: TextInputs()
+    inputs: TextInputs(),
+    window: Window()
   )
   new(result.drawer)
   result.theme.padding = 0
@@ -53,7 +55,7 @@ block:
   doAssert state.editor.copyText() == "An image\n\nAfter the image."
   richTextBoxStates["images"] = state
   sk.richTextBox(
-    Window(), "images", state.getText(), 184, state.innerHeight,
+    sk.window, "images", state.getText(), 184, state.innerHeight,
     blocks = state.blocks
   )
   let

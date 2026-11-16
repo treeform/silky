@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [master]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     strategy:
@@ -66,14 +70,18 @@ jobs:
           nim r -d:silkyTesting tests/test_input_hooks.nim
           nim r -d:silkyTesting tests/test_secure_inputs.nim
           nim r -d:silkyTesting tests/test_first_touch.nim
+          nim r -d:silkyTesting tests/test_touch_scroll.nim
+          nim r -d:silkyTesting tests/test_scroll_momentum.nim
           nim r -d:silkyTesting tests/test_rendering.nim
           nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim
+          nim r tests/test_retina_atlas.nim
           nim r tests/test_shader_codegen.nim
           nim r ${{ matrix.build_flags }} tests/test_density.nim
           nim r ${{ matrix.build_flags }} tests/test_decorations.nim
           nim r ${{ matrix.build_flags }} tests/test_rules.nim
           nim r ${{ matrix.build_flags }} tests/test_quotes.nim
+          nim r ${{ matrix.build_flags }} tests/test_richimages.nim
           nim r ${{ matrix.build_flags }} tests/test_button_vertices.nim
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim

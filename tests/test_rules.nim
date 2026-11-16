@@ -3,6 +3,8 @@ import
   bumpy, pixie, vmath, windy,
   silky, silky/internal/inputs
 
+privateAccess(Silky)
+
 const
   FontPath = "tests/data/IBMPlexSans-Regular.ttf"
   RuleColor = rgbx(90, 150, 220, 255)
@@ -13,13 +15,13 @@ proc close(a, b: float32): bool =
 
 proc fixture(builder: AtlasBuilder, density: float32): Silky =
   ## Queues native widget vertices without a platform window or GPU.
-  privateAccess(Silky)
   result = Silky(
     atlas: builder.atlas,
     image: builder.atlasImage,
     uiScale: density,
     inFrame: true,
-    inputs: TextInputs()
+    inputs: TextInputs(),
+    window: Window()
   )
   new(result.drawer)
   result.theme.padding = 0
@@ -48,14 +50,13 @@ proc rules(sk: Silky, clip: Rect): seq[Rect] =
 block:
   echo "Testing rule-only blocks have no text or implicit font line"
   privateAccess(RichTextBoxState)
-  let
-    builder = newAtlasBuilder(1024, 2)
-    window = Window()
+  let builder = newAtlasBuilder(1024, 2)
   builder.addFont(FontPath, "Default", 18)
   doAssert builder.addImage("textbox.disabled.9patch", newImage(16, 16))
   for density in [1.0'f, 1.25'f, 1.5'f, 2.0'f]:
     let
       sk = fixture(builder, density)
+      window = sk.window
       origin = vec2(10.17'f, 20.29'f)
       rule = TextBlock(
         first: 0,
