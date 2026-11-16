@@ -6,7 +6,9 @@ import
 when not defined(silkyTesting):
   {.error: "Run rendering tests with -d:silkyTesting; no window is used.".}
 
-const InputId = "render scheduling input"
+const
+  InputId = "render scheduling input"
+  RichInputId = "rich render scheduling input"
 
 proc renderHarness(): TestHarness =
   ## Builds a test atlas without a native window or a generated atlas file.
@@ -203,6 +205,58 @@ proc testHover() =
     doAssert not frame()
   doAssert not harness.sk.needsFrame(harness.window)
 
+proc testProgrammaticFocus() =
+  ## Invalidates an idle editor when application code assigns focus.
+  echo "Testing programmatic focus wakes an idle interface"
+  var
+    harness = renderHarness()
+    text = "Focus me"
+    wakes = 0
+  harness.sk.renderMode = OnDemandRender
+  harness.inputFrame(text)
+  defer:
+    textBoxStates.del(InputId)
+  harness.settleInput(text)
+  harness.sk.onFrameRequested = proc() =
+    ## Records the wake sent by a focus change without native input.
+    inc wakes
+  textBoxStates[InputId].focus(harness.sk, harness.window, InputId)
+  doAssert wakes > 0
+  doAssert harness.sk.needsFrame(harness.window)
+  harness.inputFrame(text)
+  doAssert textBoxStates[InputId].focused
+  doAssert harness.window.textInput.id == InputId
+
+proc testRichCaret() =
+  ## Keeps the new read-only rich editor's caret blinking while input is idle.
+  echo "Testing on-demand rich editor caret scheduling"
+  var harness = renderHarness()
+  harness.sk.renderMode = OnDemandRender
+  proc frame() =
+    ## Draws rich content and consumes the simulated native input batch.
+    harness.beginFrame()
+    harness.sk.at = vec2(12)
+    harness.sk.richTextBox(
+      harness.window, RichInputId, "Selectable text", 320, 96
+    )
+    harness.endFrame()
+    harness.window.resetInputState()
+  frame()
+  defer:
+    richTextBoxStates.del(RichInputId)
+  harness.window.moveMouse(30, 30)
+  harness.window.pressButton(MouseLeft)
+  harness.window.releaseButton(MouseLeft)
+  frame()
+  doAssert richTextBoxStates[RichInputId].editor.focused
+  for i in 0 ..< 4:
+    if not harness.sk.needsFrame(harness.window):
+      break
+    frame()
+  doAssert not harness.sk.needsFrame(harness.window)
+  let delay = harness.sk.nextFrameDelay(harness.window, 1000)
+  doAssert delay > 0 and delay <= 500
+
 proc testClippedCaret() =
   ## Keeps a focused caret outside the viewport from renewing animation work.
   echo "Testing clipped carets do not keep app rendering active"
@@ -224,5 +278,7 @@ testDeadlines()
 testModes()
 testInputs()
 testHover()
+testProgrammaticFocus()
+testRichCaret()
 testClippedCaret()
 echo "All rendering policy tests passed."
