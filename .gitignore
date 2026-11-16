@@ -32,6 +32,5 @@ tmp
 # silky specific ignores:
 examples/*/dist/*.json
 examples/*/dist/*.png
-tests/dist/*.json
-tests/dist/*.png
+/tests/dist/
 examples/todomvc/todos-silky.json
