@@ -62,6 +62,7 @@ jobs:
           nim r -d:silkyTesting -d:nimTypeNames tests/test_inputs.nim
           nim r -d:silkyTesting tests/test_buttons.nim
           nim r -d:silkyTesting tests/test_focus.nim
+          nim r -d:silkyTesting tests/test_cursor_scroll.nim
           nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim
           nim r tests/test_shader_codegen.nim
