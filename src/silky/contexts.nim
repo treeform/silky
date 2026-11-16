@@ -236,6 +236,7 @@ proc vertexMark*(sk: Silky): int =
 proc beginVertexSpan*(sk: Silky): VertexSpan =
   ## Captures vertices and original clips until a layout is placed.
   result.clipMark = sk.clipStack.regions.len
+  result.textMark = sk.inputs.textPlacementMark()
   for layer in 0 ..< result.marks.len:
     result.marks[layer] = sk.drawer.layers[layer].len
     sk.vertexClips[layer].setLen(result.marks[layer])
@@ -243,11 +244,20 @@ proc beginVertexSpan*(sk: Silky): VertexSpan =
 
 proc endVertexSpan*(sk: Silky, span: VertexSpan, offset: Vec2) =
   ## Places a deferred span and resolves clips against fixed ancestors.
+  let
+    scale = max(sk.uiScale, 0.001'f)
+    paintOffset = vec2(
+      round(offset.x * scale) / scale,
+      round(offset.y * scale) / scale
+    )
+  # Deferred placement must preserve the pixel grid used by text and images.
+  # Layout and clipping retain their exact logical positions.
   sk.clipStack.translateClips(span.clipMark, offset)
+  sk.inputs.translateTextInput(span.textMark, paintOffset * scale)
   for layer in 0 ..< span.marks.len:
     for i in span.marks[layer] ..< sk.drawer.layers[layer].len:
       let clip = sk.clipStack.regions[sk.vertexClips[layer][i]].visible
-      sk.drawer.layers[layer][i].pos += offset
+      sk.drawer.layers[layer][i].pos += paintOffset
       sk.drawer.layers[layer][i].clipPos = clip.xy
       sk.drawer.layers[layer][i].clipSize = clip.wh
   dec sk.clipStack.captures
@@ -257,6 +267,7 @@ proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
   ## span so late-drawn parent chrome renders behind its children (T2).
   let total = sk.drawer.layers[layer].len
   if chromeStart > spanStart and chromeStart < total:
+    sk.inputs.moveTextInputBehind(ord(layer), spanStart, chromeStart, total)
     sk.drawer.layers[layer].rotateLeft(
       spanStart ..< total, chromeStart - spanStart
     )
@@ -270,16 +281,23 @@ proc translateVertices*(sk: Silky, layer, spanStart: int, offset: Vec2) =
   ## whose position is only known at scope close (T6).
   if offset == vec2(0, 0):
     return
+  let
+    scale = max(sk.uiScale, 0.001'f)
+    paintOffset = vec2(
+      round(offset.x * scale) / scale,
+      round(offset.y * scale) / scale
+    )
+  sk.inputs.translateTextInputVertices(ord(layer), spanStart, paintOffset * scale)
   for i in spanStart ..< sk.drawer.layers[layer].len:
-    sk.drawer.layers[layer][i].pos += offset
+    sk.drawer.layers[layer][i].pos += paintOffset
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
-  ## Returns the size of an atlas image in pixels.
+  ## Returns the logical size of an atlas image.
   if image notin sk.atlas.entries:
     echo "[Warning] Image not found in atlas: " & image
     return vec2(0, 0)
   let uv = sk.atlas.entries[image]
-  vec2(uv.width.float32, uv.height.float32)
+  vec2(uv.width.float32, uv.height.float32) / max(uv.pixelScale, 1).float32
 
 proc nextRune(text: string, i: var int): Rune {.inline.} =
   ## Reads one UTF-8 rune and advances the byte index.
@@ -305,6 +323,7 @@ proc resetInteractions*(sk: Silky) =
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
+  sk.cursor = Cursor(kind: ArrowCursor)
   sk.inputs.beginInputFrame(window)
   beginProfileFrame()
 
@@ -348,6 +367,12 @@ proc endInteractions(interactor: var Interactor) =
 
 proc endUiShared*(sk: Silky) =
   ## Ends a frame after the backend has finished drawing.
+  let previousCursor = sk.window.cursor
+  if previousCursor.kind != sk.cursor.kind or
+    (sk.cursor.kind == CustomCursor and
+      (previousCursor.image != sk.cursor.image or
+        previousCursor.hotspot != sk.cursor.hotspot)):
+      sk.window.cursor = sk.cursor
   if sk.window.buttonReleased[MouseLeft]:
     sk.resetInteractions()
   sk.interactor.endInteractions()
@@ -527,6 +552,8 @@ proc drawText*(
 
   let
     fontData = sk.atlas.fonts[font]
+    density = max(fontData.pixelScale, 0.001'f)
+    displayScale = max(sk.uiScale, 0.001'f)
     maxPos = pos + vec2(maxWidth, maxHeight)
     hasSubpixel = fontData.subpixelSteps > 0
     layer = sk.drawer.currentLayer
@@ -551,9 +578,9 @@ proc drawText*(
         of LeftAlign:
           0.0'f
         of CenterAlign:
-          floor((maxWidth - lineWidth) * 0.5)
+          floor((maxWidth - lineWidth) * 0.5 * displayScale) / displayScale
         of RightAlign:
-          floor(maxWidth - lineWidth)
+          floor((maxWidth - lineWidth) * displayScale) / displayScale
       if dx != 0:
         for j in lineStartIdx ..< sk.drawer.layers[layer].len:
           sk.drawer.layers[layer][j].pos.x += dx
@@ -597,7 +624,9 @@ proc drawText*(
 
     let variant =
       if hasSubpixel:
-        let frac = currentPos.x - currentPos.x.floor
+        let
+          rasterX = currentPos.x * density
+          frac = rasterX - rasterX.floor
         (frac * fontData.subpixelSteps.float32).int mod
           fontData.subpixelSteps
       else:
@@ -626,15 +655,24 @@ proc drawText*(
       break
 
     if entry.boundsWidth > 0 and entry.boundsHeight > 0:
-      let glyphPos = vec2(
-        floor(currentPos.x) + entry.boundsX,
-        round(currentPos.y + entry.boundsY)
-      )
+      let
+        glyphX =
+          if hasSubpixel:
+            floor(currentPos.x * density) / density + entry.boundsX
+          else:
+            floor((currentPos.x + entry.boundsX) * displayScale) /
+              displayScale
+        # Keep every glyph on one baseline, including mismatched atlas scales.
+        glyphPos = vec2(
+          glyphX,
+          round(currentPos.y * displayScale) / displayScale + entry.boundsY
+        )
+        glyphSize = vec2(entry.boundsWidth, entry.boundsHeight)
       sk.drawQuad(
         glyphPos,
-        vec2(entry.boundsWidth, entry.boundsHeight),
+        glyphSize,
         vec2(entry.x.float32, entry.y.float32),
-        vec2(entry.boundsWidth, entry.boundsHeight),
+        glyphSize * density,
         color
       )
 
@@ -657,9 +695,9 @@ proc drawText*(
         of TopAlign:
           0.0'f
         of MiddleAlign:
-          floor((maxHeight - textHeight) * 0.5)
+          floor((maxHeight - textHeight) * 0.5 * displayScale) / displayScale
         of BottomAlign:
-          floor(maxHeight - textHeight)
+          floor((maxHeight - textHeight) * displayScale) / displayScale
     if dy != 0:
       for j in textStartIdx ..< sk.drawer.layers[layer].len:
         sk.drawer.layers[layer][j].pos.y += dy
@@ -744,6 +782,10 @@ proc addAtlasImage*(sk: Silky, name: string, image: Image) =
   sk.atlas = sk.builder.atlas
   sk.uploadAtlas()
 
+proc alignPixels(pos: Vec2, scale: float32): Vec2 =
+  ## Aligns a logical point to the framebuffer's pixel grid.
+  vec2(round(pos.x * scale), round(pos.y * scale)) / scale
+
 proc drawImage*(
   sk: Silky,
   name: string,
@@ -755,7 +797,15 @@ proc drawImage*(
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name
     return
-  let uv = sk.atlas.entries[name]
+  let
+    uv = sk.atlas.entries[name]
+    density = max(uv.pixelScale, 1).float32
+    displayScale = max(sk.uiScale, 0.001'f)
+    alignedPos =
+      if density > 1:
+        alignPixels(pos, displayScale)
+      else:
+        pos
   var
     mPos = vec2(-1, -1)
     mSize = vec2(0, 0)
@@ -764,8 +814,8 @@ proc drawImage*(
     mPos = vec2(m.x.float32, m.y.float32)
     mSize = vec2(m.width.float32, m.height.float32)
   sk.drawQuad(
-    pos,
-    vec2(uv.width.float32, uv.height.float32),
+    alignedPos,
+    vec2(uv.width.float32, uv.height.float32) / density,
     vec2(uv.x.float32, uv.y.float32),
     vec2(uv.width.float32, uv.height.float32),
     color,
@@ -796,23 +846,35 @@ proc draw9Patch*(
     return
   let
     scale = max(sk.sliceScale, 1)
-    topS = top * scale
-    rightS = right * scale
-    bottomS = bottom * scale
-    leftS = left * scale
     uv = sk.atlas.entries[name]
-    l = leftS.float32
-    r = rightS.float32
-    u = topS.float32
-    d = bottomS.float32
+    density = max(uv.pixelScale, 1)
+    topS = top * scale * density
+    rightS = right * scale * density
+    bottomS = bottom * scale * density
+    leftS = left * scale * density
+    l = (left * scale).float32
+    r = (right * scale).float32
+    u = (top * scale).float32
+    d = (bottom * scale).float32
+    displayScale = max(sk.uiScale, 0.001'f)
+    alignedPos =
+      if density > 1:
+        alignPixels(pos, displayScale)
+      else:
+        pos
+    alignedSize =
+      if density > 1:
+        alignPixels(pos + size, displayScale) - alignedPos
+      else:
+        size
     srcXOffsets = [0.int, leftS, uv.width - rightS]
     srcWidths = [leftS, uv.width - leftS - rightS, rightS]
     srcYOffsets = [0.int, topS, uv.height - bottomS]
     srcHeights = [topS, uv.height - topS - bottomS, bottomS]
-    dstXOffsets = [0.0'f, l, size.x - r]
-    dstWidths = [l, size.x - l - r, r]
-    dstYOffsets = [0.0'f, u, size.y - d]
-    dstHeights = [u, size.y - u - d, d]
+    dstXOffsets = [0.0'f, l, alignedSize.x - r]
+    dstWidths = [l, alignedSize.x - l - r, r]
+    dstYOffsets = [0.0'f, u, alignedSize.y - d]
+    dstHeights = [u, alignedSize.y - u - d, d]
     order = [
       (0, 0), (2, 0), (0, 2), (2, 2),
       (1, 0), (0, 1), (2, 1), (1, 2),
@@ -828,7 +890,7 @@ proc draw9Patch*(
     if dw <= 0.001 or dh <= 0.001 or sw <= 0 or sh <= 0:
       continue
     sk.drawQuad(
-      vec2(pos.x + dstXOffsets[x], pos.y + dstYOffsets[y]),
+      alignedPos + vec2(dstXOffsets[x], dstYOffsets[y]),
       vec2(dw, dh),
       vec2(
         (uv.x + srcXOffsets[x]).float32,
