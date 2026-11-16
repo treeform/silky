@@ -98,9 +98,9 @@ proc stopInput*(inputs: TextInputs, window: Window) =
   inputs.id.setLen(0)
   inputs.events.setLen(0)
   inputs.pendingText = TextInputState()
-  window.setTextInputState(TextInputState())
   if window.runeInputEnabled:
     window.runeInputEnabled = false
+  window.setTextInputState(TextInputState())
 
 proc modifiers(inputs: TextInputs, window: Window): InputEvent =
   ## Captures modifier state at the time of a callback.

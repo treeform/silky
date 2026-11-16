@@ -31,6 +31,7 @@ type Window* = ref object
   onTextInput*: proc(text: string)
   onTextEdit*: TextInputEditCallback
   textInput*: TextInputState
+  textInputKeyboardEnabled*: bool
   editMenuBounds*: Rect
   editMenuActions*: set[TextEditAction]
   editMenuCallback*: proc(action: TextEditAction)
@@ -45,6 +46,7 @@ var clipboard: string
 proc setTextInputState*(window: Window, state: TextInputState) =
   ## Records the editor exposed to native text services.
   window.textInput = state
+  window.textInputKeyboardEnabled = window.runeInputEnabled
 
 proc showTextEditMenu*(
   window: Window, bounds: Rect, actions: set[TextEditAction],

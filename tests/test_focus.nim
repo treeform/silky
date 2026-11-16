@@ -210,4 +210,46 @@ block:
     textBoxStates.del(id)
     textBoxStates.del(replacementId)
 
+block:
+  echo "Testing keyboard is disabled before clearing native state on blur"
+  let
+    id = "resume-composer"
+    builder = newAtlasBuilder(1024, 4)
+  builder.addFont("tests/data/IBMPlexSans-Regular.ttf", "Default", 18)
+  var
+    harness = newTestHarness(builder.atlas)
+    draft = "Preserved café draft"
+  proc draw(sk: Silky, window: Window) =
+    ## Republishes the composer across repeated application focus changes.
+    sk.at = vec2(20, 20)
+    sk.textBox(window, id, draft, 240, 80, wrapWords = true)
+  discard harness.pumpFrame(draw)
+  let
+    window = harness.window
+    state = textBoxStates[id]
+  for i in 0 ..< 3:
+    state.focus(harness.sk, window, id)
+    discard harness.pumpFrame(draw)
+    doAssert window.textInputKeyboardEnabled
+    let
+      before = draft
+      selection = state.selection
+    window.focused = false
+    window.changeFocus()
+    doAssert window.textInput.id.len == 0
+    doAssert not window.runeInputEnabled
+    doAssert not window.textInputKeyboardEnabled,
+      "Clearing an editor must never re-request the old keyboard."
+    window.focused = true
+    window.changeFocus()
+    discard harness.pumpFrame(draw)
+    doAssert draft == before and state.selection == selection
+    state.focus(harness.sk, window, id)
+    discard harness.pumpFrame(draw)
+    doAssert window.runeInputEnabled and window.textInput.id == id
+    window.typeRune(Rune('x'))
+    discard harness.pumpFrame(draw)
+    doAssert draft.runeLen == before.runeLen + 1
+  textBoxStates.del(id)
+
 echo "All focus tests passed."
