@@ -37,6 +37,8 @@ type
 
   DropDownState* = ref object
     open*: bool
+    pressed: bool
+    pressedOption: int = -1
 
   Interaction* = enum
     None,
@@ -672,8 +674,12 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
   let interaction = sk.interact(dropRect, true)
 
-  if interaction == Released:
-    state.open = not state.open
+  if interaction == Pressed:
+    state.pressed = true
+  if window.buttonReleased[MouseLeft]:
+    if state.pressed and interaction == Released:
+      state.open = not state.open
+    state.pressed = false
 
   # Draw control body.
   sk.pushLayout(dropRect.xy, vec2(width, height))
@@ -715,7 +721,9 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
       let rowHover = interaction in [Pressed, Held, Hovered]
 
-      if interaction == Released:
+      if interaction == Pressed:
+        state.pressedOption = i
+      if interaction == Released and state.pressedOption == i:
         selected = opt
         state.open = false
 
@@ -734,12 +742,14 @@ template dropDown*[T](selected: var T, options: openArray[T]) =
 
     # Close when clicking outside (bypass mouseConsumed — this is an intentional raw check).
     if window.buttonPressed[MouseLeft] and
-      not window.mousePos.vec2.overlaps(dropRect) and
-      not window.mousePos.vec2.overlaps(popupRect):
+      not sk.mousePos.overlaps(dropRect) and
+      not sk.mousePos.overlaps(popupRect):
       state.open = false
 
     sk.popClipRect()
     sk.popLayer()
+  if window.buttonReleased[MouseLeft] or not state.open:
+    state.pressedOption = -1
 
 template listBox*[T](id: string, items: seq[T], selectedIndex: var int) =
   ## Listbox with scrolling and selection.
