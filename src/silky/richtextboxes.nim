@@ -1,7 +1,7 @@
 import
   std/[algorithm, tables, unicode, times],
   vmath, bumpy, chroma,
-  silky/atlas, silky/internal/inputs, silky/textboxes
+  silky/atlas, silky/internal/[inputs, textpresses], silky/textboxes
 
 when defined(silkyTesting):
   import silky/[semantics, testing, profiles]
@@ -1280,6 +1280,7 @@ proc richTextBox*(
   if editor.focused and state.focusEpoch != inputs.focusEpoch:
     editor.focused = false
     editor.dragging = false
+    editor.touchPress = TextPress()
     editor.selector = editor.cursor
   if state.spans != spans:
     state.spans = spans
@@ -1293,6 +1294,8 @@ proc richTextBox*(
   if not state.sameText(text):
     state.setText(text, preserveSelection = true)
   let
+    firstVertex = sk.vertexMark()
+    textLayer = sk.currentDrawLayer()
     padding = sk.theme.padding.float32
     outerRect = rect(sk.at, vec2(boxWidth, boxHeight))
   var innerRect = rect(
@@ -1316,6 +1319,22 @@ proc richTextBox*(
     mouseInside = mouseVec.overlaps(outerRect) and
       mouseVec.overlaps(sk.clipRect)
     onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
+    touchPointer =
+      when defined(ios) or defined(silkyTesting):
+        sk.touchScroll.touchInput
+      else:
+        false
+    localMouse = mouseVec - innerRect.xy + editor.scrollPos
+  var
+    openMenu = false
+    textHit = false
+  if touchPointer and mouseInside and not onScrollbar and
+    (sk.buttonPressed[MouseLeft] or editor.touchPress.active):
+      textHit = editor.glyphContains(localMouse)
+      for layout in state.blockLayouts:
+        if localMouse.overlaps(layout.imageBounds):
+          textHit = false
+          break
   if sk.touchScrolling:
     if editor.dragging:
       editor.selector = editor.cursor
@@ -1327,31 +1346,51 @@ proc richTextBox*(
     if mouseInside and not onScrollbar:
       editor.focused = true
       let
-        localMouse = mouseVec - innerRect.xy + editor.scrollPos
+        preserve = touchPointer and editor.selectionContains(localMouse)
         now = epochTime()
+      if touchPointer and textHit:
+        editor.touchPress = beginTextPress(
+          mouseVec - window.mouseDelta.vec2 / sk.uiScale,
+          scrollMilliseconds(), preserve
+        )
       if now - editor.lastClickTime < DoubleClickTime:
         inc editor.clickCount
       else:
         editor.clickCount = 1
       editor.lastClickTime = now
-      case editor.clickCount
-      of 1:
-        state.mouseAction(localMouse, click = true, shift = shift)
-        editor.dragging = true
-        if not shift:
-          state.pressedSpan = state.spanAt(localMouse)
-          state.pressPosition = mouseVec
-          state.spanDragged = false
-      of 2:
-        state.selectWord(localMouse)
-      of 3:
-        state.selectParagraph(localMouse)
-      else:
-        editor.selectAll()
+      if not preserve:
+        case editor.clickCount
+        of 1:
+          state.mouseAction(localMouse, click = true, shift = shift)
+          editor.dragging = not touchPointer
+          if not shift:
+            state.pressedSpan = state.spanAt(localMouse)
+            state.pressPosition = mouseVec
+            state.spanDragged = false
+        of 2:
+          state.selectWord(localMouse)
+        of 3:
+          state.selectParagraph(localMouse)
+        else:
+          editor.selectAll()
     elif not mouseInside:
       editor.focused = false
       editor.dragging = false
       editor.selector = editor.cursor
+  case editor.touchMenu(sk, window, mouseInside and not onScrollbar and textHit)
+  of HeldTextPress:
+    if editor.cursor == editor.selector:
+      state.selectWord(localMouse)
+    editor.dragging = false
+    state.pressedSpan = -1
+    state.spanDragged = true
+    openMenu = true
+    sk.resetInteractions()
+  of ReleasedTextPress:
+    if editor.touchPress.preserve:
+      state.mouseAction(localMouse)
+  else:
+    discard
   if state.pressedSpan >= 0:
     let distance = mouseVec - state.pressPosition
     if distance.x * distance.x + distance.y * distance.y > 9:
@@ -1436,6 +1475,16 @@ proc richTextBox*(
       )
     if not shift and window.scrollDelta.y != 0:
       editor.scrollBy(window.scrollDelta.y * TextBoxScrollSpeed, innerRect.h)
+  when defined(ios) or defined(silkyTesting):
+    if openMenu:
+      let anchor = rect(
+        (mouseVec - vec2(1, editor.lineHeight)) * sk.uiScale,
+        vec2(2, editor.lineHeight) * sk.uiScale
+      )
+      inputs.publishTextMenu(
+        "rich-textbox:" & id, anchor, editor.textMenuActions(),
+        textLayer, firstVertex
+      )
   sk.advance(vec2(boxWidth, boxHeight))
 
 template richTextBox*(

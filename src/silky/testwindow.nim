@@ -2,13 +2,13 @@
 
 import
   std/unicode,
-  vmath
+  vmath, bumpy
 from windy/common import
   Button, PointerSource, CursorKind, Cursor, TextInputState, TextInputEdit,
-  TextInputEditKind, TextInputEditCallback
+  TextInputEditKind, TextInputEditCallback, TextEditAction
 export
   Button, PointerSource, CursorKind, Cursor, unicode, TextInputState, TextInputEdit,
-  TextInputEditKind, TextInputEditCallback
+  TextInputEditKind, TextInputEditCallback, TextEditAction
 
 type Window* = ref object
   ## Test window that simulates a windy Window.
@@ -31,6 +31,10 @@ type Window* = ref object
   onTextInput*: proc(text: string)
   onTextEdit*: TextInputEditCallback
   textInput*: TextInputState
+  editMenuBounds*: Rect
+  editMenuActions*: set[TextEditAction]
+  editMenuCallback*: proc(action: TextEditAction)
+  editMenuShows*: int
   onButtonPress*: proc(button: Button)
   onButtonRelease*: proc(button: Button)
   onFocusChange*: proc()
@@ -41,6 +45,22 @@ var clipboard: string
 proc setTextInputState*(window: Window, state: TextInputState) =
   ## Records the editor exposed to native text services.
   window.textInput = state
+
+proc showTextEditMenu*(
+  window: Window, bounds: Rect, actions: set[TextEditAction],
+  callback: proc(action: TextEditAction)
+): bool {.discardable.} =
+  ## Records a native menu request without changing keyboard ownership.
+  window.editMenuBounds = bounds
+  window.editMenuActions = actions
+  window.editMenuCallback = callback
+  inc window.editMenuShows
+  true
+
+proc dismissTextEditMenu*(window: Window) =
+  ## Dismisses a simulated native menu and invalidates its actions.
+  window.editMenuActions = {}
+  window.editMenuCallback = nil
 
 proc newWindow*(width = 800, height = 600): Window =
   ## Creates a new test window with the given dimensions.
