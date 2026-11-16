@@ -1408,7 +1408,7 @@ proc richTextBox*(
   if editor.cursor != editor.selector:
     sk.drawSelection(state, textOrigin)
   sk.drawSpans(state, textOrigin, textColor)
-  sk.requestCursorFrame(window, editor, innerRect)
+  sk.requestCursorFrame(window, editor, innerRect, state.focusEpoch)
   if editor.focused and editor.cursorVisible:
     let cursor = editor.locationRect(editor.cursor)
     sk.drawRect(textOrigin + cursor.xy, cursor.wh, textColor)

@@ -121,6 +121,7 @@ proc focus*(state: TextBoxState, sk: Silky, window: Window, id: string) =
   state.focusEpoch = inputs.focusEpoch
   state.dragging = false
   state.resetBlink()
+  sk.requestFrame()
 
 proc cursorVisible*(state: TextBoxState): bool =
   ## Returns true when the blinking cursor should be drawn.
@@ -361,11 +362,12 @@ proc requestCursorFrame*(
   sk: Silky,
   window: Window,
   state: TextBoxState,
-  bounds: Rect
+  bounds: Rect,
+  focusEpoch: uint64
 ) =
   ## Schedules blinking only for a visible caret that still owns focus.
   if sk.renderMode != OnDemandRender or not state.focused or
-    state.focusEpoch != sk.textInputs.focusEpoch or
+    focusEpoch != sk.textInputs.focusEpoch or
     sk.clipRect.w <= 0 or sk.clipRect.h <= 0:
       return
   when compiles(window.focused):
@@ -378,6 +380,15 @@ proc requestCursorFrame*(
     return
   let elapsed = (max(0.0, epochTime() - state.blinkTime) * 1000).int64
   sk.requestFrame(500 - (elapsed mod 500).int)
+
+proc requestCursorFrame*(
+  sk: Silky,
+  window: Window,
+  state: TextBoxState,
+  bounds: Rect
+) =
+  ## Schedules a plain editor caret using its captured focus generation.
+  sk.requestCursorFrame(window, state, bounds, state.focusEpoch)
 
 proc undoSave*(state: TextBoxState) =
   ## Saves current state for undo.
