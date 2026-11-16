@@ -13,6 +13,7 @@ type
     warmLayer*: int = -1
     hotId*: int = -1
     previous, current: seq[HitRegion]
+    resolvedMouse: Vec2
     invalidated: bool
 
 proc resetInteractions*(interactor: var Interactor) =
@@ -44,9 +45,10 @@ proc mouseHover*(
   layer: int,
   widgetRect: Rect
 ): bool =
-  ## Resolves a new pointer position before its first press is consumed.
-  if interactor.currentId == -1:
-    # Applications may adjust the pointer for safe areas after beginUi.
+  ## Resolves pointer changes without renumbering this frame's hit regions.
+  if interactor.currentId == -1 or mousePos != interactor.resolvedMouse:
+    # Applications may mask background input before drawing a popup.
+    interactor.resolvedMouse = mousePos
     interactor.hotId = -1
     var hotLayer = -1
     for id, region in interactor.previous:
