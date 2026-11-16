@@ -393,11 +393,16 @@ proc vertexMark*(sk: Silky): int =
 proc beginVertexSpan*(sk: Silky): VertexSpan =
   ## Captures clip bounds while a semantic layout awaits placement.
   result.clipMark = sk.clipStack.regions.len
+  result.textMark = sk.inputs.textPlacementMark()
   inc sk.clipStack.captures
 
 proc endVertexSpan*(sk: Silky, span: VertexSpan, offset: Vec2) =
   ## Places captured clip bounds without emitting GPU vertices.
+  let
+    scale = max(sk.uiScale, 0.001'f)
+    paintOffset = vec2(round(offset.x * scale), round(offset.y * scale))
   sk.clipStack.translateClips(span.clipMark, offset)
+  sk.inputs.translateTextInput(span.textMark, paintOffset)
   dec sk.clipStack.captures
 
 proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
@@ -405,6 +410,7 @@ proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
   ## span so late-drawn parent chrome renders behind its children (T2).
   let total = sk.layers[layer].len
   if chromeStart > spanStart and chromeStart < total:
+    sk.inputs.moveTextInputBehind(ord(layer), spanStart, chromeStart, total)
     sk.layers[layer].rotateLeft(
       spanStart ..< total, chromeStart - spanStart
     )
@@ -414,6 +420,10 @@ proc translateVertices*(sk: Silky, layer, spanStart: int, offset: Vec2) =
   ## whose position is only known at scope close (T6).
   if offset == vec2(0, 0):
     return
+  let
+    scale = max(sk.uiScale, 0.001'f)
+    paintOffset = vec2(round(offset.x * scale), round(offset.y * scale))
+  sk.inputs.translateTextInputVertices(ord(layer), spanStart, paintOffset)
   for i in spanStart ..< sk.layers[layer].len:
     sk.layers[layer][i].pos += offset
 
@@ -452,11 +462,11 @@ proc place*(sk: Silky, size: Vec2): Vec2 =
   sk.advance(size)
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
-  ## Returns the size of an image from the atlas.
+  ## Returns the logical size of an image from the atlas.
   if image notin sk.atlas.entries:
     return vec2(0, 0)
   let uv = sk.atlas.entries[image]
-  vec2(uv.width.float32, uv.height.float32)
+  vec2(uv.width.float32, uv.height.float32) / max(uv.pixelScale, 1).float32
 
 proc nextRune(text: string, i: var int): Rune {.inline.} =
   ## Reads one UTF-8 rune and advances the byte index.
@@ -609,6 +619,7 @@ proc newSilky*(window: Window, atlasPngPath: string): Silky =
 
 proc beginUi*(sk: Silky, window: auto, size: IVec2) =
   ## Begins a new UI frame.
+  sk.cursor = Cursor(kind: ArrowCursor)
   sk.inputs.beginInputFrame(window)
   sk.tooltipActive = sk.showTooltip
   sk.showTooltip = false
@@ -635,6 +646,12 @@ proc resetInteractions*(sk: Silky) =
 
 proc endUi*(sk: Silky) =
   ## Ends the current UI frame.
+  let previousCursor = sk.window.cursor
+  if previousCursor.kind != sk.cursor.kind or
+    (sk.cursor.kind == CustomCursor and
+      (previousCursor.image != sk.cursor.image or
+        previousCursor.hotspot != sk.cursor.hotspot)):
+      sk.window.cursor = sk.cursor
   sk.interactor.endInteractions()
   sk.clear()
   sk.popLayout()

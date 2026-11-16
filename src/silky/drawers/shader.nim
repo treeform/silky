@@ -41,17 +41,19 @@ proc silkyFrag*(
   fragmentMaskUv: Vec2,
   fragColor: var Vec4
 ) =
+  # Sample before clipping so neighboring fragments provide valid derivatives.
+  let base = texture(atlasSampler, fragmentUv)
+  var shaded = base * fragmentColor
+  if fragmentMaskUv.x >= 0.0:
+    let maskR = texture(atlasSampler, fragmentMaskUv).r
+    shaded = vec4(
+      base.rgb * mix(vec3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR),
+      base.a * fragmentColor.a
+    )
   if fragmentPos.x < fragmentClipPos.x or
     fragmentPos.y < fragmentClipPos.y or
     fragmentPos.x > fragmentClipPos.x + fragmentClipSize.x or
     fragmentPos.y > fragmentClipPos.y + fragmentClipSize.y:
     discardFragment()
-  elif fragmentMaskUv.x >= 0.0:
-    let base = texture(atlasSampler, fragmentUv)
-    let maskR = texture(atlasSampler, fragmentMaskUv).r
-    fragColor = vec4(
-      base.rgb * mix(vec3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR),
-      base.a * fragmentColor.a
-    )
   else:
-    fragColor = texture(atlasSampler, fragmentUv) * fragmentColor
+    fragColor = shaded

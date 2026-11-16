@@ -936,6 +936,38 @@ template button*(label: string, isEnabled: bool, body: untyped) =
     baseWidgets.button(label, isEnabled, false):
       body
 
+template button*(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  isError: bool,
+  body: untyped
+) =
+  ## Creates a native minimum-size button inside the current DSL layout.
+  profileBlock "button":
+    sk.startCurrentChildren()
+    baseWidgets.button(label, minimumSize, isEnabled, isError):
+      body
+
+template button*(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  body: untyped
+) =
+  ## Creates a minimum-size button with an enabled state.
+  profileBlock "button":
+    sk.startCurrentChildren()
+    baseWidgets.button(label, minimumSize, isEnabled, false):
+      body
+
+template button*(label: string, minimumSize: Vec2, body: untyped) =
+  ## Creates an enabled minimum-size button.
+  profileBlock "button":
+    sk.startCurrentChildren()
+    baseWidgets.button(label, minimumSize, true, false):
+      body
+
 template icon*(imageName: string) =
   profileBlock "icon":
     sk.startCurrentChildren()

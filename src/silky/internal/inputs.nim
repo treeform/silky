@@ -1,5 +1,6 @@
 import
   std/unicode,
+  vmath,
   silky/common
 
 when defined(silkyTesting):
@@ -11,12 +12,14 @@ const MaxPendingEvents = 65_536
 
 type
   InputKind* = enum
-    KeyDown, KeyUp, TextInput
+    KeyDown, KeyUp, TextInput, TextCommit, NativeEdit
 
   InputEvent* = object
     kind*: InputKind
     button*: Button
     rune*: Rune
+    text*: string
+    edit*: TextInputEdit
     control*, shift*, alt*, super*: bool
 
   CallbackIdentity = tuple[code, environment: pointer]
@@ -29,10 +32,12 @@ type
     epoch: uint64
     submitted: bool
     consumed: bool
-    callbacks: array[4, CallbackIdentity]
+    callbacks: array[6, CallbackIdentity]
     forwardedKeys: set[Button]
     consumedKeys: set[Button]
     releaseCallback: proc(button: Button)
+    pendingText: TextInputState
+    placementSerial, placementLayer, placementVertex: int
 
 proc identity[T](callback: T): CallbackIdentity =
   ## Identifies a callback without retaining its closure environment.
@@ -67,6 +72,8 @@ proc stopInput*(inputs: TextInputs, window: Window) =
   inputs.editable = false
   inputs.id.setLen(0)
   inputs.events.setLen(0)
+  inputs.pendingText = TextInputState()
+  window.setTextInputState(TextInputState())
   if window.runeInputEnabled:
     window.runeInputEnabled = false
 
@@ -99,6 +106,13 @@ proc installPress(inputs: TextInputs, window: Window) =
       event.kind = KeyDown
       event.button = button
       inputs.consumedKeys.incl(button)
+      if inputs.editable and button == KeyV and
+        (event.super or (event.control and not event.alt)):
+          event.kind = TextCommit
+          event.text = getClipboardString()
+          if event.text.len > 0:
+            inputs.addEvent(event)
+          return
       inputs.addEvent(event)
       return
     if button >= Key0:
@@ -161,6 +175,38 @@ proc installFocus(inputs: TextInputs, window: Window) =
       previousFocus()
   inputs.callbacks[3] = identity(window.onFocusChange)
 
+proc installText(inputs: TextInputs, window: Window) =
+  ## Captures complete native commits before a dictation tool restores state.
+  let
+    windowPointer = cast[pointer](window)
+    previousText = window.onTextInput
+  window.onTextInput = proc(text: string) =
+    ## Preserves one native insertion as one ordered editing operation.
+    let window = cast[Window](windowPointer)
+    if inputs.active:
+      if inputs.editable and text.len > 0:
+        inputs.addEvent(InputEvent(kind: TextCommit, text: text))
+      return
+    if previousText != nil:
+      previousText(text)
+    elif window.onRune != nil:
+      for rune in text.runes:
+        window.onRune(rune)
+  inputs.callbacks[4] = identity(window.onTextInput)
+
+proc installEdit(inputs: TextInputs, window: Window) =
+  ## Queues native accessibility edits in the same order as keyboard input.
+  let previousEdit = window.onTextEdit
+  window.onTextEdit = proc(edit: TextInputEdit) =
+    ## Applies edits only to the field that currently owns text input.
+    if inputs.active:
+      if inputs.editable:
+        inputs.addEvent(InputEvent(kind: NativeEdit, edit: edit))
+      return
+    if previousEdit != nil:
+      previousEdit(edit)
+  inputs.callbacks[5] = identity(window.onTextEdit)
+
 proc overrideCallbacks(
   inputs: TextInputs, window: Window, initialize = false
 ) =
@@ -173,6 +219,10 @@ proc overrideCallbacks(
     inputs.installRune(window)
   if initialize or identity(window.onFocusChange) != inputs.callbacks[3]:
     inputs.installFocus(window)
+  if initialize or identity(window.onTextInput) != inputs.callbacks[4]:
+    inputs.installText(window)
+  if initialize or identity(window.onTextEdit) != inputs.callbacks[5]:
+    inputs.installEdit(window)
 
 proc newTextInputs*(window: Window): TextInputs =
   ## Sets up all text input handling directly from the window.
@@ -187,6 +237,51 @@ proc beginInputFrame*(inputs: TextInputs, window: Window) =
   inputs.overrideCallbacks(window)
   inputs.submitted = false
   inputs.consumed = false
+  inputs.pendingText = TextInputState()
+  inputs.placementSerial = 0
+
+proc textPlacementMark*(inputs: TextInputs): int =
+  ## Marks the start of a deferred layout containing a focused editor.
+  if inputs != nil:
+    result = inputs.placementSerial
+
+proc publishTextInput*(
+  inputs: TextInputs, state: TextInputState, layer, firstVertex: int
+) =
+  ## Stages native editor state until layout placement is complete.
+  inputs.pendingText = state
+  inputs.placementLayer = layer
+  inputs.placementVertex = firstVertex
+  inc inputs.placementSerial
+
+proc translateTextInput*(inputs: TextInputs, first: int, offset: Vec2) =
+  ## Moves an editor published inside a deferred layout span.
+  if inputs != nil and inputs.placementSerial > first:
+    inputs.pendingText.bounds.x += offset.x
+    inputs.pendingText.bounds.y += offset.y
+
+proc translateTextInputVertices*(
+  inputs: TextInputs, layer, first: int, offset: Vec2
+) =
+  ## Moves editor bounds along with their rendered vertices.
+  if inputs != nil and inputs.placementSerial > 0 and
+    inputs.placementLayer == layer and inputs.placementVertex >= first:
+      inputs.pendingText.bounds.x += offset.x
+      inputs.pendingText.bounds.y += offset.y
+
+proc moveTextInputBehind*(
+  inputs: TextInputs, layer, spanStart, chromeStart, total: int
+) =
+  ## Preserves the editor's vertex position when parent chrome is reordered.
+  if inputs == nil or inputs.placementSerial == 0:
+    return
+  if inputs.placementLayer != layer or
+    inputs.placementVertex < spanStart or inputs.placementVertex >= total:
+      return
+  if inputs.placementVertex < chromeStart:
+    inputs.placementVertex += total - chromeStart
+  else:
+    inputs.placementVertex -= chromeStart - spanStart
 
 proc submitInput*(
   inputs: TextInputs,
@@ -226,3 +321,7 @@ proc endInputFrame*(inputs: TextInputs, window: Window) =
   ## Ends capture when the active field was not submitted this frame.
   if not inputs.submitted:
     inputs.stopInput(window)
+  elif inputs.editable and inputs.pendingText.id == inputs.id:
+    window.setTextInputState(inputs.pendingText)
+  else:
+    window.setTextInputState(TextInputState())
