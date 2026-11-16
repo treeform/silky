@@ -102,6 +102,7 @@ jobs:
           nim r -d:silkyTesting tests/test_first_touch.nim
           nim r -d:silkyTesting tests/test_touch_scroll.nim
           nim r -d:silkyTesting tests/test_scroll_momentum.nim
+          nim r -d:silkyTesting tests/test_scroll_indicators.nim
           nim r -d:silkyTesting tests/test_rendering.nim
           nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim

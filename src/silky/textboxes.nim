@@ -56,6 +56,7 @@ type
     cursor*: int
     selector*: int
     scrollPos*: Vec2
+    scrollIndicator*: ScrollIndicator
     savedX*: float32
     focused*: bool
     focusEpoch: uint64
@@ -1057,6 +1058,17 @@ proc drawScrollbars*(
   let scrollMaxX = max(0.0f, contentW - innerRect.w)
   let hasScrollY = contentH > innerRect.h
   let hasScrollX = not state.wordWrap and contentW > innerRect.w
+  let
+    wheel = mouseVec.overlaps(outerRect) and mouseVec.overlaps(clipRect) and
+      ((hasScrollX and window.scrollDelta.x != 0) or
+        (hasScrollY and window.scrollDelta.y != 0) or
+        (hasScrollX and window.scrollDelta.y != 0 and
+          (window.buttonDown[KeyLeftShift] or window.buttonDown[KeyRightShift])))
+    opacity = sk.scrollbarOpacity(
+      state.scrollIndicator, cast[pointer](state),
+      wheel or state.scrollingX or state.scrollingY
+    )
+    scrollbarColor = rgbx(255, 255, 255, (opacity * 255).uint8)
   var tracks, thumbs: array[2, Rect]
   # Y scrollbar.
   if hasScrollY:
@@ -1066,7 +1078,9 @@ proc drawScrollbars*(
       8,
       innerRect.h - 4 - (if hasScrollX: 10.0f else: 0.0f)
     )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        trackRect.xy, trackRect.wh, scrollbarColor)
     let
       posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
       thumbHeight = min(trackRect.h,
@@ -1089,7 +1103,9 @@ proc drawScrollbars*(
         if window.buttonPressed[MouseLeft]:
           state.scrollingY = window.buttonDown[MouseLeft]
           state.scrollDragOffset.y = mouseVec.y - handleRect.y
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        handleRect.xy, handleRect.wh, scrollbarColor)
   # X scrollbar.
   if hasScrollX:
     let trackRect = rect(
@@ -1098,7 +1114,9 @@ proc drawScrollbars*(
       innerRect.w - 4 - (if hasScrollY: 10.0f else: 0.0f),
       8
     )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        trackRect.xy, trackRect.wh, scrollbarColor)
     let
       posPct = if scrollMaxX > 0: state.scrollPos.x / scrollMaxX else: 0.0f
       thumbWidth = min(trackRect.w,
@@ -1121,7 +1139,9 @@ proc drawScrollbars*(
         if window.buttonPressed[MouseLeft]:
           state.scrollingX = window.buttonDown[MouseLeft]
           state.scrollDragOffset.x = mouseVec.x - handleRect.x
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        handleRect.xy, handleRect.wh, scrollbarColor)
 
   # Release scrollbar drag when mouse released.
   if state.scrollingY and

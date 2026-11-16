@@ -28,6 +28,7 @@ type
 
   FrameState* = ref object
     scrollPos*: Vec2
+    scrollIndicator*: ScrollIndicator
     scrollingX*: bool
     scrollingY*: bool
     scrollDragOffset*: Vec2
@@ -342,6 +343,16 @@ proc frameScrollbars*(
         0.0, scrollMax.x
       )
 
+  let
+    wheel = sk.mouseOverlap(window, frameRect) and
+      ((scrollMax.x > 0 and window.scrollDelta.x != 0) or
+        (scrollMax.y > 0 and window.scrollDelta.y != 0))
+    opacity = sk.scrollbarOpacity(
+      frameState.scrollIndicator, cast[pointer](frameState),
+      wheel or frameState.scrollingX or frameState.scrollingY
+    )
+    scrollbarColor = rgbx(255, 255, 255, (opacity * 255).uint8)
+
   # Y scrollbar.
   if contentSize.y > frameRect.h:
     let
@@ -356,7 +367,9 @@ proc frameScrollbars*(
         max(MinThumbSize, track.h * (frameRect.h / contentSize.y))
       )
       travel = track.h - thumbH
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        track.xy, track.wh, scrollbarColor)
 
     proc thumbRectY(): Rect =
       let
@@ -382,7 +395,9 @@ proc frameScrollbars*(
           frameState.scrollDragOffset.y = sk.mousePos.y - thumb.y
     let thumb = thumbRectY()
     thumbs[1] = thumb
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        thumb.xy, thumb.wh, scrollbarColor)
 
   # X scrollbar.
   if contentSize.x > frameRect.w:
@@ -398,7 +413,9 @@ proc frameScrollbars*(
         max(MinThumbSize, track.w * (frameRect.w / contentSize.x))
       )
       travel = track.w - thumbW
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, track.xy, track.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        track.xy, track.wh, scrollbarColor)
 
     proc thumbRectX(): Rect =
       let
@@ -424,7 +441,9 @@ proc frameScrollbars*(
           frameState.scrollDragOffset.x = sk.mousePos.x - thumb.x
     let thumb = thumbRectX()
     thumbs[0] = thumb
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, thumb.xy, thumb.wh)
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        thumb.xy, thumb.wh, scrollbarColor)
 
   if frameState.scrollingY and
       (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
