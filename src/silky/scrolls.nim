@@ -265,10 +265,13 @@ proc resetTouchScroll*(touch: var TouchScroll) =
   touch.previousBlockers.setLen(0)
   touch.invalidated = true
 
+proc touchTap*(sk: auto): bool =
+  ## Reports a completed tap without accepting a pan or cancellation.
+  sk.touchScroll.tap and not sk.touchScrolling
+
 proc touchTap*(sk: auto, bounds: Rect): bool =
   ## Accepts a touch release only in the control where the tap began.
-  sk.touchScroll.tap and not sk.touchScrolling and
-    (sk.touchScroll.start - sk.touchOrigin).overlaps(bounds)
+  sk.touchTap() and (sk.touchScroll.start - sk.touchOrigin).overlaps(bounds)
 
 proc endTouchFrame*(touch: var TouchScroll) =
   ## Retains displayed geometry and releases callbacks for vanished widgets.

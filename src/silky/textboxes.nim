@@ -59,6 +59,7 @@ type
     savedX*: float32
     focused*: bool
     focusEpoch: uint64
+    touchBlur: bool
     layout*: seq[Rect]
     positionedLayout*: bool
       ## Selection geometry may have variable line heights and gaps.
@@ -120,6 +121,7 @@ proc focus*(state: TextBoxState, sk: Silky, window: Window, id: string) =
   state.focused = true
   state.focusEpoch = inputs.focusEpoch
   state.dragging = false
+  state.touchBlur = false
   state.resetBlink()
   sk.requestFrame()
 
@@ -1127,6 +1129,7 @@ proc textBox*(
   let inputs = sk.textInputs
   if state.focused and state.focusEpoch != inputs.focusEpoch:
     state.focused = false
+    state.touchBlur = false
     state.dragging = false
     if not enabled:
       state.selector = state.cursor
@@ -1172,6 +1175,8 @@ proc textBox*(
       state.selector = state.cursor
     state.dragging = false
   if sk.buttonPressed[MouseLeft]:
+    state.touchBlur = sk.touchScroll.touchInput and state.focused and
+      not mouseInside
     if mouseInside and not onScrollbar:
       state.focused = true
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
@@ -1188,11 +1193,19 @@ proc textBox*(
       of 2: state.selectWord(localMouse)
       of 3: state.selectParagraph(localMouse)
       else: state.selectAll()
-    elif not mouseInside:
-      state.focused = false
-      state.dragging = false
-      if not enabled:
-        state.selector = state.cursor
+  let
+    outsidePress = sk.buttonPressed[MouseLeft] and
+      not sk.touchScroll.touchInput
+    outsideTap = sk.buttonReleased[MouseLeft] and
+      state.touchBlur and sk.touchTap()
+  if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
+    state.touchBlur = false
+  if not mouseInside and (outsidePress or outsideTap):
+    # Keep keyboard-driven layout stable until a finger finishes its tap.
+    state.focused = false
+    state.dragging = false
+    if not enabled:
+      state.selector = state.cursor
   if state.dragging and not state.scrollingX and not state.scrollingY:
     if sk.buttonDown[MouseLeft] and not sk.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy + state.scrollPos
