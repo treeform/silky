@@ -1,11 +1,16 @@
-when not defined(macosx):
-  {.error: "The Silky Metal 4 backend requires macOS.".}
+when not (defined(macosx) or defined(ios)):
+  {.error: "The Silky Metal backend requires macOS or iOS.".}
 
 import
-  pixie, vmath, windy, pkg/metal4
+  std/tables,
+  pixie, shady, vmath, windy, pkg/metal4,
+  ../common, shader
 
 const
   InitialVertexCapacity = 4096
+  VertexBufferIndex = 1
+  VertexShaderSource = toMSL(silkyVert, shaderVertex)
+  FragmentShaderSource = toMSL(silkyFrag, shaderFragment)
 
 type
   DrawerVertex* {.packed.} = object
@@ -16,6 +21,17 @@ type
     clipPos*: Vec2
     clipSize*: Vec2
     maskUv*: Vec2
+    texture*: uint32
+
+  DrawerTexture = object
+    ## A logical image handle owns a native texture and its pixel dimensions.
+    texture: MTLTexture
+    size: IVec2
+
+  ShaderUniforms = object
+    ## Matches the Shady vertex shader's constant buffer layout.
+    viewportSize: Vec2
+    atlasSize: Vec2
 
   Drawer* = ref object
     ## Metal 4-backed drawer state.
@@ -27,158 +43,250 @@ type
     vertexBufferPtr: pointer
     maxVertexCount: int
     viewportSize: IVec2
+    atlasSize: IVec2
+    textureLimit: int
+    textures: Table[uint32, DrawerTexture]
+    nextTexture: uint32
     clearColor: MTLClearColor
+    when defined(silkyMetalTesting):
+      ownsTestDevice: bool
     layers*: array[2, seq[DrawerVertex]]
     currentLayer*: int
     layerStack*: seq[int]
+
+static:
+  doAssert sizeof(DrawerVertex) == 48
+  doAssert sizeof(ShaderUniforms) == 16
+  doAssert offsetOf(ShaderUniforms, viewportSize) == 0
+  doAssert offsetOf(ShaderUniforms, atlasSize) == 8
+
+objc:
+  proc supportsFamily(self: MTLDevice, x: int): bool
+
+proc textureSizeLimit(device: MTLDevice): int =
+  ## Reads Metal's family-specific 2D texture limit, including Simulator.
+  # https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf
+  # Simulator exposes Apple2 even when its host supports newer families.
+  if device.supportsFamily(1010): # MTLGPUFamilyApple10.
+    32768
+  elif device.supportsFamily(1003) or # MTLGPUFamilyApple3.
+      device.supportsFamily(2001) or # MTLGPUFamilyMac1.
+      device.supportsFamily(2002): # MTLGPUFamilyMac2.
+    16384
+  else:
+    8192
+
+proc maxTextureSize*(drawer: Drawer): int =
+  ## Returns the active GPU's maximum 2D texture width and height.
+  drawer.textureLimit
 
 proc clampViewport(size: IVec2): IVec2 =
   ## Clamps the viewport to valid drawable dimensions.
   ivec2(max(1'i32, size.x), max(1'i32, size.y))
 
-proc normalizeVertices(
-  vertices: var seq[DrawerVertex],
-  viewportSize: IVec2,
-  atlasSize: Vec2
+proc close*(drawer: Drawer) =
+  ## Releases all drawer-owned Metal resources after its synchronous frames.
+  if drawer.isNil:
+    return
+  for texture in drawer.textures.values:
+    texture.texture.release()
+  drawer.textures.clear()
+  drawer.texture.release()
+  drawer.texture = 0.MTLTexture
+  drawer.sampler.release()
+  drawer.sampler = 0.MTLSamplerState
+  drawer.pipelineState.release()
+  drawer.pipelineState = 0.MTLRenderPipelineState
+  drawer.vertexBuffer.release()
+  drawer.vertexBuffer = 0.MTLBuffer
+  drawer.vertexBufferPtr = nil
+  drawer.maxVertexCount = 0
+  when defined(silkyMetalTesting):
+    if drawer.ownsTestDevice:
+      drawer.ctx.device.release()
+      drawer.ownsTestDevice = false
+  drawer.ctx.destroy()
+
+proc newTexture(state: Drawer, width, height: int): MTLTexture =
+  ## Allocates a shader-readable texture using the supported 2D size limit.
+  if width <= 0 or height <= 0:
+    raise newException(SilkyError, "Image texture dimensions must be positive.")
+  if width > state.textureLimit or height > state.textureLimit:
+    raise newException(SilkyError,
+      "Image texture " & $width & "x" & $height &
+      " exceeds this Metal device's " & $state.textureLimit &
+      " pixel size limit.")
+  let descriptor = MTLTextureDescriptor.texture2DDescriptorWithPixelFormat(
+    MTLPixelFormatRGBA8Unorm,
+    width.uint,
+    height.uint,
+    false
+  )
+  descriptor.setUsage(MTLTextureUsageShaderRead)
+  result = state.ctx.device.newTextureWithDescriptor(descriptor)
+  if result.isNil:
+    raise newException(SilkyError, "Could not allocate a Metal image texture.")
+
+proc uploadRegion(
+  texture: MTLTexture,
+  image: Image,
+  x, y, width, height: int
 ) =
-  ## Converts queued pixel-space vertices to clip-space and normalized UVs.
-  let
-    width = max(1.0'f, viewportSize.x.float32)
-    height = max(1.0'f, viewportSize.y.float32)
-  for i in 0 ..< vertices.len:
-    let p = vertices[i].pos
-    vertices[i].pos = vec2(
-      (p.x / width) * 2.0'f - 1.0'f,
-      1.0'f - (p.y / height) * 2.0'f
-    )
-    vertices[i].uv = vertices[i].uv / atlasSize
+  ## Uploads image pixels with their original row stride into a texture region.
+  texture.replaceRegion(
+    MTLRegion(
+      origin: MTLOrigin(x: x.uint, y: y.uint, z: 0),
+      size: MTLSize(width: width.uint, height: height.uint, depth: 1)
+    ),
+    0,
+    unsafeAddr image.data[y * image.width + x],
+    (image.width * sizeof(ColorRGBX)).uint
+  )
 
 proc createVertexBuffer(state: Drawer, maxVertexCount: int) =
   ## Creates or replaces the persistently mapped vertex buffer.
-  state.vertexBuffer = state.ctx.device.newBufferWithLength(
+  let buffer = state.ctx.device.newBufferWithLength(
     (maxVertexCount * sizeof(DrawerVertex)).uint,
     0
   )
-  checkNil(state.vertexBuffer, "Could not create a Metal vertex buffer")
-  state.vertexBufferPtr = state.vertexBuffer.contents()
-  checkNil(state.vertexBufferPtr, "Could not map the Metal vertex buffer")
+  checkNil(buffer, "Could not create a Metal vertex buffer")
+  let bufferPtr = buffer.contents()
+  checkNil(bufferPtr, "Could not map the Metal vertex buffer")
+  state.vertexBuffer.release()
+  state.vertexBuffer = buffer
+  state.vertexBufferPtr = bufferPtr
   state.maxVertexCount = maxVertexCount
 
 proc uploadTexture(state: Drawer, image: Image) =
   ## Uploads the atlas image into one Metal texture.
-  let descriptor = MTLTextureDescriptor.texture2DDescriptorWithPixelFormat(
-    MTLPixelFormatRGBA8Unorm,
-    image.width.uint,
-    image.height.uint,
-    false
-  )
-  descriptor.setUsage(MTLTextureUsageShaderRead)
-  state.texture = state.ctx.device.newTextureWithDescriptor(descriptor)
-  checkNil(state.texture, "Could not create the atlas texture")
+  if image.isNil:
+    raise newException(SilkyError, "Cannot upload an empty atlas image.")
+  if state.texture.isNil or
+    state.atlasSize != ivec2(image.width.int32, image.height.int32):
+      let texture = state.newTexture(image.width, image.height)
+      state.texture.release()
+      state.texture = texture
+  state.texture.uploadRegion(image, 0, 0, image.width, image.height)
+  state.atlasSize = ivec2(image.width.int32, image.height.int32)
 
-  state.texture.replaceRegion(
-    MTLRegion(
-      origin: MTLOrigin(x: 0, y: 0, z: 0),
-      size: MTLSize(
-        width: image.width.uint,
-        height: image.height.uint,
-        depth: 1
-      )
-    ),
-    0,
-    unsafeAddr image.data[0],
-    (image.width * 4).uint
+proc allocateTexture*(drawer: Drawer, width, height: int): uint32 =
+  ## Allocates a separate image texture, reserving handle zero for the atlas.
+  if drawer.nextTexture == high(uint32):
+    raise newException(SilkyError, "Image texture handles are exhausted.")
+  let texture = drawer.newTexture(width, height)
+  inc drawer.nextTexture
+  result = drawer.nextTexture
+  drawer.textures[result] = DrawerTexture(
+    texture: texture,
+    size: ivec2(width.int32, height.int32)
   )
+
+proc uploadTextureRows*(
+  drawer: Drawer,
+  texture: uint32,
+  image: Image,
+  firstRow, rowCount: int
+) =
+  ## Uploads a bounded set of full-width rows into a separate image texture.
+  if texture notin drawer.textures or image.isNil:
+    raise newException(SilkyError, "Cannot upload an unknown image texture.")
+  let target = drawer.textures[texture]
+  if target.size != ivec2(image.width.int32, image.height.int32) or
+    firstRow < 0 or rowCount < 0 or firstRow > image.height or
+    rowCount > image.height - firstRow:
+      raise newException(SilkyError, "Image texture upload bounds are invalid.")
+  if rowCount == 0:
+    return
+  target.texture.uploadRegion(image, 0, firstRow, image.width, rowCount)
+
+proc deleteTexture*(drawer: Drawer, texture: uint32) =
+  ## Releases an independent image texture; deleting a missing handle is safe.
+  if texture notin drawer.textures:
+    return
+  drawer.textures[texture].texture.release()
+  drawer.textures.del(texture)
+
+proc uploadAtlasRegion*(
+  drawer: Drawer,
+  image: Image,
+  x, y, width, height: int
+) =
+  ## Refreshes changed atlas pixels, replacing the texture after atlas growth.
+  if width <= 0 or height <= 0:
+    return
+  if image.isNil:
+    raise newException(SilkyError, "Cannot upload an empty atlas image.")
+  if drawer.atlasSize != ivec2(image.width.int32, image.height.int32):
+    drawer.uploadTexture(image)
+    return
+  let
+    left = clamp(x, 0, image.width)
+    top = clamp(y, 0, image.height)
+    right = clamp(x.int64 + width.int64, 0'i64, image.width.int64).int
+    bottom = clamp(y.int64 + height.int64, 0'i64, image.height.int64).int
+  if right <= left or bottom <= top:
+    return
+  drawer.texture.uploadRegion(image, left, top, right - left, bottom - top)
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
   ## Creates the Metal pipeline, atlas texture, and dynamic buffers.
-  const ShaderSource = """
-#include <metal_stdlib>
-using namespace metal;
-
-struct DrawerVertex {
-  packed_float2 pos;
-  packed_float2 uv;
-  uchar4 color;
-  packed_float2 clipPos;
-  packed_float2 clipSize;
-  packed_float2 maskUv;
-};
-
-struct VertexOut {
-  float4 position [[position]];
-  float2 uv;
-  float4 color;
-  float2 clipPos;
-  float2 clipSize;
-  float2 maskUv;
-};
-
-vertex VertexOut vertexMain(
-  uint vertexId [[vertex_id]],
-  constant DrawerVertex *vertices [[buffer(0)]]
-) {
-  VertexOut out;
-  DrawerVertex inVertex = vertices[vertexId];
-  out.position = float4(float2(inVertex.pos), 0.0, 1.0);
-  out.uv = float2(inVertex.uv);
-  out.color = float4(inVertex.color) / 255.0;
-  out.clipPos = float2(inVertex.clipPos);
-  out.clipSize = float2(inVertex.clipSize);
-  out.maskUv = float2(inVertex.maskUv);
-  return out;
-}
-
-fragment float4 fragmentMain(VertexOut in [[stage_in]]) {
-  if (in.position.x < in.clipPos.x ||
-      in.position.y < in.clipPos.y ||
-      in.position.x > in.clipPos.x + in.clipSize.x ||
-      in.position.y > in.clipPos.y + in.clipSize.y) {
-    discard_fragment();
-  }
-  return float4(1.0);
-}
-
-fragment float4 texturedFragmentMain(
-  VertexOut in [[stage_in]],
-  texture2d<float> tex [[texture(0)]],
-  sampler texSampler [[sampler(0)]]
-) {
-  if (in.position.x < in.clipPos.x ||
-      in.position.y < in.clipPos.y ||
-      in.position.x > in.clipPos.x + in.clipSize.x ||
-      in.position.y > in.clipPos.y + in.clipSize.y) {
-    discard_fragment();
-  }
-  float4 base = tex.sample(texSampler, in.uv);
-  if (in.maskUv.x >= 0.0) {
-    float maskR = tex.sample(texSampler, in.maskUv).r;
-    return float4(base.rgb * mix(float3(1.0), in.color.rgb, maskR), base.a * in.color.a);
-  }
-  return base * in.color;
-}
-"""
-
+  state.textureLimit = state.ctx.device.textureSizeLimit()
   var error: NSError
-  let library = state.ctx.device.newLibraryWithSource(
-    @ShaderSource,
+  let vertexLibrary = state.ctx.device.newLibraryWithSource(
+    @VertexShaderSource,
     0.ID,
     error.addr
   )
-  checkNSError(error, "Could not compile the Metal shaders")
-  checkNil(library, "Metal shader library was nil")
+  checkNSError(error, "Could not compile the Shady Metal vertex shader")
+  checkNil(vertexLibrary, "Metal vertex library was nil")
+  defer: vertexLibrary.release()
 
-  let vertexFunction = library.newFunctionWithName(@"vertexMain")
-  checkNil(vertexFunction, "Could not load Metal shader entry point: vertexMain")
-
-  let fragmentFunction = library.newFunctionWithName(@"texturedFragmentMain")
-  checkNil(
-    fragmentFunction,
-    "Could not load Metal shader entry point: texturedFragmentMain"
+  error = 0.NSError
+  let fragmentLibrary = state.ctx.device.newLibraryWithSource(
+    @FragmentShaderSource,
+    0.ID,
+    error.addr
   )
+  checkNSError(error, "Could not compile the Shady Metal fragment shader")
+  checkNil(fragmentLibrary, "Metal fragment library was nil")
+  defer: fragmentLibrary.release()
+
+  let
+    vertexFunction = vertexLibrary.newFunctionWithName(@"vertexMain")
+    fragmentFunction = fragmentLibrary.newFunctionWithName(@"fragmentMain")
+  checkNil(vertexFunction, "Could not load Shady's Metal vertex entry point")
+  checkNil(fragmentFunction, "Could not load Shady's Metal fragment entry point")
+  defer: vertexFunction.release()
+  defer: fragmentFunction.release()
+
+  let vertexDescriptor = MTLVertexDescriptor.alloc().init()
+  checkNil(vertexDescriptor, "Could not create a Metal vertex descriptor")
+  defer: vertexDescriptor.release()
+  const Offsets = [
+    offsetOf(DrawerVertex, pos),
+    offsetOf(DrawerVertex, uv),
+    offsetOf(DrawerVertex, color),
+    offsetOf(DrawerVertex, clipPos),
+    offsetOf(DrawerVertex, clipSize),
+    offsetOf(DrawerVertex, maskUv)
+  ]
+  for i, offset in Offsets:
+    let attribute = vertexDescriptor.attributes().objectAtIndexedSubscript(
+      i.uint
+    )
+    attribute.setFormat(
+      if i == 2: MTLVertexFormatUChar4Normalized else: MTLVertexFormatFloat2
+    )
+    attribute.setOffset(offset.uint)
+    attribute.setBufferIndex(VertexBufferIndex)
+  vertexDescriptor.layouts().objectAtIndexedSubscript(
+    VertexBufferIndex
+  ).setStride(sizeof(DrawerVertex).uint)
 
   let pipelineDescriptor = MTLRenderPipelineDescriptor.alloc().init()
   checkNil(pipelineDescriptor, "Could not create a pipeline descriptor")
+  defer: pipelineDescriptor.release()
+  pipelineDescriptor.setVertexDescriptor(vertexDescriptor)
   let colorAttachment =
     pipelineDescriptor.colorAttachments().objectAtIndexedSubscript(0)
   pipelineDescriptor.setVertexFunction(vertexFunction)
@@ -206,6 +314,7 @@ fragment float4 texturedFragmentMain(
 
   let samplerDescriptor = MTLSamplerDescriptor.alloc().init()
   checkNil(samplerDescriptor, "Could not create a sampler descriptor")
+  defer: samplerDescriptor.release()
   samplerDescriptor.setMinFilter(MTLSamplerMinMagFilterLinear)
   samplerDescriptor.setMagFilter(MTLSamplerMinMagFilterLinear)
   samplerDescriptor.setMipFilter(MTLSamplerMipFilterNotMipmapped)
@@ -220,6 +329,10 @@ fragment float4 texturedFragmentMain(
   state.createVertexBuffer(InitialVertexCapacity)
   state.uploadTexture(image)
 
+proc uploadAtlas*(drawer: Drawer, image: Image) =
+  ## Replaces the atlas texture after runtime glyph or image additions.
+  drawer.uploadTexture(image)
+
 proc newDrawer*(window: Window, image: Image): Drawer =
   ## Creates a new Metal drawer and eagerly initializes its resources.
   let safeSize = clampViewport(window.size)
@@ -231,8 +344,12 @@ proc newDrawer*(window: Window, image: Image): Drawer =
   )
   result.layers[0] = @[]
   result.layers[1] = @[]
-  result.ctx = newMetalContext(window)
-  result.initRenderer(image, safeSize)
+  try:
+    result.ctx = newMetalContext(window)
+    result.initRenderer(image, safeSize)
+  except:
+    result.close()
+    raise
 
 proc beginFrame*(drawer: Drawer, window: Window, size: IVec2) =
   ## Prepares the Metal drawer for a new frame.
@@ -259,37 +376,88 @@ proc ensureVertexCapacity(state: Drawer, vertexCount: int) =
     newCapacity *= 2
   state.createVertexBuffer(newCapacity)
 
-proc recordDraw(state: Drawer, vertexCount: int) =
-  ## Records the Metal draw pass for the current frame.
-  let drawable = state.ctx.currentDrawable()
-  if drawable.isNil:
-    return
-
-  let
-    commandBuffer = state.ctx.newCommandBuffer()
-    renderPass = state.ctx.clearPass(drawable, state.clearColor)
-    encoder = commandBuffer.renderCommandEncoderWithDescriptor(renderPass)
-  checkNil(encoder, "Could not create a Metal render encoder")
+proc encodeDraw(
+  state: Drawer,
+  encoder: MTLRenderCommandEncoder,
+  width, height: float64,
+  vertexCount: int
+) =
+  ## Encodes contiguous texture batches without reordering layers or clipping.
   encoder.setRenderPipelineState(state.pipelineState)
   encoder.setViewport(
     MTLViewport(
       originX: 0,
       originY: 0,
-      width: state.ctx.layer.drawableSize().width,
-      height: state.ctx.layer.drawableSize().height,
+      width: width,
+      height: height,
       znear: 0,
       zfar: 1
     )
   )
   encoder.setCullMode(MTLCullModeNone)
-  encoder.setVertexBuffer(state.vertexBuffer, 0, 0)
-  encoder.setFragmentTexture(state.texture, 0)
+  encoder.setVertexBuffer(state.vertexBuffer, 0, VertexBufferIndex)
   encoder.setFragmentSamplerState(state.sampler, 0)
-  if vertexCount > 0:
-    encoder.drawPrimitives(MTLPrimitiveTypeTriangle, 0, vertexCount.uint)
+  let vertices = cast[ptr UncheckedArray[DrawerVertex]](state.vertexBufferPtr)
+  var first = 0
+  while first < vertexCount:
+    let textureId = vertices[first].texture
+    var last = first + 1
+    while last < vertexCount and vertices[last].texture == textureId:
+      inc last
+    var target = DrawerTexture(texture: state.texture, size: state.atlasSize)
+    if textureId != 0:
+      if textureId notin state.textures:
+        first = last
+        continue
+      target = state.textures[textureId]
+    var uniforms = ShaderUniforms(
+      viewportSize: state.viewportSize.vec2,
+      atlasSize: target.size.vec2
+    )
+    encoder.setVertexBytes(uniforms.addr, sizeof(uniforms).uint, 0)
+    encoder.setFragmentTexture(target.texture, 0)
+    encoder.drawPrimitives(
+      MTLPrimitiveTypeTriangle,
+      first.uint,
+      (last - first).uint
+    )
+    first = last
+
+proc recordDraw(state: Drawer, vertexCount: int) =
+  ## Records the Metal draw pass for the current frame.
+  let drawable = state.ctx.currentDrawable()
+  if drawable.isNil:
+    return
+  let
+    commandBuffer = state.ctx.newCommandBuffer()
+    renderPass = state.ctx.clearPass(drawable, state.clearColor)
+    encoder = commandBuffer.renderCommandEncoderWithDescriptor(renderPass)
+    size = state.ctx.layer.drawableSize()
+  checkNil(encoder, "Could not create a Metal render encoder")
+  state.encodeDraw(encoder, size.width, size.height, vertexCount)
   encoder.endEncoding()
   commandBuffer.presentDrawable(drawable)
   commandBuffer.commit()
+  # Keep the shared vertex buffer available for the next CPU frame.
+  commandBuffer.waitUntilCompleted()
+  checkNSError(commandBuffer.error(), "Metal failed to render the Silky frame")
+
+proc uploadVertices(
+  drawer: Drawer,
+  image: Image,
+  vertices: pointer,
+  vertexCount: int
+) =
+  ## Updates the atlas and shared vertex buffer before a render pass.
+  if drawer.atlasSize != ivec2(image.width.int32, image.height.int32):
+    drawer.uploadTexture(image)
+  drawer.ensureVertexCapacity(vertexCount)
+  if vertexCount > 0:
+    copyMem(
+      drawer.vertexBufferPtr,
+      vertices,
+      vertexCount * sizeof(DrawerVertex)
+    )
 
 proc endFrame*(
   drawer: Drawer,
@@ -300,22 +468,85 @@ proc endFrame*(
 ) =
   ## Flushes the queued quads through Metal 4.
   discard size
-  let
-    atlasSize = vec2(image.width.float32, image.height.float32)
-    vertexCount = quadCount
-  drawer.ensureVertexCapacity(vertexCount)
+  drawer.uploadVertices(image, quads, quadCount)
+  drawer.recordDraw(quadCount)
 
-  var vertices = newSeqOfCap[DrawerVertex](vertexCount)
-  let quadsArr = cast[ptr UncheckedArray[DrawerVertex]](quads)
-  for i in 0 ..< quadCount:
-    vertices.add(quadsArr[i])
-  vertices.normalizeVertices(drawer.viewportSize, atlasSize)
-
-  if vertexCount > 0:
-    copyMem(
-      drawer.vertexBufferPtr,
-      unsafeAddr vertices[0],
-      vertexCount * sizeof(DrawerVertex)
+when defined(silkyMetalTesting):
+  objc:
+    proc setStorageMode(self: MTLTextureDescriptor, x: uint)
+    proc getBytes(
+      self: MTLTexture,
+      x: pointer,
+      bytesPerRow: uint,
+      fromRegion: MTLRegion,
+      mipmapLevel: uint
     )
 
-  drawer.recordDraw(vertexCount)
+  proc newOffscreenDrawerForTesting*(image: Image, size: IVec2): Drawer =
+    ## Creates the production drawer without a window for GPU pixel tests.
+    result = Drawer(
+      clearColor: MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+    )
+    try:
+      result.ctx.device = MTLCreateSystemDefaultDevice()
+      checkNil(result.ctx.device, "The pixel test requires a Metal device")
+      result.ownsTestDevice = true
+      result.ctx.commandQueue = result.ctx.device.newCommandQueue()
+      checkNil(result.ctx.commandQueue, "Could not create the test queue")
+      result.initRenderer(image, size)
+    except:
+      result.close()
+      raise
+
+  proc renderPixelsForTesting*(
+    drawer: Drawer,
+    image: Image,
+    vertices: openArray[DrawerVertex]
+  ): Image =
+    ## Renders through the production batching code and reads its output pixels.
+    let
+      width = drawer.viewportSize.x.int
+      height = drawer.viewportSize.y.int
+      descriptor = MTLTextureDescriptor.texture2DDescriptorWithPixelFormat(
+        MTLPixelFormatBGRA8Unorm,
+        width.uint,
+        height.uint,
+        false
+      )
+    descriptor.setUsage(MTLTextureUsageRenderTarget)
+    descriptor.setStorageMode(0) # Shared storage allows synchronized CPU reads.
+    let target = drawer.ctx.device.newTextureWithDescriptor(descriptor)
+    checkNil(target, "Could not create the pixel test render target")
+    defer: target.release()
+    drawer.uploadVertices(
+      image,
+      if vertices.len > 0: unsafeAddr vertices[0] else: nil,
+      vertices.len
+    )
+    let
+      commandBuffer = drawer.ctx.newCommandBuffer()
+      renderPass = MTLRenderPassDescriptor.renderPassDescriptor()
+      attachment = renderPass.colorAttachments().objectAtIndexedSubscript(0)
+    attachment.setTexture(target)
+    attachment.setLoadAction(MTLLoadActionClear)
+    attachment.setStoreAction(MTLStoreActionStore)
+    attachment.setClearColor(drawer.clearColor)
+    let encoder = commandBuffer.renderCommandEncoderWithDescriptor(renderPass)
+    checkNil(encoder, "Could not create the pixel test render encoder")
+    drawer.encodeDraw(encoder, width.float64, height.float64, vertices.len)
+    encoder.endEncoding()
+    commandBuffer.commit()
+    commandBuffer.waitUntilCompleted()
+    checkNSError(commandBuffer.error(), "Metal failed to render test pixels")
+    result = newImage(width, height)
+    target.getBytes(
+      result.data[0].addr,
+      (width * sizeof(ColorRGBX)).uint,
+      MTLRegion(
+        origin: MTLOrigin(x: 0, y: 0, z: 0),
+        size: MTLSize(width: width.uint, height: height.uint, depth: 1)
+      ),
+      0
+    )
+    for pixel in result.data.mitems:
+      swap(pixel.r, pixel.b)

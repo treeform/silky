@@ -1,10 +1,10 @@
 import
   std/[algorithm, tables, unicode, times],
   pixie, vmath, windy, bumpy,
-  silky/[atlas, clips, layout, profiles],
+  silky/[atlas, clips, common, frames, interactions, scrolls, layout, profiles],
   silky/internal/inputs
 
-export layout, profiles
+export frames, interactions, scrolls, layout, profiles
 
 when defined(useDirectX):
   import silky/drawers/dx12
@@ -69,13 +69,6 @@ type
     menuPopupHoverColor*: ColorRGBX = rgbx(80, 80, 100, 255)
     menuPopupSelectedColor*: ColorRGBX = rgbx(60, 60, 80, 255)
 
-  Interactor* = object
-    ## Solve which widget the mouse is interacting with.
-    currentId*: int = -1
-    warmId*: int = -1
-    warmLayer*: int = -1
-    hotId*: int = -1
-
   Silky* = ref object
     ## Main Silky context shared across rendering backends.
     inFrame: bool = false
@@ -83,11 +76,15 @@ type
     ## Multiplies 9-patch borders for a denser atlas.
     sliceScale*: int = 1
     layoutStack*: seq[LayoutScope]
+    scaledVertices: seq[DrawerVertex]
     textStyle*: string = "Default"
     padding*: float32 = 12
     theme*: Theme = Theme()
     cursor*: Cursor = Cursor(kind: ArrowCursor)
     inputs: TextInputs
+    frames: FrameSchedule
+    frameInput: FrameInput
+    frameHadInput: bool
     mousePos*: Vec2
     mouseDelta*: Vec2
     mouseIdleTime*: float64
@@ -115,6 +112,9 @@ type
     frameTime*: float64
     avgFrameTime*: float64
     interactor*: Interactor
+    touchScroll*: TouchScroll
+    touchOrigin*: Vec2
+      ## Logical window offset applied when the app removes safe-area insets.
     window: Window
 
 proc currentDrawLayer*(sk: Silky): int =
@@ -123,6 +123,39 @@ proc currentDrawLayer*(sk: Silky): int =
 proc textInputs*(sk: Silky): TextInputs =
   ## Provides internal text input state to the text widgets.
   sk.inputs
+
+proc renderMode*(sk: Silky): RenderMode =
+  ## Returns continuous game rendering or event-driven application rendering.
+  sk.frames.mode
+
+proc requestFrame*(sk: Silky, delayMs = 0) =
+  ## Invalidates data or schedules an animation frame on the UI thread.
+  sk.frames.requestFrame(delayMs)
+
+proc `renderMode=`*(sk: Silky, mode: RenderMode) =
+  ## Selects the rendering policy without changing the drawing API.
+  sk.frames.mode = mode
+  sk.requestFrame()
+
+proc `onFrameRequested=`*(sk: Silky, wake: proc()) =
+  ## Connects invalidation and native editor input to an event-loop wakeup.
+  sk.frames.wake = wake
+  if sk.inputs != nil:
+    sk.inputs.onEvent = wake
+
+proc needsFrame*(sk: Silky, window: Window): bool =
+  ## Checks UI input and scheduled deadlines before drawing an app frame.
+  if sk.frames.mode == ContinuousRender:
+    return true
+  if sk.frameInput.inputChanged(window, sk.inputs.hasPendingEvents()):
+    sk.requestFrame()
+  sk.frames.needsFrame()
+
+proc nextFrameDelay*(sk: Silky, window: Window, maxWaitMs = 1000): int =
+  ## Bounds an event-loop wait by pending UI work and animation deadlines.
+  if sk.needsFrame(window):
+    return 0
+  sk.frames.nextFrameDelay(maxWaitMs)
 
 proc pushLayer*(sk: Silky, layer: int) =
   ## Pushes a new rendering layer onto the stack.
@@ -235,6 +268,7 @@ proc vertexMark*(sk: Silky): int =
 proc beginVertexSpan*(sk: Silky): VertexSpan =
   ## Captures vertices and original clips until a layout is placed.
   result.clipMark = sk.clipStack.regions.len
+  result.textMark = sk.inputs.textPlacementMark()
   for layer in 0 ..< result.marks.len:
     result.marks[layer] = sk.drawer.layers[layer].len
     sk.vertexClips[layer].setLen(result.marks[layer])
@@ -242,11 +276,20 @@ proc beginVertexSpan*(sk: Silky): VertexSpan =
 
 proc endVertexSpan*(sk: Silky, span: VertexSpan, offset: Vec2) =
   ## Places a deferred span and resolves clips against fixed ancestors.
+  let
+    scale = max(sk.uiScale, 0.001'f)
+    paintOffset = vec2(
+      round(offset.x * scale) / scale,
+      round(offset.y * scale) / scale
+    )
+  # Deferred placement must preserve the pixel grid used by text and images.
+  # Layout and clipping retain their exact logical positions.
   sk.clipStack.translateClips(span.clipMark, offset)
+  sk.inputs.translateTextInput(span.textMark, paintOffset * scale)
   for layer in 0 ..< span.marks.len:
     for i in span.marks[layer] ..< sk.drawer.layers[layer].len:
       let clip = sk.clipStack.regions[sk.vertexClips[layer][i]].visible
-      sk.drawer.layers[layer][i].pos += offset
+      sk.drawer.layers[layer][i].pos += paintOffset
       sk.drawer.layers[layer][i].clipPos = clip.xy
       sk.drawer.layers[layer][i].clipSize = clip.wh
   dec sk.clipStack.captures
@@ -256,6 +299,7 @@ proc moveVerticesBehind*(sk: Silky, layer, spanStart, chromeStart: int) =
   ## span so late-drawn parent chrome renders behind its children (T2).
   let total = sk.drawer.layers[layer].len
   if chromeStart > spanStart and chromeStart < total:
+    sk.inputs.moveTextInputBehind(ord(layer), spanStart, chromeStart, total)
     sk.drawer.layers[layer].rotateLeft(
       spanStart ..< total, chromeStart - spanStart
     )
@@ -269,16 +313,23 @@ proc translateVertices*(sk: Silky, layer, spanStart: int, offset: Vec2) =
   ## whose position is only known at scope close (T6).
   if offset == vec2(0, 0):
     return
+  let
+    scale = max(sk.uiScale, 0.001'f)
+    paintOffset = vec2(
+      round(offset.x * scale) / scale,
+      round(offset.y * scale) / scale
+    )
+  sk.inputs.translateTextInputVertices(ord(layer), spanStart, paintOffset * scale)
   for i in spanStart ..< sk.drawer.layers[layer].len:
-    sk.drawer.layers[layer][i].pos += offset
+    sk.drawer.layers[layer][i].pos += paintOffset
 
 proc getImageSize*(sk: Silky, image: string): Vec2 =
-  ## Returns the size of an atlas image in pixels.
+  ## Returns the logical size of an atlas image.
   if image notin sk.atlas.entries:
     echo "[Warning] Image not found in atlas: " & image
     return vec2(0, 0)
   let uv = sk.atlas.entries[image]
-  vec2(uv.width.float32, uv.height.float32)
+  vec2(uv.width.float32, uv.height.float32) / max(uv.pixelScale, 1).float32
 
 proc nextRune(text: string, i: var int): Rune {.inline.} =
   ## Reads one UTF-8 rune and advances the byte index.
@@ -294,16 +345,35 @@ proc peekRune(text: string, i: int, rune: var Rune): bool {.inline.} =
 
 proc shouldShowTooltip*(sk: Silky): bool =
   ## Returns true when a tooltip should be shown.
+  if sk.renderMode == OnDemandRender and sk.hover and
+    sk.mouseIdleTime < sk.tooltipThreshold:
+      sk.requestFrame(max(
+        1, ((sk.tooltipThreshold - sk.mouseIdleTime) * 1000).int + 1
+      ))
   sk.hover and sk.mouseIdleTime >= sk.tooltipThreshold
 
 proc resetInteractions*(sk: Silky) =
-  ## Clear all interaction state.
-  sk.interactor.hotId = -1
-  sk.interactor.warmId = -1
-  sk.interactor.warmLayer = -1
+  ## Invalidates cached pointer targets.
+  sk.interactor.resetInteractions()
+  sk.touchScroll.resetTouchScroll()
 
 proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
   ## Starts a frame and updates the shared UI state.
+  sk.cursor = Cursor(kind: ArrowCursor)
+  if sk.frames.mode == OnDemandRender:
+    sk.frameHadInput = sk.frameInput.inputChanged(
+      window, sk.inputs.hasPendingEvents()
+    )
+    sk.frames.beginFrame()
+  sk.touchScroll.beginTouchFrame(
+    window.pointerSource == TouchPointer,
+    window.buttonPressed[MouseLeft], window.buttonDown[MouseLeft],
+    window.buttonReleased[MouseLeft], window.focused,
+    window.mousePos.vec2 / sk.uiScale,
+    window.mouseDelta.vec2 / sk.uiScale,
+    velocity = window.pointerVelocity / sk.uiScale,
+    interrupted = window.scrollDelta != vec2(0)
+  )
   sk.inputs.beginInputFrame(window)
   beginProfileFrame()
 
@@ -338,18 +408,23 @@ proc beginUiShared*(sk: Silky, window: Window, size: IVec2) =
 
 proc clear*(sk: Silky)
 
-proc endInteractions(interactor: var Interactor) =
-  ## Commit warm state and resets per-frame counters.
-  interactor.hotId = interactor.warmId
-  interactor.warmId = -1
-  interactor.warmLayer = -1
-  interactor.currentId = -1
-
 proc endUiShared*(sk: Silky) =
   ## Ends a frame after the backend has finished drawing.
-  if sk.window.buttonReleased[MouseLeft]:
-    sk.resetInteractions()
+  if sk.frames.mode == OnDemandRender:
+    if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
+      sk.requestFrame()
+    if sk.touchScroll.momentumActive():
+      sk.requestFrame()
+    elif sk.window.buttonDown[MouseLeft]:
+      sk.requestFrame(16)
+  let previousCursor = sk.window.cursor
+  if previousCursor.kind != sk.cursor.kind or
+    (sk.cursor.kind == CustomCursor and
+      (previousCursor.image != sk.cursor.image or
+        previousCursor.hotspot != sk.cursor.hotspot)):
+      sk.window.cursor = sk.cursor
   sk.interactor.endInteractions()
+  sk.touchScroll.endTouchFrame()
   sk.clear()
   sk.popLayout()
   sk.popClipRect()
@@ -466,6 +541,29 @@ proc drawQuad*(
     maskUv: m3
   ))
 
+proc drawTexture*(
+  sk: Silky,
+  texture: uint32,
+  pos, size, pixels: Vec2,
+  color = rgbx(255, 255, 255, 255)
+) =
+  ## Queues an independent image with ordinary clipping and layer ordering.
+  if texture == 0 or size.x <= 0 or size.y <= 0:
+    return
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    let
+      layer = sk.drawer.currentLayer
+      first = sk.drawer.layers[layer].len
+    sk.drawQuad(pos, size, vec2(0), pixels, color)
+    for i in first ..< sk.drawer.layers[layer].len:
+      sk.drawer.layers[layer][i].texture = texture
+  else:
+    raise newException(
+      SilkyError, "Independent image textures require the OpenGL or Metal drawer."
+    )
+
 proc drawTriangle*(
   sk: Silky,
   positions: array[3, Vec2],
@@ -526,6 +624,8 @@ proc drawText*(
 
   let
     fontData = sk.atlas.fonts[font]
+    density = max(fontData.pixelScale, 0.001'f)
+    displayScale = max(sk.uiScale, 0.001'f)
     maxPos = pos + vec2(maxWidth, maxHeight)
     hasSubpixel = fontData.subpixelSteps > 0
     layer = sk.drawer.currentLayer
@@ -550,9 +650,9 @@ proc drawText*(
         of LeftAlign:
           0.0'f
         of CenterAlign:
-          floor((maxWidth - lineWidth) * 0.5)
+          floor((maxWidth - lineWidth) * 0.5 * displayScale) / displayScale
         of RightAlign:
-          floor(maxWidth - lineWidth)
+          floor((maxWidth - lineWidth) * displayScale) / displayScale
       if dx != 0:
         for j in lineStartIdx ..< sk.drawer.layers[layer].len:
           sk.drawer.layers[layer][j].pos.x += dx
@@ -596,7 +696,9 @@ proc drawText*(
 
     let variant =
       if hasSubpixel:
-        let frac = currentPos.x - currentPos.x.floor
+        let
+          rasterX = currentPos.x * density
+          frac = rasterX - rasterX.floor
         (frac * fontData.subpixelSteps.float32).int mod
           fontData.subpixelSteps
       else:
@@ -625,15 +727,24 @@ proc drawText*(
       break
 
     if entry.boundsWidth > 0 and entry.boundsHeight > 0:
-      let glyphPos = vec2(
-        floor(currentPos.x) + entry.boundsX,
-        round(currentPos.y + entry.boundsY)
-      )
+      let
+        glyphX =
+          if hasSubpixel:
+            floor(currentPos.x * density) / density + entry.boundsX
+          else:
+            floor((currentPos.x + entry.boundsX) * displayScale) /
+              displayScale
+        # Keep every glyph on one baseline, including mismatched atlas scales.
+        glyphPos = vec2(
+          glyphX,
+          round(currentPos.y * displayScale) / displayScale + entry.boundsY
+        )
+        glyphSize = vec2(entry.boundsWidth, entry.boundsHeight)
       sk.drawQuad(
         glyphPos,
-        vec2(entry.boundsWidth, entry.boundsHeight),
+        glyphSize,
         vec2(entry.x.float32, entry.y.float32),
-        vec2(entry.boundsWidth, entry.boundsHeight),
+        glyphSize * density,
         color
       )
 
@@ -656,9 +767,9 @@ proc drawText*(
         of TopAlign:
           0.0'f
         of MiddleAlign:
-          floor((maxHeight - textHeight) * 0.5)
+          floor((maxHeight - textHeight) * 0.5 * displayScale) / displayScale
         of BottomAlign:
-          floor(maxHeight - textHeight)
+          floor((maxHeight - textHeight) * displayScale) / displayScale
     if dy != 0:
       for j in textStartIdx ..< sk.drawer.layers[layer].len:
         sk.drawer.layers[layer][j].pos.y += dy
@@ -720,9 +831,49 @@ proc uploadAtlas*(sk: Silky) =
   ## Push the current CPU atlas image to the GPU drawer.
   when not defined(useDirectX) and
       not defined(useVulkan) and
-      not defined(useMetal4) and
       not defined(useCpu):
     sk.drawer.uploadAtlas(sk.image)
+
+proc uploadAtlasRegion*(sk: Silky, x, y, width, height: int) =
+  ## Uploads a changed atlas rectangle without replacing the whole texture.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.uploadAtlasRegion(sk.image, x, y, width, height)
+
+proc allocateTexture*(sk: Silky, width, height: int): uint32 =
+  ## Reserves independent image storage without changing the font atlas.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.allocateTexture(width, height)
+  else:
+    raise newException(
+      SilkyError, "Independent image textures require the OpenGL or Metal drawer."
+    )
+
+proc uploadTextureRows*(
+  sk: Silky,
+  texture: uint32,
+  image: Image,
+  firstRow, rowCount: int
+) =
+  ## Uploads selected image rows for incremental preparation across frames.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.uploadTextureRows(texture, image, firstRow, rowCount)
+  else:
+    raise newException(
+      SilkyError, "Independent image textures require the OpenGL or Metal drawer."
+    )
+
+proc deleteTexture*(sk: Silky, texture: uint32) =
+  ## Releases independent image storage after its last queued frame.
+  when not defined(useDirectX) and
+      not defined(useVulkan) and
+      not defined(useCpu):
+    sk.drawer.deleteTexture(texture)
 
 proc addAtlasImage*(sk: Silky, name: string, image: Image) =
   ## Pack an image into the runtime atlas and reupload the GPU texture.
@@ -743,6 +894,10 @@ proc addAtlasImage*(sk: Silky, name: string, image: Image) =
   sk.atlas = sk.builder.atlas
   sk.uploadAtlas()
 
+proc alignPixels(pos: Vec2, scale: float32): Vec2 =
+  ## Aligns a logical point to the framebuffer's pixel grid.
+  vec2(round(pos.x * scale), round(pos.y * scale)) / scale
+
 proc drawImage*(
   sk: Silky,
   name: string,
@@ -754,7 +909,15 @@ proc drawImage*(
   if name notin sk.atlas.entries:
     echo "[Warning] Sprite not found in atlas: " & name
     return
-  let uv = sk.atlas.entries[name]
+  let
+    uv = sk.atlas.entries[name]
+    density = max(uv.pixelScale, 1).float32
+    displayScale = max(sk.uiScale, 0.001'f)
+    alignedPos =
+      if density > 1:
+        alignPixels(pos, displayScale)
+      else:
+        pos
   var
     mPos = vec2(-1, -1)
     mSize = vec2(0, 0)
@@ -763,8 +926,8 @@ proc drawImage*(
     mPos = vec2(m.x.float32, m.y.float32)
     mSize = vec2(m.width.float32, m.height.float32)
   sk.drawQuad(
-    pos,
-    vec2(uv.width.float32, uv.height.float32),
+    alignedPos,
+    vec2(uv.width.float32, uv.height.float32) / density,
     vec2(uv.x.float32, uv.y.float32),
     vec2(uv.width.float32, uv.height.float32),
     color,
@@ -795,23 +958,28 @@ proc draw9Patch*(
     return
   let
     scale = max(sk.sliceScale, 1)
-    topS = top * scale
-    rightS = right * scale
-    bottomS = bottom * scale
-    leftS = left * scale
     uv = sk.atlas.entries[name]
-    l = leftS.float32
-    r = rightS.float32
-    u = topS.float32
-    d = bottomS.float32
+    density = max(uv.pixelScale, 1)
+    topS = top * scale * density
+    rightS = right * scale * density
+    bottomS = bottom * scale * density
+    leftS = left * scale * density
+    displayScale = max(sk.uiScale, 0.001'f)
+    l = round((left * scale).float32 * displayScale) / displayScale
+    r = round((right * scale).float32 * displayScale) / displayScale
+    u = round((top * scale).float32 * displayScale) / displayScale
+    d = round((bottom * scale).float32 * displayScale) / displayScale
+    alignedPos = alignPixels(pos, displayScale)
+    # Size must not change as the position crosses a pixel boundary.
+    alignedSize = alignPixels(size, displayScale)
     srcXOffsets = [0.int, leftS, uv.width - rightS]
     srcWidths = [leftS, uv.width - leftS - rightS, rightS]
     srcYOffsets = [0.int, topS, uv.height - bottomS]
     srcHeights = [topS, uv.height - topS - bottomS, bottomS]
-    dstXOffsets = [0.0'f, l, size.x - r]
-    dstWidths = [l, size.x - l - r, r]
-    dstYOffsets = [0.0'f, u, size.y - d]
-    dstHeights = [u, size.y - u - d, d]
+    dstXOffsets = [0.0'f, l, alignedSize.x - r]
+    dstWidths = [l, alignedSize.x - l - r, r]
+    dstYOffsets = [0.0'f, u, alignedSize.y - d]
+    dstHeights = [u, alignedSize.y - u - d, d]
     order = [
       (0, 0), (2, 0), (0, 2), (2, 2),
       (1, 0), (0, 1), (2, 1), (1, 2),
@@ -827,7 +995,7 @@ proc draw9Patch*(
     if dw <= 0.001 or dh <= 0.001 or sw <= 0 or sh <= 0:
       continue
     sk.drawQuad(
-      vec2(pos.x + dstXOffsets[x], pos.y + dstYOffsets[y]),
+      alignedPos + vec2(dstXOffsets[x], dstYOffsets[y]),
       vec2(dw, dh),
       vec2(
         (uv.x + srcXOffsets[x]).float32,
@@ -965,19 +1133,17 @@ proc endUi*(sk: Silky) =
     scale = sk.uiScale
     quadCount = sk.drawer.layers[NormalLayer].len
     needsScale = not (scale ~= 1.0f)
-  var
-    quadsPtr: pointer
-    scaledVertices: seq[DrawerVertex]
+  var quadsPtr: pointer
   if quadCount > 0:
     if needsScale:
-      scaledVertices = newSeqOfCap[DrawerVertex](quadCount)
+      sk.scaledVertices.setLen(quadCount)
       for i in 0 ..< quadCount:
         var vertex = sk.drawer.layers[NormalLayer][i]
         vertex.pos *= scale
         vertex.clipPos *= scale
         vertex.clipSize *= scale
-        scaledVertices.add(vertex)
-      quadsPtr = cast[pointer](unsafeAddr scaledVertices[0])
+        sk.scaledVertices[i] = vertex
+      quadsPtr = cast[pointer](unsafeAddr sk.scaledVertices[0])
     else:
       quadsPtr = cast[pointer](unsafeAddr sk.drawer.layers[NormalLayer][0])
   else:
@@ -992,15 +1158,21 @@ proc endUi*(sk: Silky) =
 
 proc buttonDown*(sk: Silky): ButtonView =
   ## Returns held buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonDown)
+  result = sk.inputs.filterButtons(sk.window.buttonDown)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 proc buttonPressed*(sk: Silky): ButtonView =
   ## Returns pressed buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonPressed)
+  result = sk.inputs.filterButtons(sk.window.buttonPressed)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 proc buttonReleased*(sk: Silky): ButtonView =
   ## Returns released buttons, excluding keyboard keys during text entry.
-  sk.inputs.filterButtons(sk.window.buttonReleased)
+  result = sk.inputs.filterButtons(sk.window.buttonReleased)
+  if sk.touchScrolling:
+    result = ButtonView(set[Button](result) - {MouseLeft})
 
 when not defined(useDirectX) and
     not defined(useVulkan) and

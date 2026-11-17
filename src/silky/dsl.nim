@@ -512,9 +512,24 @@ proc pushChildrenLayout(sk: Silky, node: DslNode) =
     if node.id notin frameStates:
       frameStates[node.id] = FrameState()
     node.frameState = frameStates[node.id]
-    let inset = if node.patch.name.len > 0: 1'f32 else: 0'f32
-    let clipRect = rect(r.x + inset, r.y + inset,
-      max(0.0'f, r.w - inset*2), max(0.0'f, r.h - inset*2))
+    # Clip on the same pixel grid as the frame's independently snapped bounds.
+    let
+      pixelScale = max(sk.uiScale, 0.001'f)
+      origin = vec2(round(r.x * pixelScale), round(r.y * pixelScale)) /
+        pixelScale
+      size = vec2(round(r.w * pixelScale), round(r.h * pixelScale)) /
+        pixelScale
+      inset =
+        if node.patch.name.len > 0:
+          round(pixelScale) / pixelScale
+        else:
+          0.0'f
+      clipRect = rect(
+        origin.x + inset,
+        origin.y + inset,
+        max(0.0'f, size.x - inset * 2),
+        max(0.0'f, size.y - inset * 2)
+      )
     sk.pushClipRect(clipRect)
     node.pushedClip = true
     node.frameOrigin = r.xy + dslVec2(node.horizontalPadding, node.verticalPadding)
@@ -899,7 +914,7 @@ template onDown*(body: untyped) =
 template onClick*(body: untyped) =
   block:
     let interaction = sk.nodeInteraction(current)
-    if interaction == Released:
+    if interaction.isReleased(window):
       sk.hover = true
       sk.mouseConsumed = true
       body
@@ -942,6 +957,38 @@ template button*(label: string, isEnabled: bool, body: untyped) =
   profileBlock "button":
     sk.startCurrentChildren()
     baseWidgets.button(label, isEnabled, false):
+      body
+
+template button*(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  isError: bool,
+  body: untyped
+) =
+  ## Creates a native minimum-size button inside the current DSL layout.
+  profileBlock "button":
+    sk.startCurrentChildren()
+    baseWidgets.button(label, minimumSize, isEnabled, isError):
+      body
+
+template button*(
+  label: string,
+  minimumSize: Vec2,
+  isEnabled: bool,
+  body: untyped
+) =
+  ## Creates a minimum-size button with an enabled state.
+  profileBlock "button":
+    sk.startCurrentChildren()
+    baseWidgets.button(label, minimumSize, isEnabled, false):
+      body
+
+template button*(label: string, minimumSize: Vec2, body: untyped) =
+  ## Creates an enabled minimum-size button.
+  profileBlock "button":
+    sk.startCurrentChildren()
+    baseWidgets.button(label, minimumSize, true, false):
       body
 
 template icon*(imageName: string) =

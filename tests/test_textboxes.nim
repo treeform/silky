@@ -31,6 +31,11 @@ proc newStateSingleLine(text: string, maxWidth = 500.0f): TextBoxState =
   result.setText(text)
   result.computeLayout(fontData, maxWidth)
 
+static:
+  doAssert not declared(TextSpan)
+  doAssert not declared(RichTextBoxState)
+  doAssert not compiles(TextBoxState(spans: @[]))
+
 block:
   echo "Testing getText / setText"
   let s = newState("")
@@ -655,7 +660,7 @@ block:
   doAssert s.innerHeight == lh, "Empty text should have lineHeight"
   doAssert s.innerWidth == 0
   let s2 = newState("\n")
-  doAssert s2.innerHeight == lh, "Single newline char is on line 0"
+  doAssert s2.innerHeight == lh * 2, "A trailing newline opens an empty line"
   doAssert s2.innerWidth == 0, "Single newline has zero width"
   let s3 = newState("abc")
   doAssert s3.innerHeight == lh

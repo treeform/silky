@@ -1,5 +1,6 @@
 import
   std/unicode,
+  vmath, bumpy,
   silky/common
 
 when defined(silkyTesting):
@@ -11,17 +12,23 @@ const MaxPendingEvents = 65_536
 
 type
   InputKind* = enum
-    KeyDown, KeyUp, TextInput
+    KeyDown, KeyUp, TextInput, TextCommit, NativeEdit
 
   InputEvent* = object
     kind*: InputKind
     button*: Button
     rune*: Rune
+    text*: string
+    edit*: TextInputEdit
     control*, shift*, alt*, super*: bool
 
   CallbackIdentity = tuple[code, environment: pointer]
 
   TextInputs* = ref object
+    onEvent*: proc()
+      ## Wakes an on-demand UI after native text input has been queued.
+    onPaste*: proc(id: string): bool
+      ## Returns true to consume a paste for the active editable field.
     events: seq[InputEvent]
     active: bool
     editable: bool
@@ -29,10 +36,19 @@ type
     epoch: uint64
     submitted: bool
     consumed: bool
-    callbacks: array[4, CallbackIdentity]
+    callbacks: array[6, CallbackIdentity]
     forwardedKeys: set[Button]
     consumedKeys: set[Button]
     releaseCallback: proc(button: Button)
+    pendingText: TextInputState
+    placementSerial, placementLayer, placementVertex: int
+    when defined(ios) or defined(silkyTesting):
+      menuPending, menuVisible: bool
+      menuBounds: Rect
+      menuActions: set[TextEditAction]
+      menuId: string
+      menuEpoch, menuGeneration: uint64
+      menuSerial, menuLayer, menuVertex: int
 
 proc identity[T](callback: T): CallbackIdentity =
   ## Identifies a callback without retaining its closure environment.
@@ -41,6 +57,10 @@ proc identity[T](callback: T): CallbackIdentity =
 proc focusEpoch*(inputs: TextInputs): uint64 =
   ## Returns the generation of the current text focus.
   inputs.epoch
+
+proc hasPendingEvents*(inputs: TextInputs): bool {.raises: [].} =
+  ## Reports queued edits without consuming the editor's input batch.
+  inputs != nil and inputs.events.len > 0
 
 when defined(silkyTesting):
   proc filterButtons*(
@@ -59,16 +79,28 @@ else:
     else:
       buttons
 
+proc dismissInputMenu(inputs: TextInputs, window: Window) =
+  ## Invalidates actions belonging to a menu that no longer owns focus.
+  when defined(ios) or defined(silkyTesting):
+    inc inputs.menuGeneration
+    inputs.menuPending = false
+    if inputs.menuVisible:
+      window.dismissTextEditMenu()
+      inputs.menuVisible = false
+
 proc stopInput*(inputs: TextInputs, window: Window) =
   ## Ends text capture and discards input for the previous field.
+  inputs.dismissInputMenu(window)
   if inputs.active:
     inc inputs.epoch
   inputs.active = false
   inputs.editable = false
   inputs.id.setLen(0)
   inputs.events.setLen(0)
+  inputs.pendingText = TextInputState()
   if window.runeInputEnabled:
     window.runeInputEnabled = false
+  window.setTextInputState(TextInputState())
 
 proc modifiers(inputs: TextInputs, window: Window): InputEvent =
   ## Captures modifier state at the time of a callback.
@@ -86,71 +118,144 @@ proc addEvent(inputs: TextInputs, event: InputEvent) =
   if inputs.events.len >= MaxPendingEvents:
     raise newException(SilkyError, "Too many pending text input events")
   inputs.events.add(event)
+  if inputs.onEvent != nil:
+    inputs.onEvent()
+
+proc installPress(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousPress = window.onButtonPress
+  window.onButtonPress = proc(button: Button) =
+    let window = cast[Window](windowPointer)
+    inputs.dismissInputMenu(window)
+    if inputs.active and button >= Key0:
+      var event = inputs.modifiers(window)
+      event.kind = KeyDown
+      event.button = button
+      inputs.consumedKeys.incl(button)
+      if inputs.editable and button == KeyV and
+        (event.super or (event.control and not event.alt)):
+          let epoch = inputs.epoch
+          if inputs.onPaste != nil and inputs.onPaste(inputs.id):
+            return
+          if not inputs.active or not inputs.editable or inputs.epoch != epoch:
+            return
+          event.kind = TextCommit
+          event.text = getClipboardString()
+          if event.text.len > 0:
+            inputs.addEvent(event)
+          return
+      inputs.addEvent(event)
+      return
+    if button >= Key0:
+      inputs.forwardedKeys.incl(button)
+      inputs.consumedKeys.excl(button)
+    if previousPress != nil:
+      previousPress(button)
+  inputs.callbacks[0] = identity(window.onButtonPress)
+
+proc installRelease(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousRelease = window.onButtonRelease
+  inputs.releaseCallback = previousRelease
+  window.onButtonRelease = proc(button: Button) =
+    let window = cast[Window](windowPointer)
+    if inputs.active and button >= Key0:
+      var event = inputs.modifiers(window)
+      event.kind = KeyUp
+      event.button = button
+      inputs.consumedKeys.excl(button)
+      inputs.addEvent(event)
+      return
+    if button >= Key0:
+      inputs.forwardedKeys.excl(button)
+      if button in inputs.consumedKeys:
+        inputs.consumedKeys.excl(button)
+        return
+    if previousRelease != nil:
+      previousRelease(button)
+  inputs.callbacks[1] = identity(window.onButtonRelease)
+
+proc installRune(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousRune = window.onRune
+  window.onRune = proc(rune: Rune) =
+    let window = cast[Window](windowPointer)
+    if inputs.active:
+      if inputs.editable:
+        var event = inputs.modifiers(window)
+        event.kind = TextInput
+        event.rune = rune
+        inputs.addEvent(event)
+      return
+    if previousRune != nil:
+      previousRune(rune)
+  inputs.callbacks[2] = identity(window.onRune)
+
+proc installFocus(inputs: TextInputs, window: Window) =
+  ## Installs this handler only when the window's callback changes.
+  let windowPointer = cast[pointer](window)
+  # The window owns the callback, so a pointer avoids a reference cycle.
+  let previousFocus = window.onFocusChange
+  window.onFocusChange = proc() =
+    inputs.stopInput(cast[Window](windowPointer))
+    if previousFocus != nil:
+      previousFocus()
+  inputs.callbacks[3] = identity(window.onFocusChange)
+
+proc installText(inputs: TextInputs, window: Window) =
+  ## Captures complete native commits before a dictation tool restores state.
+  let
+    windowPointer = cast[pointer](window)
+    previousText = window.onTextInput
+  window.onTextInput = proc(text: string) =
+    ## Preserves one native insertion as one ordered editing operation.
+    let window = cast[Window](windowPointer)
+    if inputs.active:
+      if inputs.editable and text.len > 0:
+        inputs.addEvent(InputEvent(kind: TextCommit, text: text))
+      return
+    if previousText != nil:
+      previousText(text)
+    elif window.onRune != nil:
+      for rune in text.runes:
+        window.onRune(rune)
+  inputs.callbacks[4] = identity(window.onTextInput)
+
+proc installEdit(inputs: TextInputs, window: Window) =
+  ## Queues native accessibility edits in the same order as keyboard input.
+  let previousEdit = window.onTextEdit
+  window.onTextEdit = proc(edit: TextInputEdit) =
+    ## Applies edits only to the field that currently owns text input.
+    if inputs.active:
+      if inputs.editable:
+        inputs.addEvent(InputEvent(kind: NativeEdit, edit: edit))
+      return
+    if previousEdit != nil:
+      previousEdit(edit)
+  inputs.callbacks[5] = identity(window.onTextEdit)
 
 proc overrideCallbacks(
   inputs: TextInputs, window: Window, initialize = false
 ) =
-  ## Automatically installs handlers for any changed callback slots.
-  let windowPointer = cast[pointer](window)
-  # The window owns these callbacks, so a pointer avoids a reference cycle.
+  ## Checks handlers without allocating closure state on unchanged frames.
   if initialize or identity(window.onButtonPress) != inputs.callbacks[0]:
-    let previousPress = window.onButtonPress
-    window.onButtonPress = proc(button: Button) =
-      let window = cast[Window](windowPointer)
-      if inputs.active and button >= Key0:
-        var event = inputs.modifiers(window)
-        event.kind = KeyDown
-        event.button = button
-        inputs.consumedKeys.incl(button)
-        inputs.addEvent(event)
-        return
-      if button >= Key0:
-        inputs.forwardedKeys.incl(button)
-        inputs.consumedKeys.excl(button)
-      if previousPress != nil:
-        previousPress(button)
-    inputs.callbacks[0] = identity(window.onButtonPress)
+    inputs.installPress(window)
   if initialize or identity(window.onButtonRelease) != inputs.callbacks[1]:
-    let previousRelease = window.onButtonRelease
-    inputs.releaseCallback = previousRelease
-    window.onButtonRelease = proc(button: Button) =
-      let window = cast[Window](windowPointer)
-      if inputs.active and button >= Key0:
-        var event = inputs.modifiers(window)
-        event.kind = KeyUp
-        event.button = button
-        inputs.consumedKeys.excl(button)
-        inputs.addEvent(event)
-        return
-      if button >= Key0:
-        inputs.forwardedKeys.excl(button)
-        if button in inputs.consumedKeys:
-          inputs.consumedKeys.excl(button)
-          return
-      if previousRelease != nil:
-        previousRelease(button)
-    inputs.callbacks[1] = identity(window.onButtonRelease)
+    inputs.installRelease(window)
   if initialize or identity(window.onRune) != inputs.callbacks[2]:
-    let previousRune = window.onRune
-    window.onRune = proc(rune: Rune) =
-      let window = cast[Window](windowPointer)
-      if inputs.active:
-        if inputs.editable:
-          var event = inputs.modifiers(window)
-          event.kind = TextInput
-          event.rune = rune
-          inputs.addEvent(event)
-        return
-      if previousRune != nil:
-        previousRune(rune)
-    inputs.callbacks[2] = identity(window.onRune)
+    inputs.installRune(window)
   if initialize or identity(window.onFocusChange) != inputs.callbacks[3]:
-    let previousFocus = window.onFocusChange
-    window.onFocusChange = proc() =
-      inputs.stopInput(cast[Window](windowPointer))
-      if previousFocus != nil:
-        previousFocus()
-    inputs.callbacks[3] = identity(window.onFocusChange)
+    inputs.installFocus(window)
+  if initialize or identity(window.onTextInput) != inputs.callbacks[4]:
+    inputs.installText(window)
+  if initialize or identity(window.onTextEdit) != inputs.callbacks[5]:
+    inputs.installEdit(window)
 
 proc newTextInputs*(window: Window): TextInputs =
   ## Sets up all text input handling directly from the window.
@@ -165,6 +270,86 @@ proc beginInputFrame*(inputs: TextInputs, window: Window) =
   inputs.overrideCallbacks(window)
   inputs.submitted = false
   inputs.consumed = false
+  inputs.pendingText = TextInputState()
+  inputs.placementSerial = 0
+  when defined(ios) or defined(silkyTesting):
+    inputs.menuPending = false
+
+proc textPlacementMark*(inputs: TextInputs): int =
+  ## Marks the start of a deferred layout containing a focused editor.
+  if inputs != nil:
+    result = inputs.placementSerial
+
+proc publishTextInput*(
+  inputs: TextInputs, state: TextInputState, layer, firstVertex: int
+) =
+  ## Stages native editor state until layout placement is complete.
+  inputs.pendingText = state
+  inputs.placementLayer = layer
+  inputs.placementVertex = firstVertex
+  inc inputs.placementSerial
+
+proc publishTextMenu*(
+  inputs: TextInputs, id: string, bounds: Rect,
+  actions: set[TextEditAction], layer, firstVertex: int
+) =
+  ## Defers a native menu until the owning widget's final placement is known.
+  when defined(ios) or defined(silkyTesting):
+    if inputs.active and inputs.id == id and actions != {}:
+      inc inputs.placementSerial
+      inputs.menuPending = true
+      inputs.menuId = id
+      inputs.menuEpoch = inputs.epoch
+      inputs.menuBounds = bounds
+      inputs.menuActions = actions
+      inputs.menuSerial = inputs.placementSerial
+      inputs.menuLayer = layer
+      inputs.menuVertex = firstVertex
+
+proc translateTextInput*(inputs: TextInputs, first: int, offset: Vec2) =
+  ## Moves an editor published inside a deferred layout span.
+  if inputs != nil and inputs.placementSerial > first:
+    inputs.pendingText.bounds.x += offset.x
+    inputs.pendingText.bounds.y += offset.y
+  when defined(ios) or defined(silkyTesting):
+    if inputs != nil and inputs.menuPending and inputs.menuSerial > first:
+      inputs.menuBounds.x += offset.x
+      inputs.menuBounds.y += offset.y
+
+proc translateTextInputVertices*(
+  inputs: TextInputs, layer, first: int, offset: Vec2
+) =
+  ## Moves editor bounds along with their rendered vertices.
+  if inputs != nil and inputs.placementSerial > 0 and
+    inputs.placementLayer == layer and inputs.placementVertex >= first:
+      inputs.pendingText.bounds.x += offset.x
+      inputs.pendingText.bounds.y += offset.y
+  when defined(ios) or defined(silkyTesting):
+    if inputs != nil and inputs.menuPending and inputs.menuLayer == layer and
+      inputs.menuVertex >= first:
+        inputs.menuBounds.x += offset.x
+        inputs.menuBounds.y += offset.y
+
+proc moveTextInputBehind*(
+  inputs: TextInputs, layer, spanStart, chromeStart, total: int
+) =
+  ## Preserves the editor's vertex position when parent chrome is reordered.
+  when defined(ios) or defined(silkyTesting):
+    if inputs != nil and inputs.menuPending and inputs.menuLayer == layer and
+      inputs.menuVertex >= spanStart and inputs.menuVertex < total:
+        if inputs.menuVertex < chromeStart:
+          inputs.menuVertex += total - chromeStart
+        else:
+          inputs.menuVertex -= chromeStart - spanStart
+  if inputs == nil or inputs.placementSerial == 0:
+    return
+  if inputs.placementLayer != layer or
+    inputs.placementVertex < spanStart or inputs.placementVertex >= total:
+      return
+  if inputs.placementVertex < chromeStart:
+    inputs.placementVertex += total - chromeStart
+  else:
+    inputs.placementVertex -= chromeStart - spanStart
 
 proc submitInput*(
   inputs: TextInputs,
@@ -178,6 +363,7 @@ proc submitInput*(
       inputs.stopInput(window)
     return
   if not inputs.active or inputs.id != id:
+    inputs.dismissInputMenu(window)
     inputs.events.setLen(0)
     inc inputs.epoch
     inputs.id = id
@@ -200,7 +386,60 @@ proc takeInput*(inputs: TextInputs): seq[InputEvent] =
   inputs.consumed = true
   swap(result, inputs.events)
 
+when defined(ios) or defined(silkyTesting):
+  proc showInputMenu(inputs: TextInputs, window: Window) =
+    ## Allocates a native action callback only when a menu is requested.
+    let
+      id = inputs.menuId
+      epoch = inputs.menuEpoch
+      actions = inputs.menuActions
+      generation = inputs.menuGeneration + 1
+    inputs.menuGeneration = generation
+    inputs.menuVisible = window.showTextEditMenu(
+      inputs.menuBounds, actions,
+      proc(action: TextEditAction) =
+        ## Routes native actions through the current field's input hooks.
+        if not inputs.active or inputs.id != id or
+          inputs.epoch != epoch or inputs.menuGeneration != generation or
+          action notin actions:
+            return
+        inputs.menuVisible = false
+        inc inputs.menuGeneration
+        if action == PasteTextAction:
+          if not inputs.editable:
+            return
+          if inputs.onPaste != nil and inputs.onPaste(id):
+            if inputs.onEvent != nil:
+              inputs.onEvent()
+            return
+          if not inputs.active or inputs.id != id or
+            not inputs.editable or inputs.epoch != epoch:
+              return
+          let text = getClipboardString()
+          if text.len > 0:
+            inputs.addEvent(InputEvent(kind: TextCommit, text: text))
+        else:
+          let button =
+            case action
+            of CopyTextAction: KeyC
+            of CutTextAction: KeyX
+            of SelectAllTextAction: KeyA
+            of PasteTextAction: KeyV
+          inputs.addEvent(InputEvent(
+            kind: KeyDown, button: button, control: true
+          ))
+    )
+
 proc endInputFrame*(inputs: TextInputs, window: Window) =
   ## Ends capture when the active field was not submitted this frame.
   if not inputs.submitted:
     inputs.stopInput(window)
+  elif inputs.editable and inputs.pendingText.id == inputs.id:
+    window.setTextInputState(inputs.pendingText)
+  else:
+    window.setTextInputState(TextInputState())
+
+  when defined(ios) or defined(silkyTesting):
+    if inputs.menuPending and inputs.active and inputs.submitted and
+      inputs.id == inputs.menuId and inputs.epoch == inputs.menuEpoch:
+        inputs.showInputMenu(window)

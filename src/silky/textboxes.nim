@@ -1,7 +1,7 @@
 import
   std/[tables, unicode, times],
   vmath, bumpy, chroma,
-  silky/atlas, silky/internal/inputs
+  silky/atlas, silky/internal/[inputs, textpresses]
 
 ## Multi-line text box widget.
 ##
@@ -50,14 +50,23 @@ else:
 type
   TextBoxState* = ref object
     ## State for a multi-line text box widget.
+    onInput*: proc(state: TextBoxState, event: InputEvent): bool
+      ## Returns true to consume an ordered editable input event.
     runes*: seq[Rune]
     cursor*: int
     selector*: int
     scrollPos*: Vec2
+    scrollIndicator*: ScrollIndicator
     savedX*: float32
     focused*: bool
     focusEpoch: uint64
+    touchBlur: bool
+    touchPress*: TextPress
     layout*: seq[Rect]
+    positionedLayout*: bool
+      ## Selection geometry may have variable line heights and gaps.
+    layoutHeight*: float32
+    layoutCursor*: Rect
     dirty*: bool
     undoStack*: seq[(seq[Rune], int)]
     redoStack*: seq[(seq[Rune], int)]
@@ -73,10 +82,13 @@ type
     scrollingX*: bool
     scrollDragOffset*: Vec2
     singleLine*: bool
+    submitOnEnter*: bool
+    submitted*: bool
     enabled*: bool = true
     password*: bool
     passwordChar*: Rune = Rune('*')
     allowedChars*: seq[Rune]
+    lastFont: FontAtlas
     textCache: string
     textCacheValid: bool
     displayCache: string
@@ -103,6 +115,18 @@ proc isAllowed*(state: TextBoxState, rune: Rune): bool =
 proc resetBlink*(state: TextBoxState) =
   ## Resets the cursor blink timer so the cursor is immediately visible.
   state.blinkTime = epochTime()
+
+proc focus*(state: TextBoxState, sk: Silky, window: Window, id: string) =
+  ## Focuses a registered field and captures input before its next draw.
+  let inputs = sk.textInputs
+  inputs.submitInput(window, id, true, state.enabled)
+  state.focused = true
+  state.focusEpoch = inputs.focusEpoch
+  state.dragging = false
+  state.touchBlur = false
+  state.touchPress = TextPress()
+  state.resetBlink()
+  sk.requestFrame()
 
 proc cursorVisible*(state: TextBoxState): bool =
   ## Returns true when the blinking cursor should be drawn.
@@ -156,8 +180,12 @@ proc sameText*(state: TextBoxState, text: string): bool =
     inc runeIdx
   result = i == text.len and runeIdx == state.runes.len
 
-proc setText*(state: TextBoxState, text: string) =
-  ## Sets the text content and resets cursor to end.
+proc setText*(
+  state: TextBoxState,
+  text: string,
+  preserveSelection = false
+) =
+  ## Sets text, optionally retaining the selection while content streams.
   ## In single-line mode, newlines are converted to spaces.
   ## Disallowed characters are removed.
   state.runes = text.toRunes
@@ -171,8 +199,12 @@ proc setText*(state: TextBoxState, text: string) =
       if r in state.allowedChars:
         filtered.add(r)
     state.runes = filtered
-  state.cursor = state.runes.len
-  state.selector = state.cursor
+  if preserveSelection:
+    state.cursor = clamp(state.cursor, 0, state.runes.len)
+    state.selector = clamp(state.selector, 0, state.runes.len)
+  else:
+    state.cursor = state.runes.len
+    state.selector = state.cursor
   state.dirty = true
   state.invalidateTextCaches()
 
@@ -184,6 +216,10 @@ proc computeLayout*(state: TextBoxState, fontData: FontAtlas, maxWidth: float32)
   ## Computes per-character selection rectangles in local coordinates.
   ## Mirrors the glyph-walking logic from drawText but stores positions
   ## instead of emitting GPU vertices.
+  state.positionedLayout = false
+  state.layoutHeight = 0
+  state.layoutCursor = rect(0, 0, 0, 0)
+  state.lastFont = fontData
   state.layout.setLen(0)
   state.lineHeight = fontData.lineHeight
   state.lastMaxWidth = maxWidth
@@ -254,6 +290,17 @@ proc pickGlyphAt*(state: TextBoxState, pos: Vec2): int =
       if minDistance < 0 or dist < minDistance:
         minDistance = dist
         minGlyph = i
+  if minGlyph < 0 and state.positionedLayout:
+    var nearestY = float32.high
+    for i, bounds in state.layout:
+      let
+        distanceY = max(bounds.y - pos.y, pos.y - bounds.y - bounds.h)
+        distanceX = abs(pos.x - bounds.x)
+      if distanceY < nearestY or
+        (distanceY == nearestY and distanceX < minDistance):
+          nearestY = distanceY
+          minDistance = distanceX
+          minGlyph = i
   return minGlyph
 
 proc getSelectionRects*(layout: seq[Rect], start, stop: int): seq[Rect] =
@@ -272,9 +319,13 @@ proc getSelectionRects*(layout: seq[Rect], start, stop: int): seq[Rect] =
       result.add selectRect
 
 proc innerHeight*(state: TextBoxState): float32 =
-  ## Returns the total content height.
+  ## Returns the total content height, including the final empty editable line.
+  if state.positionedLayout:
+    return state.layoutHeight
   if state.layout.len > 0:
     let lastPos = state.layout[^1]
+    if not state.singleLine and state.runes.len > 0 and state.runes[^1] == LF:
+      return lastPos.y + lastPos.h + state.lineHeight
     return lastPos.y + lastPos.h
   return state.lineHeight
 
@@ -287,6 +338,13 @@ proc innerWidth*(state: TextBoxState): float32 =
 
 proc locationRect*(state: TextBoxState, loc: int): Rect =
   ## Returns the rectangle where the cursor should be drawn.
+  if state.positionedLayout:
+    if loc >= state.layout.len:
+      result = state.layoutCursor
+    elif loc >= 0:
+      result = state.layout[loc]
+    result.w = CursorWidth
+    return
   if state.layout.len > 0:
     if loc >= state.layout.len:
       let selectRect = state.layout[^1]
@@ -304,6 +362,38 @@ proc locationRect*(state: TextBoxState, loc: int): Rect =
 proc cursorPos*(state: TextBoxState): Vec2 =
   ## Returns the position of the text cursor.
   state.locationRect(state.cursor).xy
+
+proc requestCursorFrame*(
+  sk: Silky,
+  window: Window,
+  state: TextBoxState,
+  bounds: Rect,
+  focusEpoch: uint64
+) =
+  ## Schedules blinking only for a visible caret that still owns focus.
+  if sk.renderMode != OnDemandRender or not state.focused or
+    focusEpoch != sk.textInputs.focusEpoch or
+    sk.clipRect.w <= 0 or sk.clipRect.h <= 0:
+      return
+  when compiles(window.focused):
+    if not window.focused:
+      return
+  let
+    cursor = state.locationRect(state.cursor)
+    placed = rect(bounds.xy - state.scrollPos + cursor.xy, cursor.wh)
+  if not placed.overlaps(bounds) or not placed.overlaps(sk.clipRect):
+    return
+  let elapsed = (max(0.0, epochTime() - state.blinkTime) * 1000).int64
+  sk.requestFrame(500 - (elapsed mod 500).int)
+
+proc requestCursorFrame*(
+  sk: Silky,
+  window: Window,
+  state: TextBoxState,
+  bounds: Rect
+) =
+  ## Schedules a plain editor caret using its captured focus generation.
+  sk.requestCursorFrame(window, state, bounds, state.focusEpoch)
 
 proc undoSave*(state: TextBoxState) =
   ## Saves current state for undo.
@@ -527,12 +617,39 @@ proc right*(state: TextBoxState, shift = false) =
   state.scrollToCursor()
   state.resetBlink()
 
+proc adjacentLine(state: TextBoxState, forward: bool): int =
+  ## Finds a neighboring visual line when cached lines vary in height.
+  let currentY = state.cursorPos.y
+  var
+    nearest = float32.high
+    targetY = currentY
+  for bounds in state.layout:
+    let distance =
+      if forward:
+        bounds.y - currentY
+      else:
+        currentY - bounds.y
+    if distance > 0 and distance < nearest:
+      nearest = distance
+      targetY = bounds.y + bounds.h * 0.5'f
+  if nearest == float32.high:
+    if forward:
+      return state.runes.len
+    return 0
+  state.pickGlyphAt(vec2(state.savedX, targetY))
+
 proc down*(state: TextBoxState, shift = false) =
   ## Moves the cursor down one line.
   if state.layout.len > 0:
-    let curPos = state.cursorPos
-    let index = state.pickGlyphAt(
-      vec2(state.savedX, curPos.y + state.lineHeight * 1.5))
+    let
+      curPos = state.cursorPos
+      index =
+        if state.positionedLayout:
+          state.adjacentLine(true)
+        else:
+          state.pickGlyphAt(
+            vec2(state.savedX, curPos.y + state.lineHeight * 1.5)
+          )
     if index != -1:
       state.cursor = index
       if not shift:
@@ -547,9 +664,15 @@ proc down*(state: TextBoxState, shift = false) =
 proc up*(state: TextBoxState, shift = false) =
   ## Moves the cursor up one line.
   if state.layout.len > 0:
-    let curPos = state.cursorPos
-    let index = state.pickGlyphAt(
-      vec2(state.savedX, curPos.y - state.lineHeight * 0.5))
+    let
+      curPos = state.cursorPos
+      index =
+        if state.positionedLayout:
+          state.adjacentLine(false)
+        else:
+          state.pickGlyphAt(
+            vec2(state.savedX, curPos.y - state.lineHeight * 0.5)
+          )
     if index != -1:
       state.cursor = index
       if not shift:
@@ -691,6 +814,48 @@ proc selectParagraph*(state: TextBoxState, mousePos: Vec2) =
       state.runes[state.selector] != LF:
     inc state.selector
 
+proc selectionContains*(state: TextBoxState, point: Vec2): bool =
+  ## Tests actual selected glyph rectangles instead of nearby whitespace.
+  let selected = state.selection
+  for i in selected.a ..< min(selected.b, state.layout.len):
+    if point.overlaps(state.layout[i]):
+      return true
+
+proc glyphContains*(state: TextBoxState, point: Vec2): bool =
+  ## Reports whether a touch is over a laid-out text glyph.
+  for bounds in state.layout:
+    if point.overlaps(bounds):
+      return true
+
+proc textMenuActions*(state: TextBoxState): set[TextEditAction] =
+  ## Exposes only operations allowed by this field's editing policy.
+  if state.enabled:
+    result.incl(PasteTextAction)
+  if not state.password:
+    if state.cursor != state.selector:
+      result.incl(CopyTextAction)
+      if state.enabled:
+        result.incl(CutTextAction)
+    if state.runes.len > 0:
+      result.incl(SelectAllTextAction)
+
+proc touchMenu*(
+  state: TextBoxState, sk: Silky, window: Window, inside: bool
+): TextPressResult =
+  ## Advances a text hold without letting scrolling or hidden widgets claim it.
+  when defined(ios) or defined(silkyTesting):
+    result = state.touchPress.updateTextPress(
+      sk.mousePos, window.buttonDown[MouseLeft],
+      window.buttonReleased[MouseLeft],
+      not inside or not window.focused or not state.focused or
+        sk.touchScrolling or window.scrollDelta != vec2(0),
+      scrollMilliseconds()
+    )
+    if result == WaitingTextPress:
+      sk.requestFrame(max(1, int(
+        TextPressDelay - (scrollMilliseconds() - state.touchPress.started)
+      )))
+
 proc scrollBy*(state: TextBoxState, amount, viewportHeight: float32) =
   ## Scrolls the text box vertically by the given amount.
   state.scrollPos.y += amount
@@ -769,18 +934,20 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
   of KeyPageDown:
     state.pageDown(shift)
   of KeyEnter:
-    if not state.singleLine:
+    if state.submitOnEnter and not shift:
+      state.submitted = state.enabled
+    elif not state.singleLine:
       state.typeCharacter(LF)
   of KeyA:
     if ctrl:
       state.selectAll()
   of KeyC:
-    if ctrl:
+    if ctrl and not state.password:
       let copied = state.copyText()
       if copied.len > 0:
         setClipboardString(copied)
   of KeyX:
-    if ctrl:
+    if ctrl and not state.password:
       let cut = state.cutText()
       if cut.len > 0:
         setClipboardString(cut)
@@ -801,6 +968,26 @@ proc handleKey(state: TextBoxState, event: InputEvent) =
   else:
     discard
 
+proc handleSelectionInput*(state: TextBoxState, inputs: TextInputs): bool
+    {.discardable.} =
+  ## Drains read-only input and reports navigation for parent scrolling.
+  assert not state.enabled
+  let
+    epoch = inputs.focusEpoch
+    events = inputs.takeInput()
+  for event in events:
+    if inputs.focusEpoch != epoch:
+      break
+    if event.kind == InputKind.KeyDown:
+      state.handleKey(event)
+      if event.button in {
+        KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd,
+        KeyPageUp, KeyPageDown
+      }:
+        result = true
+  if events.len > 0:
+    state.scrollToCursor()
+
 proc handleInput(
   state: TextBoxState,
   inputs: TextInputs,
@@ -808,15 +995,37 @@ proc handleInput(
   maxWidth: float32
 ) =
   ## Drains ordered input and refreshes layout before cursor navigation.
+  if not state.enabled:
+    state.handleSelectionInput(inputs)
+    return
   let
     epoch = inputs.focusEpoch
     events = inputs.takeInput()
   for event in events:
     if inputs.focusEpoch != epoch:
       break
+    let handled = state.onInput != nil and state.onInput(state, event)
+    if inputs.focusEpoch != epoch:
+      break
+    if handled:
+      continue
     case event.kind
     of TextInput:
       state.typeCharacter(event.rune)
+    of TextCommit:
+      state.pasteText(event.text)
+    of NativeEdit:
+      if state.enabled:
+        let first = clamp(event.edit.start, 0, state.runes.len)
+        state.selector = first
+        state.cursor = first + clamp(
+          event.edit.length, 0, state.runes.len - first
+        )
+        case event.edit.kind
+        of ReplaceText:
+          state.pasteText(event.edit.text)
+        of SelectText:
+          state.resetBlink()
     of InputKind.KeyDown:
       if state.dirty and event.button in {
         KeyLeft, KeyRight, KeyUp, KeyDown, KeyHome, KeyEnd,
@@ -831,22 +1040,36 @@ proc handleInput(
       state.computeLayout(fontData, maxWidth)
     state.scrollToCursor()
 
-proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
-    outerRect, innerRect: Rect, mouseVec: Vec2, clipRect: Rect) =
+proc drawScrollbars*(
+  sk: Silky,
+  state: TextBoxState,
+  window: Window,
+  outerRect, innerRect: Rect,
+  mouseVec: Vec2,
+  clipRect: Rect,
+  measuredWidth = -1.0'f
+) =
   ## Draws scrollbar tracks and handles, and processes drag interaction.
   let contentH = state.innerHeight
-  let contentW = state.innerWidth
+  let contentW =
+    if measuredWidth >= 0: measuredWidth
+    else: state.innerWidth
   let scrollMaxY = max(0.0f, contentH - innerRect.h)
   let scrollMaxX = max(0.0f, contentW - innerRect.w)
   let hasScrollY = contentH > innerRect.h
   let hasScrollX = not state.wordWrap and contentW > innerRect.w
-  # Release scrollbar drag when mouse released.
-  if state.scrollingY and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    state.scrollingY = false
-  if state.scrollingX and
-      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
-    state.scrollingX = false
+  let
+    wheel = mouseVec.overlaps(outerRect) and mouseVec.overlaps(clipRect) and
+      ((hasScrollX and window.scrollDelta.x != 0) or
+        (hasScrollY and window.scrollDelta.y != 0) or
+        (hasScrollX and window.scrollDelta.y != 0 and
+          (window.buttonDown[KeyLeftShift] or window.buttonDown[KeyRightShift])))
+    opacity = sk.scrollbarOpacity(
+      state.scrollIndicator, cast[pointer](state),
+      wheel or state.scrollingX or state.scrollingY
+    )
+    scrollbarColor = rgbx(255, 255, 255, (opacity * 255).uint8)
+  var tracks, thumbs: array[2, Rect]
   # Y scrollbar.
   if hasScrollY:
     let trackRect = rect(
@@ -855,25 +1078,34 @@ proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
       8,
       max(0'f32, outerRect.h - 2 - (if hasScrollX: 10.0f else: 0.0f))
     )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
-    let posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
-    let sizePct = innerRect.h / contentH
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        trackRect.xy, trackRect.wh, scrollbarColor)
+    let
+      posPct = if scrollMaxY > 0: state.scrollPos.y / scrollMaxY else: 0.0f
+      thumbHeight = min(trackRect.h,
+        max(16.0'f, trackRect.h * innerRect.h / contentH))
     let handleRect = rect(
       trackRect.x,
-      trackRect.y + (trackRect.h - trackRect.h * sizePct) * posPct,
+      trackRect.y + (trackRect.h - thumbHeight) * posPct,
       8,
-      trackRect.h * sizePct
+      thumbHeight
     )
+    tracks[1] = trackRect
+    thumbs[1] = handleRect
     if state.scrollingY:
       let relY = mouseVec.y - state.scrollDragOffset.y - trackRect.y
       let availH = trackRect.h - handleRect.h
       if availH > 0:
         state.scrollPos.y = clamp(relY / availH, 0.0f, 1.0f) * scrollMaxY
-    elif mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
-      if window.buttonPressed[MouseLeft]:
-        state.scrollingY = true
-        state.scrollDragOffset.y = mouseVec.y - handleRect.y
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+    elif window.pointerSource != TouchPointer and
+      mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
+        if window.buttonPressed[MouseLeft]:
+          state.scrollingY = window.buttonDown[MouseLeft]
+          state.scrollDragOffset.y = mouseVec.y - handleRect.y
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        handleRect.xy, handleRect.wh, scrollbarColor)
   # X scrollbar.
   if hasScrollX:
     let trackRect = rect(
@@ -882,25 +1114,49 @@ proc drawScrollbars*(sk: Silky, state: TextBoxState, window: Window,
       max(0'f32, outerRect.w - 2 - (if hasScrollY: 10.0f else: 0.0f)),
       8
     )
-    sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch, trackRect.xy, trackRect.wh)
-    let posPct = if scrollMaxX > 0: state.scrollPos.x / scrollMaxX else: 0.0f
-    let sizePct = innerRect.w / contentW
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.track.9patch", sk.theme.scrollbarTrackPatch,
+        trackRect.xy, trackRect.wh, scrollbarColor)
+    let
+      posPct = if scrollMaxX > 0: state.scrollPos.x / scrollMaxX else: 0.0f
+      thumbWidth = min(trackRect.w,
+        max(16.0'f, trackRect.w * innerRect.w / contentW))
     let handleRect = rect(
-      trackRect.x + (trackRect.w - trackRect.w * sizePct) * posPct,
+      trackRect.x + (trackRect.w - thumbWidth) * posPct,
       trackRect.y,
-      trackRect.w * sizePct,
+      thumbWidth,
       8
     )
+    tracks[0] = trackRect
+    thumbs[0] = handleRect
     if state.scrollingX:
       let relX = mouseVec.x - state.scrollDragOffset.x - trackRect.x
       let availW = trackRect.w - handleRect.w
       if availW > 0:
         state.scrollPos.x = clamp(relX / availW, 0.0f, 1.0f) * scrollMaxX
-    elif mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
-      if window.buttonPressed[MouseLeft]:
-        state.scrollingX = true
-        state.scrollDragOffset.x = mouseVec.x - handleRect.x
-    sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch, handleRect.xy, handleRect.wh)
+    elif window.pointerSource != TouchPointer and
+      mouseVec.overlaps(handleRect) and mouseVec.overlaps(clipRect):
+        if window.buttonPressed[MouseLeft]:
+          state.scrollingX = window.buttonDown[MouseLeft]
+          state.scrollDragOffset.x = mouseVec.x - handleRect.x
+    if opacity > 0:
+      sk.draw9Patch("scrollbar.9patch", sk.theme.scrollbarPatch,
+        handleRect.xy, handleRect.wh, scrollbarColor)
+
+  # Release scrollbar drag when mouse released.
+  if state.scrollingY and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    state.scrollingY = false
+  if state.scrollingX and
+      (window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]):
+    state.scrollingX = false
+  sk.registerTouchScroll(
+    cast[pointer](state), outerRect, state.scrollPos,
+    vec2(if hasScrollX: scrollMaxX else: 0.0'f, scrollMaxY),
+    vec2(1, 1), tracks, thumbs, sk.layoutStack.len + 1,
+    proc(position: Vec2) =
+      state.scrollPos = position
+  )
 
 proc textBox*(
   sk: Silky,
@@ -915,6 +1171,7 @@ proc textBox*(
   password: bool = false,
   passwordChar: Rune = Rune('*'),
   allowedChars: seq[Rune] = default(seq[Rune]),
+  submitOnEnter: bool = false,
   centerVertically: bool = false
 ) {.measure.} =
   ## Text box widget with editing, selection, and scroll.
@@ -935,10 +1192,16 @@ proc textBox*(
     newState.setText(t)
     textBoxStates[id] = newState
   state = textBoxStates[id]
+  state.submitOnEnter = submitOnEnter
+  state.submitted = false
   let inputs = sk.textInputs
   if state.focused and state.focusEpoch != inputs.focusEpoch:
     state.focused = false
+    state.touchBlur = false
+    state.touchPress = TextPress()
     state.dragging = false
+    if not enabled:
+      state.selector = state.cursor
   state.enabled = enabled
   state.allowedChars = allowedChars
   if state.password != password:
@@ -955,53 +1218,97 @@ proc textBox*(
   if state.wordWrap != effectiveWrap:
     state.wordWrap = effectiveWrap
     state.dirty = true
-  if not state.focused and not state.sameText(t):
-    state.setText(t)
+  if (not state.focused or not enabled) and not state.sameText(t):
+    state.setText(t, preserveSelection = not enabled)
   let
-    fontData = sk.atlas.fonts[sk.textStyle]
+    firstVertex = sk.vertexMark()
+    textLayer = sk.currentDrawLayer()
     padding = sk.theme.padding.float32
     outerRect = rect(sk.at, vec2(boxWidth, boxHeight))
     innerRect = rect(
       sk.at.x + padding, sk.at.y + padding,
       boxWidth - padding * 2, boxHeight - padding * 2
     )
-    capital = fontData.entries.getOrDefault("H")
+    capital = sk.atlas.fonts[sk.textStyle].entries.getOrDefault("H")
     inkCenter = if capital.len > 0:
-      round(fontData.ascent+capital[0].boundsY)+capital[0].boundsHeight/2
-      else: fontData.lineHeight/2
+      round(sk.atlas.fonts[sk.textStyle].ascent+capital[0].boundsY)+capital[0].boundsHeight/2
+      else: sk.atlas.fonts[sk.textStyle].lineHeight/2
     textOffset = vec2(0,if centerVertically and singleLine:
       max(0'f32,floor(boxHeight/2-padding-inkCenter)) else: 0'f32)
   state.boxSize = vec2(innerRect.w, innerRect.h)
   if state.dirty or state.layout.len == 0 or
-      state.lastMaxWidth != innerRect.w:
-    state.computeLayout(fontData, innerRect.w)
+      state.lastMaxWidth != innerRect.w or state.lastFont != sk.atlas.fonts[sk.textStyle]:
+    state.computeLayout(sk.atlas.fonts[sk.textStyle], innerRect.w)
   let shift = window.buttonDown[KeyLeftShift] or
     window.buttonDown[KeyRightShift]
   let mouseVec = sk.mousePos
   let mouseInside = mouseVec.overlaps(outerRect) and
     mouseVec.overlaps(sk.clipRect)
-  let onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
-  if window.buttonPressed[MouseLeft]:
+  let
+    onScrollbar = mouseInside and not mouseVec.overlaps(innerRect)
+    touchPointer =
+      when defined(ios) or defined(silkyTesting):
+        sk.touchScroll.touchInput
+      else:
+        false
+    localMouse = mouseVec - innerRect.xy - textOffset + state.scrollPos
+  var openMenu = false
+  if sk.touchScrolling:
+    if state.dragging:
+      state.selector = state.cursor
+    state.dragging = false
+  if sk.buttonPressed[MouseLeft]:
+    state.touchBlur = sk.touchScroll.touchInput and state.focused and
+      not mouseInside
     if mouseInside and not onScrollbar:
       state.focused = true
-      let localMouse = mouseVec - innerRect.xy - textOffset + state.scrollPos
+      let preserve = touchPointer and state.selectionContains(localMouse)
+      if touchPointer:
+        state.touchPress = beginTextPress(
+          mouseVec - window.mouseDelta.vec2 / sk.uiScale,
+          scrollMilliseconds(), preserve
+        )
       let now = epochTime()
       if now - state.lastClickTime < DoubleClickTime:
         inc state.clickCount
       else:
         state.clickCount = 1
       state.lastClickTime = now
-      case state.clickCount:
-      of 1:
-        state.mouseAction(localMouse, click = true, shift = shift)
-        state.dragging = true
-      of 2: state.selectWord(localMouse)
-      of 3: state.selectParagraph(localMouse)
-      else: state.selectAll()
-    elif not mouseInside:
-      state.focused = false
+      if not preserve:
+        case state.clickCount:
+        of 1:
+          state.mouseAction(localMouse, click = true, shift = shift)
+          state.dragging = not touchPointer
+        of 2: state.selectWord(localMouse)
+        of 3: state.selectParagraph(localMouse)
+        else: state.selectAll()
+  case state.touchMenu(sk, window, mouseInside and not onScrollbar)
+  of HeldTextPress:
+    if state.cursor == state.selector and not state.password:
+      state.selectWord(localMouse)
+    state.dragging = false
+    openMenu = true
+    sk.resetInteractions()
+  of ReleasedTextPress:
+    if state.touchPress.preserve:
+      state.mouseAction(localMouse)
+  else:
+    discard
+  let
+    outsidePress = sk.buttonPressed[MouseLeft] and
+      not sk.touchScroll.touchInput
+    outsideTap = sk.buttonReleased[MouseLeft] and
+      state.touchBlur and sk.touchTap()
+  if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
+    state.touchBlur = false
+  if not mouseInside and (outsidePress or outsideTap):
+    # Keep keyboard-driven layout stable until a finger finishes its tap.
+    state.focused = false
+    state.dragging = false
+    if not enabled:
+      state.selector = state.cursor
   if state.dragging and not state.scrollingX and not state.scrollingY:
-    if window.buttonDown[MouseLeft] and not window.buttonPressed[MouseLeft]:
+    if sk.buttonDown[MouseLeft] and not sk.buttonPressed[MouseLeft]:
       let localMouse = mouseVec - innerRect.xy - textOffset + state.scrollPos
       state.mouseAction(localMouse, click = false, shift = true)
     if window.buttonReleased[MouseLeft] or not window.buttonDown[MouseLeft]:
@@ -1009,10 +1316,10 @@ proc textBox*(
   inputs.submitInput(window, id, state.focused, enabled)
   if state.focused:
     state.focusEpoch = inputs.focusEpoch
-    state.handleInput(inputs, fontData, innerRect.w)
+    state.handleInput(inputs, sk.atlas.fonts[sk.textStyle], innerRect.w)
     t = state.getText()
   if state.dirty:
-    state.computeLayout(fontData, innerRect.w)
+    state.computeLayout(sk.atlas.fonts[sk.textStyle], innerRect.w)
   let maxScrollY = max(0.0f, state.innerHeight - innerRect.h)
   state.scrollPos.y = clamp(state.scrollPos.y, 0.0f, maxScrollY)
   if state.wordWrap:
@@ -1050,6 +1357,7 @@ proc textBox*(
     wordWrap = state.wordWrap,
     clip = false
   )
+  sk.requestCursorFrame(window, state, innerRect)
   if state.focused and state.cursorVisible:
     let cr = state.locationRect(state.cursor)
     sk.drawRect(
@@ -1063,6 +1371,41 @@ proc textBox*(
       window.scrollDelta.y != 0:
     state.scrollBy(
       window.scrollDelta.y * TextBoxScrollSpeed, innerRect.h)
+  if state.focused and enabled and (not password or defined(ios)):
+    let selection = state.selection
+    var
+      visibleStart = state.runes.len
+      visibleEnd = 0
+    for i, bounds in state.layout:
+      if bounds.y + bounds.h > state.scrollPos.y and
+        bounds.y < state.scrollPos.y + innerRect.h and
+        bounds.x + bounds.w >= state.scrollPos.x and
+        bounds.x < state.scrollPos.x + innerRect.w:
+          visibleStart = min(visibleStart, i)
+          visibleEnd = i + 1
+    if visibleEnd == 0:
+      visibleStart = min(state.cursor, state.runes.len)
+      visibleEnd = visibleStart
+    inputs.publishTextInput(TextInputState(
+      id: id,
+      text: t,
+      selectionStart: selection.a,
+      selectionEnd: selection.b,
+      visibleStart: visibleStart,
+      visibleEnd: visibleEnd,
+      bounds: rect(innerRect.xy * sk.uiScale, innerRect.wh * sk.uiScale),
+      multiline: not singleLine,
+      password: password
+    ), textLayer, firstVertex)
+  when defined(ios) or defined(silkyTesting):
+    if openMenu:
+      let anchor = rect(
+        (mouseVec - vec2(1, state.lineHeight)) * sk.uiScale,
+        vec2(2, state.lineHeight) * sk.uiScale
+      )
+      inputs.publishTextMenu(
+        id, anchor, state.textMenuActions(), textLayer, firstVertex
+      )
   sk.advance(vec2(boxWidth, boxHeight))
 
 template textBox*(
@@ -1075,11 +1418,13 @@ template textBox*(
   isError = false,
   isPassword = false,
   passChar: Rune = Rune('*'),
-  chars: seq[Rune] = default(seq[Rune])
+  chars: seq[Rune] = default(seq[Rune]),
+  submitOnEnter = false
 ) =
   ## Text box widget. Set singleLine for a single-line input.
+  ## submitOnEnter reports Enter in state.submitted and preserves Shift+Enter.
   sk.textBox(window, id, t, boxWidth, boxHeight, wrapWords, singleLine,
-    isEnabled, isError, isPassword, passChar, chars
+    isEnabled, isError, isPassword, passChar, chars, submitOnEnter
   )
 
 template textInput*(

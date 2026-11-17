@@ -5,6 +5,10 @@ on:
   pull_request:
     branches: [master]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     strategy:
@@ -54,12 +58,64 @@ jobs:
         if: matrix.emscripten
         uses: mymindstorm/setup-emsdk@v14
 
+      - name: Install DirectX shader compiler
+        if: matrix.build_flags == '-d:useDirectX'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'dxc.zip'
+          $tools = Join-Path $env:RUNNER_TEMP 'dxc'
+          Invoke-WebRequest 'https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1') { throw 'DXC archive checksum mismatch' }
+          Expand-Archive $archive -DestinationPath $tools
+          $compiler = Join-Path $tools 'bin/x64/dxc.exe'
+          "SHADY_HLSL_COMPILER=$compiler" >> $env:GITHUB_ENV
+          & $compiler --version
+          if ($LASTEXITCODE -ne 0) { throw 'DXC did not start' }
+
+      - name: Install SPIR-V shader compiler
+        if: matrix.build_flags == '-d:useVulkan'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'glslang.zip'
+          $tools = Join-Path $env:RUNNER_TEMP 'glslang'
+          Invoke-WebRequest 'https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b') { throw 'glslang archive checksum mismatch' }
+          Expand-Archive $archive -DestinationPath $tools
+          $compiler = Join-Path $tools 'bin/glslang.exe'
+          "SHADY_SPIRV_COMPILER=$compiler" >> $env:GITHUB_ENV
+          & $compiler --version
+          if ($LASTEXITCODE -ne 0) { throw 'glslang did not start' }
+
       - name: Run unit tests
         if: ${{ !matrix.emscripten }}
         run: |
           nim r tests/test_textboxes.nim
-          nim r -d:silkyTesting tests/test_inputs.nim
+          nim r ${{ matrix.build_flags }} tests/test_richtextboxes.nim
+          nim r -d:silkyTesting -d:nimTypeNames tests/test_inputs.nim
+          nim r -d:silkyTesting tests/test_buttons.nim
+          nim r -d:silkyTesting tests/test_focus.nim
+          nim r -d:silkyTesting tests/test_text_menus.nim
+          nim r -d:silkyTesting tests/test_cursor_scroll.nim
+          nim r -d:silkyTesting tests/test_input_hooks.nim
+          nim r -d:silkyTesting tests/test_paste_hooks.nim
+          nim r -d:silkyTesting tests/test_secure_inputs.nim
+          nim r -d:silkyTesting tests/test_first_touch.nim
+          nim r -d:silkyTesting tests/test_touch_scroll.nim
+          nim r -d:silkyTesting tests/test_scroll_momentum.nim
+          nim r -d:silkyTesting tests/test_scroll_indicators.nim
+          nim r -d:silkyTesting tests/test_rendering.nim
+          nim r -d:silkyTesting tests/test_subwindow.nim
           nim r tests/test_atlas_png.nim
+          nim r tests/test_atlas_paths.nim
+          nim r tests/test_retina_atlas.nim
+          nim r tests/test_shader_codegen.nim
+          nim r ${{ matrix.build_flags }} tests/test_density.nim
+          nim r ${{ matrix.build_flags }} tests/test_decorations.nim
+          nim r ${{ matrix.build_flags }} tests/test_rules.nim
+          nim r ${{ matrix.build_flags }} tests/test_quotes.nim
+          nim r ${{ matrix.build_flags }} tests/test_richimages.nim
+          nim r ${{ matrix.build_flags }} tests/test_richscrolls.nim
+          nim r ${{ matrix.build_flags }} tests/test_button_vertices.nim
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim
           nim r ${{ matrix.build_flags }} tests/test_layout_clips.nim

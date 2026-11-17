@@ -43,6 +43,44 @@ proc dirSigns*(direction: StackDirection): Vec2 =
   of LeftToRight: vec2(1, 1)
   of RightToLeft: vec2(-1, 1)
 
+proc revealScroll*(
+  scroll, contentSize: Vec2,
+  viewport, target: Rect,
+  direction = TopToBottom,
+  margin = 4.0'f
+): Vec2 {.raises: [].} =
+  ## Returns scroll that reveals a window-space target in any stack direction.
+  ## Use the scroll that placed the target and apply after frame layout.
+  let
+    signs = dirSigns(direction)
+    viewportPos = viewport.xy
+    viewportSize = viewport.wh
+    targetPos = target.xy
+    targetSize = target.wh
+  result = scroll
+  for axis in 0 .. 1:
+    if viewportSize[axis] <= 0:
+      continue
+    let
+      inset = min(
+        max(0.0'f, margin),
+        max(0.0'f, (viewportSize[axis] - targetSize[axis]) / 2)
+      )
+      near = viewportPos[axis] + inset
+      far = viewportPos[axis] + viewportSize[axis] - inset
+    var delta = 0.0'f
+    if targetSize[axis] > viewportSize[axis]:
+      delta = targetPos[axis] - viewportPos[axis]
+    elif targetPos[axis] < near:
+      delta = targetPos[axis] - near
+    elif targetPos[axis] + targetSize[axis] > far:
+      delta = targetPos[axis] + targetSize[axis] - far
+    result[axis] = clamp(
+      scroll[axis] + signs[axis] * delta,
+      0.0'f,
+      max(0.0'f, contentSize[axis] - viewportSize[axis])
+    )
+
 proc originCorner*(regionPos, regionSize, signs: Vec2): Vec2 =
   ## The corner σ points away from (A2).
   result = regionPos

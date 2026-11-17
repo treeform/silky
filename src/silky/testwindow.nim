@@ -2,13 +2,18 @@
 
 import
   std/unicode,
-  vmath
-from windy/common import Button, CursorKind, Cursor
-export Button, CursorKind, Cursor, unicode
+  vmath, bumpy
+from windy/common import
+  Button, PointerSource, CursorKind, Cursor, TextInputState, TextInputEdit,
+  TextInputEditKind, TextInputEditCallback, TextEditAction
+export
+  Button, PointerSource, CursorKind, Cursor, unicode, TextInputState, TextInputEdit,
+  TextInputEditKind, TextInputEditCallback, TextEditAction
 
 type Window* = ref object
   ## Test window that simulates a windy Window.
   size*: IVec2
+  focused*: bool = true
   mousePrevPos*: IVec2
   mousePos*: IVec2
   mouseDelta*: IVec2
@@ -16,17 +21,48 @@ type Window* = ref object
   buttonPressed*: array[Button, bool]
   buttonReleased*: array[Button, bool]
   scrollDelta*: Vec2
+  pointerSource*: PointerSource
+  pointerVelocity*: Vec2
   ## Starts true so `while not window.closeRequested` loops exit immediately in tests.
   closeRequested*: bool = true
   cursor*: Cursor = Cursor(kind: ArrowCursor)
   runeInputEnabled*: bool
   onRune*: proc(rune: Rune)
+  onTextInput*: proc(text: string)
+  onTextEdit*: TextInputEditCallback
+  textInput*: TextInputState
+  textInputKeyboardEnabled*: bool
+  editMenuBounds*: Rect
+  editMenuActions*: set[TextEditAction]
+  editMenuCallback*: proc(action: TextEditAction)
+  editMenuShows*: int
   onButtonPress*: proc(button: Button)
   onButtonRelease*: proc(button: Button)
   onFocusChange*: proc()
   onFrame*: proc()
 
 var clipboard: string
+
+proc setTextInputState*(window: Window, state: TextInputState) =
+  ## Records the editor exposed to native text services.
+  window.textInput = state
+  window.textInputKeyboardEnabled = window.runeInputEnabled
+
+proc showTextEditMenu*(
+  window: Window, bounds: Rect, actions: set[TextEditAction],
+  callback: proc(action: TextEditAction)
+): bool {.discardable.} =
+  ## Records a native menu request without changing keyboard ownership.
+  window.editMenuBounds = bounds
+  window.editMenuActions = actions
+  window.editMenuCallback = callback
+  inc window.editMenuShows
+  true
+
+proc dismissTextEditMenu*(window: Window) =
+  ## Dismisses a simulated native menu and invalidates its actions.
+  window.editMenuActions = {}
+  window.editMenuCallback = nil
 
 proc newWindow*(width = 800, height = 600): Window =
   ## Creates a new test window with the given dimensions.
@@ -80,6 +116,9 @@ proc resetInputState*(w: Window) =
 
 proc pressButton*(w: Window, button: Button) =
   ## Simulates pressing a button, including repeated presses.
+  if button == MouseLeft and w.pointerSource == TouchPointer:
+    w.mouseDelta = ivec2(0, 0)
+    w.pointerVelocity = vec2(0)
   w.buttonDown[button] = true
   w.buttonPressed[button] = true
   if w.onButtonPress != nil:
@@ -98,8 +137,20 @@ proc typeRune*(w: Window, rune: Rune) =
     return
   if rune.int32 < 32 or rune.int32 in 127 .. 159:
     return
-  if w.onRune != nil:
+  if w.onTextInput != nil:
+    w.onTextInput($rune)
+  elif w.onRune != nil:
     w.onRune(rune)
+
+proc typeText*(w: Window, text: string) =
+  ## Delivers one committed text edit without synthesizing Enter key presses.
+  if not w.runeInputEnabled or text.len == 0:
+    return
+  if w.onTextInput != nil:
+    w.onTextInput(text)
+  else:
+    for rune in text.runes:
+      w.typeRune(rune)
 
 proc changeFocus*(w: Window) =
   ## Releases held buttons and delivers a window focus change.
@@ -113,7 +164,10 @@ proc moveMouse*(w: Window, x, y: int) =
   ## Moves the simulated mouse cursor to the given position.
   let newPos = ivec2(x.int32, y.int32)
   w.mousePrevPos = w.mousePos
-  w.mouseDelta = newPos - w.mousePos
+  if w.pointerSource == TouchPointer:
+    w.mouseDelta += newPos - w.mousePos
+  else:
+    w.mouseDelta = newPos - w.mousePos
   w.mousePos = newPos
 
 template mousePos*(w: Window): Vec2 =

@@ -1,4 +1,18 @@
-import strutils, shady, silky/drawers/shader
+import std/[strutils, tables], shady, silky/drawers/shader
+
+proc checkSampleOrder(source, base, mask: string) =
+  ## Keeps texture derivatives valid at fragment clipping boundaries.
+  let
+    baseIndex = source.find(base)
+    maskIndex = source.find(mask)
+    clipIndex = source.find("fragmentPos.x < fragmentClipPos.x")
+    discardIndex = source.find("discard")
+  doAssert baseIndex >= 0 and maskIndex >= 0
+  doAssert clipIndex >= 0 and discardIndex > clipIndex
+  doAssert baseIndex < clipIndex,
+    "The atlas must be sampled before nonuniform clipping."
+  doAssert maskIndex < clipIndex,
+    "The mask must be sampled before nonuniform clipping."
 
 block:
   let vertex = toShader(silkyVert, glsl3Desktop, shaderVertex)
@@ -15,6 +29,10 @@ block:
   doAssert "texture(atlasSampler, fragmentUv)" in fragment
   doAssert "(texture(atlasSampler, fragmentMaskUv)).r" in fragment
   doAssert "mix(vec3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR)" in fragment
+  fragment.checkSampleOrder(
+    "texture(atlasSampler, fragmentUv)",
+    "texture(atlasSampler, fragmentMaskUv)"
+  )
 
 block:
   let vertex = toShader(silkyVert, vulkanGlsl450, shaderVertex)
@@ -32,6 +50,10 @@ block:
   doAssert "layout(location = 5) in vec2 fragmentMaskUv;" in fragment
   doAssert "layout(location = 0) out vec4 fragColor;" in fragment
   doAssert "(texture(atlasSampler, fragmentMaskUv)).r" in fragment
+  fragment.checkSampleOrder(
+    "texture(atlasSampler, fragmentUv)",
+    "texture(atlasSampler, fragmentMaskUv)"
+  )
 
 block:
   let vertex = toHLSL(silkyVert, shaderVertex)
@@ -51,5 +73,40 @@ block:
   doAssert "atlasSampler.Sample(atlasSamplerSampler, fragmentUv)" in fragment
   doAssert "(atlasSampler.Sample(atlasSamplerSampler, fragmentMaskUv)).r" in fragment
   doAssert "lerp(float3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR)" in fragment
+  fragment.checkSampleOrder(
+    "atlasSampler.Sample(atlasSamplerSampler, fragmentUv)",
+    "atlasSampler.Sample(atlasSamplerSampler, fragmentMaskUv)"
+  )
+
+block:
+  let fragment = toShader(silkyFrag, metalMSL, shaderFragment)
+  fragment.checkSampleOrder(
+    "atlasSampler.sample(atlasSamplerSampler, fragmentUv)",
+    "atlasSampler.sample(atlasSamplerSampler, fragmentMaskUv)"
+  )
+
+block:
+  let
+    vertex = toMSL(silkyVert, shaderVertex)
+    uniforms = metalUniformLayout(vertex)
+  doAssert uniforms.size == 16
+  doAssert uniforms.offsets["viewportSize"] == 0
+  doAssert uniforms.offsets["atlasSize"] == 8
+  doAssert "vertex VertexOut vertexMain(" in vertex
+  doAssert "constant ShadyUniforms0 &shadyUniforms0 [[buffer(0)]]" in vertex
+  doAssert "float2 pos [[attribute(0)]];" in vertex
+  doAssert "float4 color [[attribute(2)]];" in vertex
+  doAssert "float2 maskUv [[attribute(5)]];" in vertex
+  doAssert "fragmentMaskUv = maskUv / atlasSize;" in vertex
+  doAssert "output.fragmentPos = fragmentPos;" in vertex
+
+  let fragment = toMSL(silkyFrag, shaderFragment)
+  doAssert "fragment float4 fragmentMain(" in fragment
+  doAssert "texture2d<float> atlasSampler [[texture(0)]]" in fragment
+  doAssert "sampler atlasSamplerSampler [[sampler(0)]]" in fragment
+  doAssert "float2 fragmentPos = input.fragmentPos;" in fragment
+  doAssert "discard_fragment();" in fragment
+  doAssert "atlasSampler.sample(atlasSamplerSampler, fragmentUv)" in fragment
+  doAssert "atlasSampler.sample(atlasSamplerSampler, fragmentMaskUv)" in fragment
 
 echo "Silky Shady shader codegen tests passed"
