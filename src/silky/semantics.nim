@@ -346,7 +346,9 @@ proc needsFrame*(sk: Silky, window: Window): bool =
   ## Checks UI input and scheduled deadlines before drawing an app frame.
   if sk.frames.mode == ContinuousRender:
     return true
-  if sk.frameInput.inputChanged(window, sk.inputs.hasPendingEvents()):
+  # Preserve geometry changes until beginUi records the rendered frame.
+  var previous = sk.frameInput
+  if previous.inputChanged(window, sk.inputs.hasPendingEvents()):
     sk.requestFrame()
   sk.frames.needsFrame()
 
@@ -742,7 +744,7 @@ proc resetInteractions*(sk: Silky) =
 proc endUi*(sk: Silky) =
   ## Ends the current UI frame.
   if sk.frames.mode == OnDemandRender:
-    if sk.frameHadInput or sk.interactor.hotId != sk.interactor.warmId:
+    if sk.frameHadInput or sk.interactor.needsHoverFrame():
       sk.requestFrame()
     if sk.touchScroll.momentumActive():
       sk.requestFrame()

@@ -25,6 +25,16 @@ proc resetInteractions*(interactor: var Interactor) =
   if interactor.currentId >= 0:
     interactor.invalidated = true
 
+proc needsHoverFrame*(interactor: Interactor): bool {.raises: [].} =
+  ## Requests one settling frame when the hovered target or geometry changes.
+  let id = interactor.warmId
+  if interactor.hotId != id:
+    return true
+  if id < 0:
+    return false
+  id >= interactor.previous.len or id >= interactor.current.len or
+    interactor.previous[id] != interactor.current[id]
+
 proc endInteractions*(interactor: var Interactor) =
   ## Retains displayed hit regions and reuses the other frame's storage.
   interactor.hotId = interactor.warmId

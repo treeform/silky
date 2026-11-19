@@ -205,6 +205,82 @@ proc testHover() =
     doAssert not frame()
   doAssert not harness.sk.needsFrame(harness.window)
 
+proc testGeometryInput() =
+  ## Preserves geometry input through repeated scheduling queries until draw.
+  echo "Testing geometry input survives frame scheduling queries"
+  var harness = renderHarness()
+  harness.sk.renderMode = OnDemandRender
+  harness.settle()
+  harness.window.size.x += 1
+  doAssert harness.sk.needsFrame(harness.window)
+  doAssert harness.sk.nextFrameDelay(harness.window) == 0
+  harness.emptyFrame()
+  doAssert harness.sk.needsFrame(harness.window),
+    "A scheduling query consumed geometry input before the rendered frame."
+  harness.emptyFrame()
+  doAssert not harness.sk.needsFrame(harness.window)
+
+proc testHoverGeometry() =
+  ## Settles a retained hover target after its bounds or clip changes once.
+  echo "Testing hover settling after layout and backing scale changes"
+  var
+    harness = renderHarness()
+    bounds = rect(10, 10, 100, 40)
+    clip = rect(0, 0, 300, 200)
+  harness.sk.renderMode = OnDemandRender
+  harness.window.mousePos = ivec2(30, 20)
+  proc frame(): bool =
+    ## Draws a fixed ordinal target using the current layout geometry.
+    harness.beginFrame()
+    harness.sk.pushClipRect(clip)
+    result = harness.sk.mouseHover(harness.window, bounds)
+    harness.sk.popClipRect()
+    harness.endFrame()
+    harness.window.resetInputState()
+  doAssert harness.sk.needsFrame(harness.window)
+  discard frame()
+  doAssert harness.sk.needsFrame(harness.window)
+  doAssert frame()
+  doAssert not harness.sk.needsFrame(harness.window)
+  for change in 0 ..< 3:
+    case change
+    of 0:
+      bounds.x += 1
+    of 1:
+      clip.w -= 1
+    else:
+      harness.sk.uiScale = 2
+      harness.window.size *= 2
+      harness.window.mousePos *= 2
+      bounds.w += 1
+    harness.sk.requestFrame()
+    doAssert harness.sk.needsFrame(harness.window)
+    doAssert not frame(), "Changed regions must reject the stale hover hit."
+    doAssert harness.sk.needsFrame(harness.window),
+      "A changed region with the same target ID must settle its hover."
+    doAssert frame()
+    doAssert not harness.sk.needsFrame(harness.window),
+      "Stable hover geometry must return to idle after one settling frame."
+  harness.sk.uiScale = 1
+  harness.window.size = ivec2(600, 400)
+  harness.window.mousePos = ivec2(30, 20)
+  doAssert harness.sk.needsFrame(harness.window)
+  doAssert frame()
+  doAssert harness.sk.needsFrame(harness.window)
+  doAssert frame()
+  doAssert not harness.sk.needsFrame(harness.window)
+  harness.window.mousePos = ivec2(500, 300)
+  doAssert harness.sk.needsFrame(harness.window)
+  doAssert not frame()
+  if harness.sk.needsFrame(harness.window):
+    doAssert not frame()
+  doAssert not harness.sk.needsFrame(harness.window)
+  bounds.w += 1
+  harness.sk.requestFrame()
+  doAssert not frame()
+  doAssert not harness.sk.needsFrame(harness.window),
+    "Unhovered geometry must not schedule unnecessary settling frames."
+
 proc testProgrammaticFocus() =
   ## Invalidates an idle editor when application code assigns focus.
   echo "Testing programmatic focus wakes an idle interface"
@@ -278,6 +354,8 @@ testDeadlines()
 testModes()
 testInputs()
 testHover()
+testGeometryInput()
+testHoverGeometry()
 testProgrammaticFocus()
 testRichCaret()
 testClippedCaret()
