@@ -55,6 +55,7 @@ type
     target: MTLTexture
     when defined(silkyMetalTesting):
       ownsTestDevice: bool
+      vertexBufferAllocations, externalRenderPasses: int
     layers*: array[2, seq[DrawerVertex]]
     currentLayer*: int
     layerStack*: seq[int]
@@ -174,6 +175,8 @@ proc createVertexBuffer(state: Drawer, maxVertexCount: int) =
   state.vertexBuffer = buffer
   state.vertexBufferPtr = bufferPtr
   state.maxVertexCount = maxVertexCount
+  when defined(silkyMetalTesting):
+    inc state.vertexBufferAllocations
 
 proc uploadTexture(state: Drawer, image: Image) =
   ## Uploads the atlas image into one Metal texture.
@@ -186,7 +189,7 @@ proc uploadTexture(state: Drawer, image: Image) =
       state.texture = texture
   state.texture.uploadRegion(image, 0, 0, image.width, image.height)
   state.atlasSize = ivec2(image.width.int32, image.height.int32)
-  state.atlasMipmapsDirty = true
+  state.atlasMipmapsDirty = state.texture.mipmapLevelCount() > 1
 
 proc allocateTexture*(drawer: Drawer, width, height: int): uint32 =
   ## Allocates a separate image texture, reserving handle zero for the atlas.
@@ -246,7 +249,7 @@ proc uploadAtlasRegion*(
   if right <= left or bottom <= top:
     return
   drawer.texture.uploadRegion(image, left, top, right - left, bottom - top)
-  drawer.atlasMipmapsDirty = true
+  drawer.atlasMipmapsDirty = drawer.texture.mipmapLevelCount() > 1
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
   ## Creates the Metal pipeline, atlas texture, and dynamic buffers.
@@ -356,6 +359,10 @@ proc uploadAtlas*(drawer: Drawer, image: Image) =
 proc atlasTexture*(drawer: Drawer): MTLTexture =
   ## Borrows the current atlas texture; uploads may replace this handle.
   drawer.texture
+
+proc needsAtlasPreparation*(drawer: Drawer): bool =
+  ## Reports pending mipmap work that requires ending the active encoder.
+  drawer.atlasMipmapsDirty
 
 proc prepareAtlas*(drawer: Drawer, commandBuffer: MTLCommandBuffer) =
   ## Encodes dirty atlas mipmaps before application shaders sample the atlas.
@@ -578,6 +585,10 @@ proc endFrame*(
     if drawer.commandBuffer.status() >= MTLCommandBufferStatusCommitted:
       raise newException(SilkyError,
         "Submit external Metal commands after drawing the UI.")
+    if quadCount == 0:
+      drawer.uploadVertices(image, quads, quadCount)
+      drawer.prepareAtlas(drawer.commandBuffer)
+      return
     # A command buffer retains each pass's buffer until GPU work completes.
     # Later UI passes must not overwrite vertices already queued for drawing.
     drawer.createVertexBuffer(max(1, quadCount))
@@ -593,6 +604,8 @@ proc endFrame*(
       renderPass
     )
     checkNil(encoder, "Could not create an external Metal render encoder")
+    when defined(silkyMetalTesting):
+      inc drawer.externalRenderPasses
     drawer.encodeDraw(
       encoder,
       drawer.target.width().float64,
@@ -614,6 +627,11 @@ when defined(silkyMetalTesting):
       fromRegion: MTLRegion,
       mipmapLevel: uint
     )
+
+  proc recordedWorkForTesting*(drawer: Drawer):
+      tuple[vertexBufferAllocations, externalRenderPasses: int] =
+    ## Reports allocations and external passes without altering GPU work.
+    (drawer.vertexBufferAllocations, drawer.externalRenderPasses)
 
   proc newOffscreenDrawerForTesting*(image: Image, size: IVec2): Drawer =
     ## Creates the production drawer without a window for GPU pixel tests.

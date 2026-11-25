@@ -176,12 +176,16 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
         atlas[x, y] = if (x + y) mod 2 == 0: Red else: Blue
     let drawer = newDrawer(device, atlas, size)
     defer: drawer.close()
+    doAssert drawer.needsAtlasPreparation(),
+      "A newly uploaded mipmapped atlas must report pending preparation"
     let texture = drawer.atlasTexture()
     doAssert texture.mipmapLevelCount() == 3,
       "The atlas must allocate every mip level down to 1x1"
     let initialCommands = queue.commandBuffer()
     checkNil(initialCommands, "Could not create the atlas command buffer")
     drawer.prepareAtlas(initialCommands)
+    doAssert not drawer.needsAtlasPreparation(),
+      "Recorded mipmap work must not require another encoder break"
     drawer.prepareAtlas(initialCommands)
     doAssert initialCommands.status() == MTLCommandBufferStatusNotEnqueued,
       "Atlas preparation must leave submission to the application"
@@ -208,9 +212,13 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
       for x in 0 ..< 2:
         atlas[x, y] = Green
     drawer.uploadAtlasRegion(atlas, 0, 0, 2, 2)
+    doAssert drawer.needsAtlasPreparation(),
+      "Partial atlas uploads must invalidate the preparation query"
     let updateCommands = queue.commandBuffer()
     checkNil(updateCommands, "Could not create the atlas update buffer")
     drawer.prepareAtlas(updateCommands)
+    doAssert not drawer.needsAtlasPreparation(),
+      "Partial atlas preparation must become clean after encoding"
     doAssert updateCommands.status() == MTLCommandBufferStatusNotEnqueued,
       "Preparing changed atlas pixels must not submit the command buffer"
     updateCommands.commit()
@@ -238,6 +246,8 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
 
     atlas.fill(Red)
     drawer.uploadAtlas(atlas)
+    doAssert drawer.needsAtlasPreparation(),
+      "Full atlas uploads must invalidate the preparation query"
     let target = device.newTarget(size, MTLPixelFormatBGRA8Unorm)
     defer: target.release()
     let
@@ -270,6 +280,61 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
     checkNil(unretained, "Could not create the unretained validation buffer")
     expectSilkyError("Atlas preparation requires retained GPU resources"):
       drawer.prepareAtlas(unretained)
+
+  proc checkEmptyFrames(device: MTLDevice, queue: MTLCommandQueue) =
+    ## Checks empty UI preserves the scene and still prepares changed atlases.
+    let
+      atlas = newImage(2, 2)
+      size = ivec2(8, 8)
+    atlas.fill(Red)
+    let drawer = newDrawer(device, atlas, size)
+    defer: drawer.close()
+    when defined(silkyMetalTesting):
+      let initialWork = drawer.recordedWorkForTesting()
+    for atlasSize in [2, 4]:
+      let image = newImage(atlasSize, atlasSize)
+      image.fill(Red)
+      let
+        target = device.newTarget(size, MTLPixelFormatBGRA8Unorm)
+        commandBuffer = queue.commandBuffer()
+      defer: target.release()
+      checkNil(commandBuffer, "Could not create the empty UI command buffer")
+      commandBuffer.encodeBackground(target)
+      for _ in 0 .. 1:
+        drawer.setExternalFrame(commandBuffer, target)
+        drawer.endFrame(image, size.vec2, nil, 0)
+        doAssert not drawer.needsAtlasPreparation(),
+          "Empty UI must prepare initial and resized atlas mipmaps"
+        doAssert commandBuffer.status() == MTLCommandBufferStatusNotEnqueued,
+          "Empty UI must leave submission to the application"
+        when defined(silkyMetalTesting):
+          doAssert drawer.recordedWorkForTesting() == initialWork,
+            "Empty UI must not allocate vertex buffers or open render passes"
+      expectSilkyError("An empty UI pass must release its borrowed frame"):
+        drawer.endFrame(image, size.vec2, nil, 0)
+      commandBuffer.commit()
+      commandBuffer.waitUntilCompleted()
+      checkNSError(commandBuffer.error(), "Empty UI compositing failed")
+      let pixels = target.readPixels(size, MTLPixelFormatBGRA8Unorm)
+      for y in 0 ..< size.y.int:
+        for x in 0 ..< size.x.int:
+          pixels.checkPixel(x, y, Blue, "Empty UI must preserve every scene pixel")
+      let mip = drawer.atlasTexture().readPixels(
+        ivec2(1),
+        MTLPixelFormatRGBA8Unorm,
+        if atlasSize == 2: 1'u else: 2'u
+      )
+      mip.checkPixel(0, 0, Red, "Empty UI must prepare the full atlas mip chain")
+
+    let singleTexel = newImage(1, 1)
+    singleTexel.fill(White)
+    drawer.uploadAtlas(singleTexel)
+    doAssert not drawer.needsAtlasPreparation(),
+      "A single-level atlas must not require an encoder break"
+    singleTexel.fill(Red)
+    drawer.uploadAtlasRegion(singleTexel, 0, 0, 1, 1)
+    doAssert not drawer.needsAtlasPreparation(),
+      "A single-level atlas update must not require mipmap work"
 
   proc checkInvalidFrames(device: MTLDevice, queue: MTLCommandQueue) =
     ## Rejects invalid handles, incompatible formats, and submitted buffers.
@@ -359,10 +424,11 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
     for pixelFormat in [MTLPixelFormatBGRA8Unorm, MTLPixelFormatRGBA8Unorm]:
       checkComposite(device, queue, pixelFormat)
     checkAtlasMipmaps(device, queue)
+    checkEmptyFrames(device, queue)
     checkInvalidFrames(device, queue)
     when defined(macosx):
       checkSilkyInterface(device, queue)
-    echo "Metal compositing passed: rendering, atlas mips, UI, and validation."
+    echo "Metal compositing passed: rendering, atlas mips, empty UI, and validation."
 
   main()
   when defined(ios):
