@@ -812,22 +812,28 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 {.measure.} =
 proc newSilky*(
   window: Window,
   image: Image,
-  atlas: SilkyAtlas
+  atlas: SilkyAtlas,
+  drawer: Drawer = nil
 ): Silky {.measure.} =
   ## Creates a new Silky context and eagerly initializes its drawer.
+  ## A supplied drawer lets an application own the rendering surface.
   ## Automatically installs input handling on the window.
   result = Silky()
   result.image = image
   result.atlas = atlas
   result.builder = newAtlasBuilderFromAtlas(atlas, image)
   result.window = window
-  result.drawer = newDrawer(window, image)
+  result.drawer = if drawer.isNil: newDrawer(window, image) else: drawer
   result.inputs = newTextInputs(window)
 
-proc newSilky*(window: Window, atlasPngPath: string): Silky {.measure.} =
+proc newSilky*(
+  window: Window,
+  atlasPngPath: string,
+  drawer: Drawer = nil
+): Silky {.measure.} =
   ## Creates a new Silky from one atlas PNG file.
   let atlasData = readAtlas(atlasPngPath)
-  newSilky(window, atlasData.image, atlasData.atlas)
+  newSilky(window, atlasData.image, atlasData.atlas, drawer)
 
 proc uploadAtlas*(sk: Silky) =
   ## Push the current CPU atlas image to the GPU drawer.

@@ -145,6 +145,10 @@ jobs:
           (cd examples/the7gui && nim c -d:emscripten the7gui.nim)
           (cd examples/todomvc && nim c -d:emscripten todomvc.nim)
 
+      - name: Compile Metal compositing test
+        if: matrix.build_flags == '-d:useMetal4'
+        run: nim c -d:useMetal4 tests/test_metal_compositing.nim
+
       - name: Run example tests
         if: ${{ !matrix.emscripten }}
         shell: bash
