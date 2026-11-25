@@ -52,3 +52,25 @@ work before changing pixels that earlier passes still need.
 application shaders. Read it again after atlas uploads because atlas growth
 can replace the texture. Retain it explicitly if the application stores it
 beyond the drawer's lifetime.
+
+## Offscreen drawing during a UI frame
+
+Use `sk.isolatedDrawing(bounds):` to bake images while the current UI frame
+already has queued geometry. The scope is available on every rendering backend:
+
+```nim
+sk.isolatedDrawing(rect(0, 0, width.float32, height.float32)):
+  # Queue the image's rectangles, text, and atlas sprites here.
+  # Flush these queues to the offscreen target before leaving this scope.
+```
+
+The scope starts with empty queues on the normal layer and an independent root
+layout and clip rectangle. It restores the caller's queues, layer stack, layout,
+and deferred clip captures when the body exits, including after an exception.
+Scopes can nest. This keeps an offscreen bake from changing the placement of a
+surrounding deferred layout such as a `hug()` group.
+
+This is a drawing scope, not another UI frame. Use drawing procedures inside it
+and flush through the drawer; do not call `beginUi` or `endUi`, start another
+`ui` DSL block, or process interactive widgets. The application still owns GPU
+target selection and submission, and must restore its previous target itself.
