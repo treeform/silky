@@ -53,6 +53,13 @@ application shaders. Read it again after atlas uploads because atlas growth
 can replace the texture. Retain it explicitly if the application stores it
 beyond the drawer's lifetime.
 
+The atlas has a full mip chain. Before application shaders sample it, end the
+active encoder and call `drawer.prepareAtlas(commandBuffer)`. This encodes mip
+generation only when uploads have made the atlas dirty; it never commits or
+waits. Place this before the application's sampling pass in the command buffer.
+Ordinary `endUi` prepares the atlas automatically. Complete pending GPU work before
+mutating atlas pixels, as with other shared image textures.
+
 ## Offscreen drawing during a UI frame
 
 Use `sk.isolatedDrawing(bounds):` to bake images while the current UI frame

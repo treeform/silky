@@ -44,6 +44,7 @@ type
     maxVertexCount: int
     viewportSize: IVec2
     atlasSize: IVec2
+    atlasMipmapsDirty: bool
     textureLimit: int
     textures: Table[uint32, DrawerTexture]
     nextTexture: uint32
@@ -120,7 +121,11 @@ proc close*(drawer: Drawer) =
       drawer.ownsTestDevice = false
   drawer.ctx.destroy()
 
-proc newTexture(state: Drawer, width, height: int): MTLTexture =
+proc newTexture(
+  state: Drawer,
+  width, height: int,
+  mipmapped = false
+): MTLTexture =
   ## Allocates a shader-readable texture using the supported 2D size limit.
   if width <= 0 or height <= 0:
     raise newException(SilkyError, "Image texture dimensions must be positive.")
@@ -133,7 +138,7 @@ proc newTexture(state: Drawer, width, height: int): MTLTexture =
     MTLPixelFormatRGBA8Unorm,
     width.uint,
     height.uint,
-    false
+    mipmapped
   )
   descriptor.setUsage(MTLTextureUsageShaderRead)
   result = state.ctx.device.newTextureWithDescriptor(descriptor)
@@ -176,11 +181,12 @@ proc uploadTexture(state: Drawer, image: Image) =
     raise newException(SilkyError, "Cannot upload an empty atlas image.")
   if state.texture.isNil or
     state.atlasSize != ivec2(image.width.int32, image.height.int32):
-      let texture = state.newTexture(image.width, image.height)
+      let texture = state.newTexture(image.width, image.height, mipmapped = true)
       state.texture.release()
       state.texture = texture
   state.texture.uploadRegion(image, 0, 0, image.width, image.height)
   state.atlasSize = ivec2(image.width.int32, image.height.int32)
+  state.atlasMipmapsDirty = true
 
 proc allocateTexture*(drawer: Drawer, width, height: int): uint32 =
   ## Allocates a separate image texture, reserving handle zero for the atlas.
@@ -240,6 +246,7 @@ proc uploadAtlasRegion*(
   if right <= left or bottom <= top:
     return
   drawer.texture.uploadRegion(image, left, top, right - left, bottom - top)
+  drawer.atlasMipmapsDirty = true
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
   ## Creates the Metal pipeline, atlas texture, and dynamic buffers.
@@ -349,6 +356,27 @@ proc uploadAtlas*(drawer: Drawer, image: Image) =
 proc atlasTexture*(drawer: Drawer): MTLTexture =
   ## Borrows the current atlas texture; uploads may replace this handle.
   drawer.texture
+
+proc prepareAtlas*(drawer: Drawer, commandBuffer: MTLCommandBuffer) =
+  ## Encodes dirty atlas mipmaps before application shaders sample the atlas.
+  ## End any active encoder first and submit this buffer before later frames.
+  ## The normal endFrame and endUi paths perform this preparation themselves.
+  if commandBuffer.isNil or
+    cast[int](commandBuffer.device()) != cast[int](drawer.ctx.device):
+      raise newException(SilkyError,
+        "Atlas preparation needs a command buffer from the drawer's device.")
+  if commandBuffer.status() >= MTLCommandBufferStatusCommitted or
+    not commandBuffer.retainedReferences():
+      raise newException(SilkyError,
+        "Atlas commands must be uncommitted and retain resources.")
+  if not drawer.atlasMipmapsDirty:
+    return
+  if drawer.texture.mipmapLevelCount() > 1:
+    let encoder = commandBuffer.blitCommandEncoder()
+    checkNil(encoder, "Could not create the atlas mipmap encoder")
+    encoder.generateMipmapsForTexture(drawer.texture)
+    encoder.endEncoding()
+  drawer.atlasMipmapsDirty = false
 
 proc newDrawer*(window: Window, image: Image): Drawer =
   ## Creates a new Metal drawer and eagerly initializes its resources.
@@ -495,8 +523,9 @@ proc recordDraw(state: Drawer, vertexCount: int) =
   let drawable = state.ctx.currentDrawable()
   if drawable.isNil:
     return
+  let commandBuffer = state.ctx.newCommandBuffer()
+  state.prepareAtlas(commandBuffer)
   let
-    commandBuffer = state.ctx.newCommandBuffer()
     renderPass = state.ctx.clearPass(drawable, state.clearColor)
     encoder = commandBuffer.renderCommandEncoderWithDescriptor(renderPass)
     size = state.ctx.layer.drawableSize()
@@ -553,6 +582,7 @@ proc endFrame*(
     # Later UI passes must not overwrite vertices already queued for drawing.
     drawer.createVertexBuffer(max(1, quadCount))
     drawer.uploadVertices(image, quads, quadCount)
+    drawer.prepareAtlas(drawer.commandBuffer)
     let
       renderPass = MTLRenderPassDescriptor.renderPassDescriptor()
       attachment = renderPass.colorAttachments().objectAtIndexedSubscript(0)
@@ -626,8 +656,9 @@ when defined(silkyMetalTesting):
       if vertices.len > 0: unsafeAddr vertices[0] else: nil,
       vertices.len
     )
+    let commandBuffer = drawer.ctx.newCommandBuffer()
+    drawer.prepareAtlas(commandBuffer)
     let
-      commandBuffer = drawer.ctx.newCommandBuffer()
       renderPass = MTLRenderPassDescriptor.renderPassDescriptor()
       attachment = renderPass.colorAttachments().objectAtIndexedSubscript(0)
     attachment.setTexture(target)

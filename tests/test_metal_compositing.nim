@@ -13,6 +13,11 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
     Blue = ColorRGBX(r: 0, g: 0, b: 255, a: 255)
     HalfGreen = ColorRGBX(r: 0, g: 128, b: 0, a: 128)
 
+  objc:
+    proc commandBufferWithUnretainedReferences(
+      self: MTLCommandQueue
+    ): MTLCommandBuffer
+
   template expectSilkyError(message: string, body: untyped) =
     ## Requires invalid embedding input to report a library-specific error.
     block:
@@ -72,7 +77,7 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
       )
 
   proc readPixels(target: MTLTexture, size: IVec2,
-      pixelFormat: MTLPixelFormat): Image =
+      pixelFormat: MTLPixelFormat, mipmapLevel = 0'u): Image =
     ## Reads the completed target into ordinary RGBA image storage.
     result = newImage(size.x.int, size.y.int)
     target.getBytes(
@@ -82,7 +87,7 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
         origin: MTLOrigin(x: 0, y: 0, z: 0),
         size: MTLSize(width: size.x.uint, height: size.y.uint, depth: 1)
       ),
-      0
+      mipmapLevel
     )
     if pixelFormat == MTLPixelFormatBGRA8Unorm:
       for pixel in result.data.mitems:
@@ -156,6 +161,115 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
         rgbx(0, 128, 127, 255), "Alpha blending over the scene")
       pixels.checkPixel(size.x.int - 3, size.y.int - 3, Blue,
         "The resized viewport retains uncovered scene pixels")
+
+  proc checkAtlasMipmaps(device: MTLDevice, queue: MTLCommandQueue) =
+    ## Checks prepared mip averages and regeneration after partial atlas edits.
+    const
+      Purple = ColorRGBX(r: 128, g: 0, b: 128, a: 255)
+      Green = ColorRGBX(r: 0, g: 255, b: 0, a: 255)
+      Mixed = ColorRGBX(r: 96, g: 64, b: 96, a: 255)
+    let
+      atlas = newImage(4, 4)
+      size = ivec2(8, 8)
+    for y in 0 ..< atlas.height:
+      for x in 0 ..< atlas.width:
+        atlas[x, y] = if (x + y) mod 2 == 0: Red else: Blue
+    let drawer = newDrawer(device, atlas, size)
+    defer: drawer.close()
+    let texture = drawer.atlasTexture()
+    doAssert texture.mipmapLevelCount() == 3,
+      "The atlas must allocate every mip level down to 1x1"
+    let initialCommands = queue.commandBuffer()
+    checkNil(initialCommands, "Could not create the atlas command buffer")
+    drawer.prepareAtlas(initialCommands)
+    drawer.prepareAtlas(initialCommands)
+    doAssert initialCommands.status() == MTLCommandBufferStatusNotEnqueued,
+      "Atlas preparation must leave submission to the application"
+    initialCommands.commit()
+    initialCommands.waitUntilCompleted()
+    checkNSError(initialCommands.error(), "Initial atlas mipmaps failed")
+    let
+      initialMip = texture.readPixels(
+        ivec2(2),
+        MTLPixelFormatRGBA8Unorm,
+        1
+      )
+      initialLastMip = texture.readPixels(
+        ivec2(1),
+        MTLPixelFormatRGBA8Unorm,
+        2
+      )
+    for y in 0 ..< 2:
+      for x in 0 ..< 2:
+        initialMip.checkPixel(x, y, Purple, "Mip one averages atlas texels")
+    initialLastMip.checkPixel(0, 0, Purple, "The last mip averages the atlas")
+
+    for y in 0 ..< 2:
+      for x in 0 ..< 2:
+        atlas[x, y] = Green
+    drawer.uploadAtlasRegion(atlas, 0, 0, 2, 2)
+    let updateCommands = queue.commandBuffer()
+    checkNil(updateCommands, "Could not create the atlas update buffer")
+    drawer.prepareAtlas(updateCommands)
+    doAssert updateCommands.status() == MTLCommandBufferStatusNotEnqueued,
+      "Preparing changed atlas pixels must not submit the command buffer"
+    updateCommands.commit()
+    updateCommands.waitUntilCompleted()
+    checkNSError(updateCommands.error(), "Partial atlas mipmaps failed")
+    let
+      updatedMip = texture.readPixels(
+        ivec2(2),
+        MTLPixelFormatRGBA8Unorm,
+        1
+      )
+      updatedLastMip = texture.readPixels(
+        ivec2(1),
+        MTLPixelFormatRGBA8Unorm,
+        2
+      )
+    updatedMip.checkPixel(0, 0, Green, "A partial upload regenerates its mip")
+    updatedMip.checkPixel(1, 1, Purple, "Unchanged mip regions are preserved")
+    updatedLastMip.checkPixel(
+      0,
+      0,
+      Mixed,
+      "The last mip includes partial edits"
+    )
+
+    atlas.fill(Red)
+    drawer.uploadAtlas(atlas)
+    let target = device.newTarget(size, MTLPixelFormatBGRA8Unorm)
+    defer: target.release()
+    let
+      frameCommands = queue.commandBuffer()
+      vertices = quad(vec2(0), size.vec2, size.vec2, White)
+    checkNil(frameCommands, "Could not create the mipmap frame buffer")
+    frameCommands.encodeBackground(target)
+    drawer.setExternalFrame(frameCommands, target)
+    drawer.endFrame(atlas, size.vec2, unsafeAddr vertices[0], vertices.len)
+    doAssert frameCommands.status() == MTLCommandBufferStatusNotEnqueued,
+      "Automatic atlas preparation must not submit the UI frame"
+    frameCommands.commit()
+    frameCommands.waitUntilCompleted()
+    checkNSError(frameCommands.error(), "Automatic atlas mipmaps failed")
+    let
+      finalMip = drawer.atlasTexture().readPixels(
+        ivec2(1),
+        MTLPixelFormatRGBA8Unorm,
+        2
+      )
+      rendered = target.readPixels(size, MTLPixelFormatBGRA8Unorm)
+    finalMip.checkPixel(0, 0, Red, "EndFrame regenerates dirty atlas mipmaps")
+    rendered.checkPixel(4, 4, Red, "The UI samples the updated atlas")
+
+    expectSilkyError("Atlas preparation must reject a missing buffer"):
+      drawer.prepareAtlas(0.MTLCommandBuffer)
+    expectSilkyError("Atlas preparation must reject a submitted buffer"):
+      drawer.prepareAtlas(frameCommands)
+    let unretained = queue.commandBufferWithUnretainedReferences()
+    checkNil(unretained, "Could not create the unretained validation buffer")
+    expectSilkyError("Atlas preparation requires retained GPU resources"):
+      drawer.prepareAtlas(unretained)
 
   proc checkInvalidFrames(device: MTLDevice, queue: MTLCommandQueue) =
     ## Rejects invalid handles, incompatible formats, and submitted buffers.
@@ -244,10 +358,11 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
     defer: queue.release()
     for pixelFormat in [MTLPixelFormatBGRA8Unorm, MTLPixelFormatRGBA8Unorm]:
       checkComposite(device, queue, pixelFormat)
+    checkAtlasMipmaps(device, queue)
     checkInvalidFrames(device, queue)
     when defined(macosx):
       checkSilkyInterface(device, queue)
-    echo "Metal compositing passed: rendering, public UI, and validation."
+    echo "Metal compositing passed: rendering, atlas mips, UI, and validation."
 
   main()
   when defined(ios):
