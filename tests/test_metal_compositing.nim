@@ -329,12 +329,126 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
     let singleTexel = newImage(1, 1)
     singleTexel.fill(White)
     drawer.uploadAtlas(singleTexel)
+    doAssert drawer.needsAtlasPreparation(),
+      "An external single-level atlas must stage its initial upload"
+    let singleCommands = queue.commandBuffer()
+    drawer.prepareAtlas(singleCommands)
     doAssert not drawer.needsAtlasPreparation(),
-      "A single-level atlas must not require an encoder break"
+      "A prepared single-level atlas must not require mipmap work"
     singleTexel.fill(Red)
     drawer.uploadAtlasRegion(singleTexel, 0, 0, 1, 1)
+    doAssert drawer.needsAtlasPreparation(),
+      "A single-level atlas update must be ordered after earlier draws"
+    drawer.prepareAtlas(singleCommands)
     doAssert not drawer.needsAtlasPreparation(),
-      "A single-level atlas update must not require mipmap work"
+      "A prepared single-level atlas update must become clean"
+    singleCommands.commit()
+    singleCommands.waitUntilCompleted()
+    checkNSError(singleCommands.error(), "Single-level atlas uploads failed")
+    let singlePixel = drawer.atlasTexture().readPixels(
+      ivec2(1),
+      MTLPixelFormatRGBA8Unorm
+    )
+    singlePixel.checkPixel(0, 0, Red, "Single-level uploads execute in order")
+
+  proc checkQueuedUploads(device: MTLDevice, queue: MTLCommandQueue) =
+    ## Preserves atlas, image, and vertex contents across queued UI frames.
+    const Colors = [Red, HalfGreen, White]
+    let
+      initialAtlas = newImage(2, 2)
+      image = newImage(2, 2)
+      size = ivec2(12, 8)
+    initialAtlas.fill(White)
+    let drawer = newDrawer(
+      device,
+      initialAtlas,
+      size,
+      pixelFormat = MTLPixelFormatRGBA8Unorm
+    )
+    defer: drawer.close()
+    let imageId = drawer.allocateTexture(2, 2)
+    var
+      commands: seq[MTLCommandBuffer]
+      targets: seq[MTLTexture]
+    defer:
+      for commandBuffer in commands:
+        commandBuffer.release()
+      for target in targets:
+        target.release()
+    for index, value in Colors:
+      let atlas = newImage(if index == 2: 4 else: 2, 2)
+      atlas.fill(value)
+      image.fill(value)
+      drawer.uploadAtlas(atlas)
+      drawer.uploadTextureRows(imageId, image, 0, image.height)
+      doAssert drawer.needsAtlasPreparation(),
+        "Atlas and independent image updates must be prepared before sampling"
+      # Staging must own its pixels, including after the caller edits the image.
+      atlas.fill(Blue)
+      image.fill(Blue)
+      let
+        commandBuffer = queue.commandBuffer()
+        target = device.newTarget(size, MTLPixelFormatRGBA8Unorm)
+      checkNil(commandBuffer, "Could not create a queued UI command buffer")
+      commandBuffer.retain()
+      commands.add(commandBuffer)
+      targets.add(target)
+      commandBuffer.encodeBackground(target)
+      drawer.setExternalFrame(commandBuffer, target)
+      drawer.endFrame(atlas, size.vec2, nil, 0)
+      doAssert not drawer.needsAtlasPreparation(),
+        "An empty UI frame must encode pending uploads without submitting them"
+      var vertices: seq[DrawerVertex]
+      vertices.add(quad(vec2(0), vec2(6, 8), size.vec2, White))
+      var imageVertices = quad(vec2(6, 0), vec2(6, 8), size.vec2, White)
+      for vertex in imageVertices.mitems:
+        vertex.texture = imageId
+      vertices.add(imageVertices)
+      drawer.setExternalFrame(commandBuffer, target)
+      drawer.endFrame(atlas, size.vec2, vertices[0].addr, vertices.len)
+      doAssert commandBuffer.status() == MTLCommandBufferStatusNotEnqueued,
+        "Multiple queued UI frames must remain application-owned"
+    # Encoding every frame before any commit exposes CPU texture overwrites.
+    for commandBuffer in commands:
+      commandBuffer.commit()
+    commands[^1].waitUntilCompleted()
+    for index, target in targets:
+      checkNSError(commands[index].error(), "Queued external UI frame failed")
+      let
+        pixels = target.readPixels(size, MTLPixelFormatRGBA8Unorm)
+        expected = if Colors[index] == HalfGreen:
+          rgbx(0, 128, 127, 255)
+        else:
+          Colors[index]
+      pixels.checkPixel(2, 4, expected,
+        "A queued frame must sample its original atlas upload")
+      pixels.checkPixel(9, 4, expected,
+        "A queued frame must sample its original independent image upload")
+
+    let atlas = newImage(2, 2)
+    atlas.fill(Red)
+    drawer.uploadAtlas(atlas)
+    let
+      commandBuffer = queue.commandBuffer()
+      target = device.newTarget(size, MTLPixelFormatRGBA8Unorm)
+      left = quad(vec2(0), vec2(6, 8), size.vec2, White)
+      right = quad(vec2(6, 0), vec2(6, 8), size.vec2, White)
+    defer: target.release()
+    commandBuffer.encodeBackground(target)
+    drawer.setExternalFrame(commandBuffer, target)
+    drawer.endFrame(atlas, size.vec2, unsafeAddr left[0], left.len)
+    atlas[0, 0] = White
+    drawer.uploadAtlasRegion(atlas, 0, 0, 1, 1)
+    drawer.setExternalFrame(commandBuffer, target)
+    drawer.endFrame(atlas, size.vec2, unsafeAddr right[0], right.len)
+    commandBuffer.commit()
+    commandBuffer.waitUntilCompleted()
+    checkNSError(commandBuffer.error(), "Same-buffer atlas update failed")
+    let pixels = target.readPixels(size, MTLPixelFormatRGBA8Unorm)
+    pixels.checkPixel(2, 4, Red,
+      "An atlas edit must not change earlier draws in the same command buffer")
+    pixels.checkPixel(9, 4, White,
+      "Later draws must see the partial atlas edit in queue order")
 
   proc checkInvalidFrames(device: MTLDevice, queue: MTLCommandQueue) =
     ## Rejects invalid handles, incompatible formats, and submitted buffers.
@@ -425,6 +539,7 @@ when defined(useMetal4) and (defined(macosx) or defined(ios)):
       checkComposite(device, queue, pixelFormat)
     checkAtlasMipmaps(device, queue)
     checkEmptyFrames(device, queue)
+    checkQueuedUploads(device, queue)
     checkInvalidFrames(device, queue)
     when defined(macosx):
       checkSilkyInterface(device, queue)

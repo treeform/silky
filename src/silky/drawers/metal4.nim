@@ -28,6 +28,12 @@ type
     texture: MTLTexture
     size: IVec2
 
+  TextureUpload = object
+    buffer: MTLBuffer
+    texture: MTLTexture
+    region: MTLRegion
+    bytesPerRow: uint
+
   ShaderUniforms = object
     ## Matches the Shady vertex shader's constant buffer layout.
     viewportSize: Vec2
@@ -45,6 +51,7 @@ type
     viewportSize: IVec2
     atlasSize: IVec2
     atlasMipmapsDirty: bool
+    uploads: seq[TextureUpload]
     textureLimit: int
     textures: Table[uint32, DrawerTexture]
     nextTexture: uint32
@@ -73,6 +80,10 @@ objc:
   proc pixelFormat(self: MTLTexture): MTLPixelFormat
   proc sampleCount(self: MTLTexture): uint
   proc retainedReferences(self: MTLCommandBuffer): bool
+  proc copyFromBuffer(self: MTLBlitCommandEncoder, x: MTLBuffer,
+    sourceOffset, sourceBytesPerRow, sourceBytesPerImage: uint,
+    sourceSize: MTLSize, toTexture: MTLTexture,
+    destinationSlice, destinationLevel: uint, destinationOrigin: MTLOrigin)
 
 proc textureSizeLimit(device: MTLDevice): int =
   ## Reads Metal's family-specific 2D texture limit, including Simulator.
@@ -103,6 +114,10 @@ proc close*(drawer: Drawer) =
   drawer.commandBuffer = 0.MTLCommandBuffer
   drawer.target.release()
   drawer.target = 0.MTLTexture
+  for upload in drawer.uploads:
+    upload.buffer.release()
+    upload.texture.release()
+  drawer.uploads.setLen(0)
   for texture in drawer.textures.values:
     texture.texture.release()
   drawer.textures.clear()
@@ -147,11 +162,42 @@ proc newTexture(
     raise newException(SilkyError, "Could not allocate a Metal image texture.")
 
 proc uploadRegion(
+  drawer: Drawer,
   texture: MTLTexture,
   image: Image,
   x, y, width, height: int
 ) =
-  ## Uploads image pixels with their original row stride into a texture region.
+  ## Stages external texture writes in queue order without CPU/GPU waits.
+  if drawer.external:
+    let
+      rowBytes = width * sizeof(ColorRGBX)
+      alignedRowBytes = (rowBytes + 255) and not 255
+      buffer = drawer.ctx.device.newBufferWithLength(
+        (alignedRowBytes * height).uint,
+        0
+      )
+    checkNil(buffer, "Could not stage an external Metal texture upload")
+    let pixels = cast[ptr UncheckedArray[uint8]](buffer.contents())
+    if pixels.isNil:
+      buffer.release()
+      raise newException(SilkyError, "Could not map a Metal texture upload")
+    for row in 0 ..< height:
+      copyMem(
+        pixels[row * alignedRowBytes].addr,
+        unsafeAddr image.data[(y + row) * image.width + x],
+        rowBytes
+      )
+    texture.retain()
+    drawer.uploads.add(TextureUpload(
+      buffer: buffer,
+      texture: texture,
+      region: MTLRegion(
+        origin: MTLOrigin(x: x.uint, y: y.uint, z: 0),
+        size: MTLSize(width: width.uint, height: height.uint, depth: 1)
+      ),
+      bytesPerRow: alignedRowBytes.uint
+    ))
+    return
   texture.replaceRegion(
     MTLRegion(
       origin: MTLOrigin(x: x.uint, y: y.uint, z: 0),
@@ -187,7 +233,7 @@ proc uploadTexture(state: Drawer, image: Image) =
       let texture = state.newTexture(image.width, image.height, mipmapped = true)
       state.texture.release()
       state.texture = texture
-  state.texture.uploadRegion(image, 0, 0, image.width, image.height)
+  state.uploadRegion(state.texture, image, 0, 0, image.width, image.height)
   state.atlasSize = ivec2(image.width.int32, image.height.int32)
   state.atlasMipmapsDirty = state.texture.mipmapLevelCount() > 1
 
@@ -219,7 +265,7 @@ proc uploadTextureRows*(
       raise newException(SilkyError, "Image texture upload bounds are invalid.")
   if rowCount == 0:
     return
-  target.texture.uploadRegion(image, 0, firstRow, image.width, rowCount)
+  drawer.uploadRegion(target.texture, image, 0, firstRow, image.width, rowCount)
 
 proc deleteTexture*(drawer: Drawer, texture: uint32) =
   ## Releases an independent image texture; deleting a missing handle is safe.
@@ -248,7 +294,14 @@ proc uploadAtlasRegion*(
     bottom = clamp(y.int64 + height.int64, 0'i64, image.height.int64).int
   if right <= left or bottom <= top:
     return
-  drawer.texture.uploadRegion(image, left, top, right - left, bottom - top)
+  drawer.uploadRegion(
+    drawer.texture,
+    image,
+    left,
+    top,
+    right - left,
+    bottom - top
+  )
   drawer.atlasMipmapsDirty = drawer.texture.mipmapLevelCount() > 1
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
@@ -361,12 +414,12 @@ proc atlasTexture*(drawer: Drawer): MTLTexture =
   drawer.texture
 
 proc needsAtlasPreparation*(drawer: Drawer): bool =
-  ## Reports pending mipmap work that requires ending the active encoder.
-  drawer.atlasMipmapsDirty
+  ## Reports pending texture uploads or mipmaps that need an encoder break.
+  drawer.uploads.len > 0 or drawer.atlasMipmapsDirty
 
 proc prepareAtlas*(drawer: Drawer, commandBuffer: MTLCommandBuffer) =
-  ## Encodes dirty atlas mipmaps before application shaders sample the atlas.
-  ## End any active encoder first and submit this buffer before later frames.
+  ## Encodes texture uploads and mipmaps before application shaders sample them.
+  ## End active encoding and submit buffers in order on the same command queue.
   ## The normal endFrame and endUi paths perform this preparation themselves.
   if commandBuffer.isNil or
     cast[int](commandBuffer.device()) != cast[int](drawer.ctx.device):
@@ -376,13 +429,28 @@ proc prepareAtlas*(drawer: Drawer, commandBuffer: MTLCommandBuffer) =
     not commandBuffer.retainedReferences():
       raise newException(SilkyError,
         "Atlas commands must be uncommitted and retain resources.")
-  if not drawer.atlasMipmapsDirty:
+  if not drawer.needsAtlasPreparation():
     return
-  if drawer.texture.mipmapLevelCount() > 1:
-    let encoder = commandBuffer.blitCommandEncoder()
-    checkNil(encoder, "Could not create the atlas mipmap encoder")
+  let encoder = commandBuffer.blitCommandEncoder()
+  checkNil(encoder, "Could not create the atlas preparation encoder")
+  for upload in drawer.uploads:
+    encoder.copyFromBuffer(
+      upload.buffer,
+      0,
+      upload.bytesPerRow,
+      0,
+      upload.region.size,
+      upload.texture,
+      0,
+      0,
+      upload.region.origin
+    )
+    upload.buffer.release()
+    upload.texture.release()
+  drawer.uploads.setLen(0)
+  if drawer.atlasMipmapsDirty:
     encoder.generateMipmapsForTexture(drawer.texture)
-    encoder.endEncoding()
+  encoder.endEncoding()
   drawer.atlasMipmapsDirty = false
 
 proc newDrawer*(window: Window, image: Image): Drawer =
