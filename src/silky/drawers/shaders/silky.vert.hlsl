@@ -1,4 +1,14 @@
 // target hlsl dx12
+int2 shadyTextureSize(Texture2D<float4> image, int level) {
+  uint width, height, levels;
+  image.GetDimensions(level, width, height, levels);
+  return int2(width, height);
+}
+int2 shadyTextureSize(Texture2D<uint4> image, int level) {
+  uint width, height, levels;
+  image.GetDimensions(level, width, height, levels);
+  return int2(width, height);
+}
 // from silkyVert
 
 cbuffer ShadyUniforms0 : register(b0) {

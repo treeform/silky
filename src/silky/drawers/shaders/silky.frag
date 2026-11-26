@@ -12,13 +12,15 @@ layout(location = 5) in vec2 fragmentMaskUv;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
+  vec4 base = texture(atlasSampler, fragmentUv);
+  vec4 shaded = base * fragmentColor;
+  if (0.0 <= float(fragmentMaskUv.x)) {
+    float maskR = (texture(atlasSampler, fragmentMaskUv)).r;
+    shaded = vec4(base.rgb * mix(vec3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR), base.a * fragmentColor.a);
+  }
   if ((((fragmentPos.x < fragmentClipPos.x) || (fragmentPos.y < fragmentClipPos.y)) || (fragmentClipPos.x + fragmentClipSize.x < fragmentPos.x)) || (fragmentClipPos.y + fragmentClipSize.y < fragmentPos.y)) {
     discard;
-  } else if (0.0 <= float(fragmentMaskUv.x)) {
-    vec4 base = texture(atlasSampler, fragmentUv);
-    float maskR = (texture(atlasSampler, fragmentMaskUv)).r;
-    fragColor = vec4(base.rgb * mix(vec3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR), base.a * fragmentColor.a);
   } else {
-    fragColor = texture(atlasSampler, fragmentUv) * fragmentColor;
+    fragColor = shaded;
   }
 }
