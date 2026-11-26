@@ -117,6 +117,16 @@ type
       ## Logical window offset applied when the app removes safe-area insets.
     window: Window
 
+  IsolatedDrawingState = object
+    ## Suspended drawing queues and the metadata that indexes those queues.
+    layers: array[2, seq[DrawerVertex]]
+    vertexClips: array[2, seq[int]]
+    clipStack: ClipStack
+    layoutStack: seq[LayoutScope]
+    currentLayer: int
+    layerStack: seq[int]
+    inputs: TextInputs
+
 proc currentDrawLayer*(sk: Silky): int =
   sk.drawer.currentLayer
 
@@ -239,6 +249,33 @@ proc popClipRect*(sk: Silky) =
 proc clipRect*(sk: Silky): Rect =
   ## Returns the current clip intersection.
   sk.clipStack.clipRect()
+
+proc swapDrawingState(sk: Silky, state: var IsolatedDrawingState) =
+  ## Exchanges all state whose indices refer to the active draw queues.
+  swap(sk.drawer.layers, state.layers)
+  swap(sk.vertexClips, state.vertexClips)
+  swap(sk.clipStack, state.clipStack)
+  swap(sk.layoutStack, state.layoutStack)
+  swap(sk.drawer.currentLayer, state.currentLayer)
+  swap(sk.drawer.layerStack, state.layerStack)
+  swap(sk.inputs, state.inputs)
+
+template isolatedDrawing*(sk: Silky, bounds: Rect, body: untyped) =
+  ## Runs drawing in fresh queues and restores the caller's state on exit.
+  ## Flush isolated geometry inside the body using the active drawer.
+  ## This does not start a UI frame or isolate interactive widget state.
+  block:
+    let
+      drawingContext = sk
+      drawingBounds = bounds
+    var drawingState: IsolatedDrawingState
+    drawingContext.swapDrawingState(drawingState)
+    try:
+      drawingContext.pushLayout(drawingBounds.xy, drawingBounds.wh)
+      drawingContext.pushRawClipRect(drawingBounds)
+      body
+    finally:
+      drawingContext.swapDrawingState(drawingState)
 
 proc instanceCount*(sk: Silky): int =
   ## Returns the number of queued drawer vertices.
@@ -812,22 +849,28 @@ proc getTextSize*(sk: Silky, font: string, text: string): Vec2 {.measure.} =
 proc newSilky*(
   window: Window,
   image: Image,
-  atlas: SilkyAtlas
+  atlas: SilkyAtlas,
+  drawer: Drawer = nil
 ): Silky {.measure.} =
   ## Creates a new Silky context and eagerly initializes its drawer.
+  ## A supplied drawer lets an application own the rendering surface.
   ## Automatically installs input handling on the window.
   result = Silky()
   result.image = image
   result.atlas = atlas
   result.builder = newAtlasBuilderFromAtlas(atlas, image)
   result.window = window
-  result.drawer = newDrawer(window, image)
+  result.drawer = if drawer.isNil: newDrawer(window, image) else: drawer
   result.inputs = newTextInputs(window)
 
-proc newSilky*(window: Window, atlasPngPath: string): Silky {.measure.} =
+proc newSilky*(
+  window: Window,
+  atlasPngPath: string,
+  drawer: Drawer = nil
+): Silky {.measure.} =
   ## Creates a new Silky from one atlas PNG file.
   let atlasData = readAtlas(atlasPngPath)
-  newSilky(window, atlasData.image, atlasData.atlas)
+  newSilky(window, atlasData.image, atlasData.atlas, drawer)
 
 proc uploadAtlas*(sk: Silky) =
   ## Push the current CPU atlas image to the GPU drawer.

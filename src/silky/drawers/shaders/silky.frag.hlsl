@@ -1,4 +1,14 @@
 // target hlsl dx12
+int2 shadyTextureSize(Texture2D<float4> image, int level) {
+  uint width, height, levels;
+  image.GetDimensions(level, width, height, levels);
+  return int2(width, height);
+}
+int2 shadyTextureSize(Texture2D<uint4> image, int level) {
+  uint width, height, levels;
+  image.GetDimensions(level, width, height, levels);
+  return int2(width, height);
+}
 // from silkyFrag
 
 Texture2D<float4> atlasSampler : register(t0);
@@ -23,14 +33,16 @@ float4 PSMain(PSInput input) : SV_TARGET {
   float2 fragmentPos = input.fragmentPos;
   float2 fragmentMaskUv = input.fragmentMaskUv;
   float4 fragColor = float4(0.0, 0.0, 0.0, 0.0);
+  float4 base = atlasSampler.Sample(atlasSamplerSampler, fragmentUv);
+  float4 shaded = base * fragmentColor;
+  if (0.0 <= float(fragmentMaskUv.x)) {
+    float maskR = (atlasSampler.Sample(atlasSamplerSampler, fragmentMaskUv)).r;
+    shaded = float4(base.rgb * lerp(float3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR), base.a * fragmentColor.a);
+  }
   if ((((fragmentPos.x < fragmentClipPos.x) || (fragmentPos.y < fragmentClipPos.y)) || (fragmentClipPos.x + fragmentClipSize.x < fragmentPos.x)) || (fragmentClipPos.y + fragmentClipSize.y < fragmentPos.y)) {
     discard;
-  } else if (0.0 <= float(fragmentMaskUv.x)) {
-    float4 base = atlasSampler.Sample(atlasSamplerSampler, fragmentUv);
-    float maskR = (atlasSampler.Sample(atlasSamplerSampler, fragmentMaskUv)).r;
-    fragColor = float4(base.rgb * lerp(float3(1.0, 1.0, 1.0), fragmentColor.rgb, maskR), base.a * fragmentColor.a);
   } else {
-    fragColor = atlasSampler.Sample(atlasSamplerSampler, fragmentUv) * fragmentColor;
+    fragColor = shaded;
   }
   return fragColor;
 }

@@ -28,6 +28,12 @@ type
     texture: MTLTexture
     size: IVec2
 
+  TextureUpload = object
+    buffer: MTLBuffer
+    texture: MTLTexture
+    region: MTLRegion
+    bytesPerRow: uint
+
   ShaderUniforms = object
     ## Matches the Shady vertex shader's constant buffer layout.
     viewportSize: Vec2
@@ -44,12 +50,19 @@ type
     maxVertexCount: int
     viewportSize: IVec2
     atlasSize: IVec2
+    atlasMipmapsDirty: bool
+    uploads: seq[TextureUpload]
     textureLimit: int
     textures: Table[uint32, DrawerTexture]
     nextTexture: uint32
     clearColor: MTLClearColor
+    pixelFormat: MTLPixelFormat = MTLPixelFormatBGRA8Unorm
+    external: bool
+    commandBuffer: MTLCommandBuffer
+    target: MTLTexture
     when defined(silkyMetalTesting):
       ownsTestDevice: bool
+      vertexBufferAllocations, externalRenderPasses: int
     layers*: array[2, seq[DrawerVertex]]
     currentLayer*: int
     layerStack*: seq[int]
@@ -62,6 +75,15 @@ static:
 
 objc:
   proc supportsFamily(self: MTLDevice, x: int): bool
+  proc device(self: MTLCommandBuffer): MTLDevice
+  proc device(self: MTLTexture): MTLDevice
+  proc pixelFormat(self: MTLTexture): MTLPixelFormat
+  proc sampleCount(self: MTLTexture): uint
+  proc retainedReferences(self: MTLCommandBuffer): bool
+  proc copyFromBuffer(self: MTLBlitCommandEncoder, x: MTLBuffer,
+    sourceOffset, sourceBytesPerRow, sourceBytesPerImage: uint,
+    sourceSize: MTLSize, toTexture: MTLTexture,
+    destinationSlice, destinationLevel: uint, destinationOrigin: MTLOrigin)
 
 proc textureSizeLimit(device: MTLDevice): int =
   ## Reads Metal's family-specific 2D texture limit, including Simulator.
@@ -85,9 +107,17 @@ proc clampViewport(size: IVec2): IVec2 =
   ivec2(max(1'i32, size.x), max(1'i32, size.y))
 
 proc close*(drawer: Drawer) =
-  ## Releases all drawer-owned Metal resources after its synchronous frames.
+  ## Releases drawer-owned resources after pending GPU work completes.
   if drawer.isNil:
     return
+  drawer.commandBuffer.release()
+  drawer.commandBuffer = 0.MTLCommandBuffer
+  drawer.target.release()
+  drawer.target = 0.MTLTexture
+  for upload in drawer.uploads:
+    upload.buffer.release()
+    upload.texture.release()
+  drawer.uploads.setLen(0)
   for texture in drawer.textures.values:
     texture.texture.release()
   drawer.textures.clear()
@@ -107,7 +137,11 @@ proc close*(drawer: Drawer) =
       drawer.ownsTestDevice = false
   drawer.ctx.destroy()
 
-proc newTexture(state: Drawer, width, height: int): MTLTexture =
+proc newTexture(
+  state: Drawer,
+  width, height: int,
+  mipmapped = false
+): MTLTexture =
   ## Allocates a shader-readable texture using the supported 2D size limit.
   if width <= 0 or height <= 0:
     raise newException(SilkyError, "Image texture dimensions must be positive.")
@@ -120,7 +154,7 @@ proc newTexture(state: Drawer, width, height: int): MTLTexture =
     MTLPixelFormatRGBA8Unorm,
     width.uint,
     height.uint,
-    false
+    mipmapped
   )
   descriptor.setUsage(MTLTextureUsageShaderRead)
   result = state.ctx.device.newTextureWithDescriptor(descriptor)
@@ -128,11 +162,42 @@ proc newTexture(state: Drawer, width, height: int): MTLTexture =
     raise newException(SilkyError, "Could not allocate a Metal image texture.")
 
 proc uploadRegion(
+  drawer: Drawer,
   texture: MTLTexture,
   image: Image,
   x, y, width, height: int
 ) =
-  ## Uploads image pixels with their original row stride into a texture region.
+  ## Stages external texture writes in queue order without CPU/GPU waits.
+  if drawer.external:
+    let
+      rowBytes = width * sizeof(ColorRGBX)
+      alignedRowBytes = (rowBytes + 255) and not 255
+      buffer = drawer.ctx.device.newBufferWithLength(
+        (alignedRowBytes * height).uint,
+        0
+      )
+    checkNil(buffer, "Could not stage an external Metal texture upload")
+    let pixels = cast[ptr UncheckedArray[uint8]](buffer.contents())
+    if pixels.isNil:
+      buffer.release()
+      raise newException(SilkyError, "Could not map a Metal texture upload")
+    for row in 0 ..< height:
+      copyMem(
+        pixels[row * alignedRowBytes].addr,
+        unsafeAddr image.data[(y + row) * image.width + x],
+        rowBytes
+      )
+    texture.retain()
+    drawer.uploads.add(TextureUpload(
+      buffer: buffer,
+      texture: texture,
+      region: MTLRegion(
+        origin: MTLOrigin(x: x.uint, y: y.uint, z: 0),
+        size: MTLSize(width: width.uint, height: height.uint, depth: 1)
+      ),
+      bytesPerRow: alignedRowBytes.uint
+    ))
+    return
   texture.replaceRegion(
     MTLRegion(
       origin: MTLOrigin(x: x.uint, y: y.uint, z: 0),
@@ -156,6 +221,8 @@ proc createVertexBuffer(state: Drawer, maxVertexCount: int) =
   state.vertexBuffer = buffer
   state.vertexBufferPtr = bufferPtr
   state.maxVertexCount = maxVertexCount
+  when defined(silkyMetalTesting):
+    inc state.vertexBufferAllocations
 
 proc uploadTexture(state: Drawer, image: Image) =
   ## Uploads the atlas image into one Metal texture.
@@ -163,11 +230,12 @@ proc uploadTexture(state: Drawer, image: Image) =
     raise newException(SilkyError, "Cannot upload an empty atlas image.")
   if state.texture.isNil or
     state.atlasSize != ivec2(image.width.int32, image.height.int32):
-      let texture = state.newTexture(image.width, image.height)
+      let texture = state.newTexture(image.width, image.height, mipmapped = true)
       state.texture.release()
       state.texture = texture
-  state.texture.uploadRegion(image, 0, 0, image.width, image.height)
+  state.uploadRegion(state.texture, image, 0, 0, image.width, image.height)
   state.atlasSize = ivec2(image.width.int32, image.height.int32)
+  state.atlasMipmapsDirty = state.texture.mipmapLevelCount() > 1
 
 proc allocateTexture*(drawer: Drawer, width, height: int): uint32 =
   ## Allocates a separate image texture, reserving handle zero for the atlas.
@@ -197,7 +265,7 @@ proc uploadTextureRows*(
       raise newException(SilkyError, "Image texture upload bounds are invalid.")
   if rowCount == 0:
     return
-  target.texture.uploadRegion(image, 0, firstRow, image.width, rowCount)
+  drawer.uploadRegion(target.texture, image, 0, firstRow, image.width, rowCount)
 
 proc deleteTexture*(drawer: Drawer, texture: uint32) =
   ## Releases an independent image texture; deleting a missing handle is safe.
@@ -226,7 +294,15 @@ proc uploadAtlasRegion*(
     bottom = clamp(y.int64 + height.int64, 0'i64, image.height.int64).int
   if right <= left or bottom <= top:
     return
-  drawer.texture.uploadRegion(image, left, top, right - left, bottom - top)
+  drawer.uploadRegion(
+    drawer.texture,
+    image,
+    left,
+    top,
+    right - left,
+    bottom - top
+  )
+  drawer.atlasMipmapsDirty = drawer.texture.mipmapLevelCount() > 1
 
 proc initRenderer(state: Drawer, image: Image, size: IVec2) =
   ## Creates the Metal pipeline, atlas texture, and dynamic buffers.
@@ -291,7 +367,7 @@ proc initRenderer(state: Drawer, image: Image, size: IVec2) =
     pipelineDescriptor.colorAttachments().objectAtIndexedSubscript(0)
   pipelineDescriptor.setVertexFunction(vertexFunction)
   pipelineDescriptor.setFragmentFunction(fragmentFunction)
-  colorAttachment.setPixelFormat(MTLPixelFormatBGRA8Unorm)
+  colorAttachment.setPixelFormat(state.pixelFormat)
   colorAttachment.setBlendingEnabled(true)
   colorAttachment.setSourceRGBBlendFactor(MTLBlendFactorOne)
   colorAttachment.setDestinationRGBBlendFactor(
@@ -333,6 +409,50 @@ proc uploadAtlas*(drawer: Drawer, image: Image) =
   ## Replaces the atlas texture after runtime glyph or image additions.
   drawer.uploadTexture(image)
 
+proc atlasTexture*(drawer: Drawer): MTLTexture =
+  ## Borrows the current atlas texture; uploads may replace this handle.
+  drawer.texture
+
+proc needsAtlasPreparation*(drawer: Drawer): bool =
+  ## Reports pending texture uploads or mipmaps that need an encoder break.
+  drawer.uploads.len > 0 or drawer.atlasMipmapsDirty
+
+proc prepareAtlas*(drawer: Drawer, commandBuffer: MTLCommandBuffer) =
+  ## Encodes texture uploads and mipmaps before application shaders sample them.
+  ## End active encoding and submit buffers in order on the same command queue.
+  ## The normal endFrame and endUi paths perform this preparation themselves.
+  if commandBuffer.isNil or
+    cast[int](commandBuffer.device()) != cast[int](drawer.ctx.device):
+      raise newException(SilkyError,
+        "Atlas preparation needs a command buffer from the drawer's device.")
+  if commandBuffer.status() >= MTLCommandBufferStatusCommitted or
+    not commandBuffer.retainedReferences():
+      raise newException(SilkyError,
+        "Atlas commands must be uncommitted and retain resources.")
+  if not drawer.needsAtlasPreparation():
+    return
+  let encoder = commandBuffer.blitCommandEncoder()
+  checkNil(encoder, "Could not create the atlas preparation encoder")
+  for upload in drawer.uploads:
+    encoder.copyFromBuffer(
+      upload.buffer,
+      0,
+      upload.bytesPerRow,
+      0,
+      upload.region.size,
+      upload.texture,
+      0,
+      0,
+      upload.region.origin
+    )
+    upload.buffer.release()
+    upload.texture.release()
+  drawer.uploads.setLen(0)
+  if drawer.atlasMipmapsDirty:
+    encoder.generateMipmapsForTexture(drawer.texture)
+  encoder.endEncoding()
+  drawer.atlasMipmapsDirty = false
+
 proc newDrawer*(window: Window, image: Image): Drawer =
   ## Creates a new Metal drawer and eagerly initializes its resources.
   let safeSize = clampViewport(window.size)
@@ -351,11 +471,61 @@ proc newDrawer*(window: Window, image: Image): Drawer =
     result.close()
     raise
 
+proc newDrawer*(
+  device: MTLDevice,
+  image: Image,
+  size: IVec2,
+  pixelFormat = MTLPixelFormatBGRA8Unorm
+): Drawer =
+  ## Creates an embeddable drawer borrowing an application's Metal device.
+  ## Each frame needs setExternalFrame; the application submits GPU work.
+  if device.isNil:
+    raise newException(SilkyError, "An external Metal drawer needs a device.")
+  result = Drawer(external: true, pixelFormat: pixelFormat)
+  result.ctx.device = device
+  try:
+    result.initRenderer(image, size)
+  except:
+    result.close()
+    raise
+
+proc setExternalFrame*(
+  drawer: Drawer,
+  commandBuffer: MTLCommandBuffer,
+  target: MTLTexture
+) =
+  ## Selects a single-sample color target for the next endFrame or endUi.
+  ## End the application's encoder first. Silky loads the existing color and
+  ## never presents or submits this resource-retaining command buffer.
+  if not drawer.external:
+    raise newException(SilkyError, "This Metal drawer owns its frame.")
+  if commandBuffer.isNil or target.isNil:
+    raise newException(SilkyError, "An external Metal frame needs a target.")
+  if commandBuffer.status() >= MTLCommandBufferStatusCommitted or
+    not commandBuffer.retainedReferences():
+      raise newException(SilkyError,
+        "External Metal commands must be uncommitted and retain resources.")
+  if cast[int](commandBuffer.device()) != cast[int](drawer.ctx.device) or
+    cast[int](target.device()) != cast[int](drawer.ctx.device):
+      raise newException(SilkyError,
+        "External Metal frame resources must use the drawer's device.")
+  if target.pixelFormat() != drawer.pixelFormat or target.sampleCount() != 1:
+    raise newException(SilkyError,
+      "External Metal targets must match the drawer format with one sample.")
+  commandBuffer.retain()
+  target.retain()
+  drawer.commandBuffer.release()
+  drawer.target.release()
+  drawer.commandBuffer = commandBuffer
+  drawer.target = target
+  drawer.viewportSize = ivec2(target.width().int32, target.height().int32)
+
 proc beginFrame*(drawer: Drawer, window: Window, size: IVec2) =
   ## Prepares the Metal drawer for a new frame.
   drawer.ctx.window = window
   drawer.viewportSize = clampViewport(size)
-  drawer.ctx.updateDrawableSize()
+  if not drawer.external:
+    drawer.ctx.updateDrawableSize()
 
 proc clearScreen*(drawer: Drawer, color: ColorRGBX) =
   ## Sets the Metal clear color used at frame submission.
@@ -428,8 +598,9 @@ proc recordDraw(state: Drawer, vertexCount: int) =
   let drawable = state.ctx.currentDrawable()
   if drawable.isNil:
     return
+  let commandBuffer = state.ctx.newCommandBuffer()
+  state.prepareAtlas(commandBuffer)
   let
-    commandBuffer = state.ctx.newCommandBuffer()
     renderPass = state.ctx.clearPass(drawable, state.clearColor)
     encoder = commandBuffer.renderCommandEncoderWithDescriptor(renderPass)
     size = state.ctx.layer.drawableSize()
@@ -449,6 +620,8 @@ proc uploadVertices(
   vertexCount: int
 ) =
   ## Updates the atlas and shared vertex buffer before a render pass.
+  if vertexCount < 0 or (vertexCount > 0 and vertices.isNil):
+    raise newException(SilkyError, "Metal vertex data is invalid.")
   if drawer.atlasSize != ivec2(image.width.int32, image.height.int32):
     drawer.uploadTexture(image)
   drawer.ensureVertexCapacity(vertexCount)
@@ -468,6 +641,47 @@ proc endFrame*(
 ) =
   ## Flushes the queued quads through Metal 4.
   discard size
+  if drawer.external:
+    if drawer.commandBuffer.isNil:
+      raise newException(SilkyError,
+        "Call setExternalFrame before drawing with an external Metal drawer.")
+    defer:
+      drawer.commandBuffer.release()
+      drawer.commandBuffer = 0.MTLCommandBuffer
+      drawer.target.release()
+      drawer.target = 0.MTLTexture
+    if drawer.commandBuffer.status() >= MTLCommandBufferStatusCommitted:
+      raise newException(SilkyError,
+        "Submit external Metal commands after drawing the UI.")
+    if quadCount == 0:
+      drawer.uploadVertices(image, quads, quadCount)
+      drawer.prepareAtlas(drawer.commandBuffer)
+      return
+    # A command buffer retains each pass's buffer until GPU work completes.
+    # Later UI passes must not overwrite vertices already queued for drawing.
+    drawer.createVertexBuffer(max(1, quadCount))
+    drawer.uploadVertices(image, quads, quadCount)
+    drawer.prepareAtlas(drawer.commandBuffer)
+    let
+      renderPass = MTLRenderPassDescriptor.renderPassDescriptor()
+      attachment = renderPass.colorAttachments().objectAtIndexedSubscript(0)
+    attachment.setTexture(drawer.target)
+    attachment.setLoadAction(MTLLoadActionLoad)
+    attachment.setStoreAction(MTLStoreActionStore)
+    let encoder = drawer.commandBuffer.renderCommandEncoderWithDescriptor(
+      renderPass
+    )
+    checkNil(encoder, "Could not create an external Metal render encoder")
+    when defined(silkyMetalTesting):
+      inc drawer.externalRenderPasses
+    drawer.encodeDraw(
+      encoder,
+      drawer.target.width().float64,
+      drawer.target.height().float64,
+      quadCount
+    )
+    encoder.endEncoding()
+    return
   drawer.uploadVertices(image, quads, quadCount)
   drawer.recordDraw(quadCount)
 
@@ -481,6 +695,11 @@ when defined(silkyMetalTesting):
       fromRegion: MTLRegion,
       mipmapLevel: uint
     )
+
+  proc recordedWorkForTesting*(drawer: Drawer):
+      tuple[vertexBufferAllocations, externalRenderPasses: int] =
+    ## Reports allocations and external passes without altering GPU work.
+    (drawer.vertexBufferAllocations, drawer.externalRenderPasses)
 
   proc newOffscreenDrawerForTesting*(image: Image, size: IVec2): Drawer =
     ## Creates the production drawer without a window for GPU pixel tests.
@@ -523,8 +742,9 @@ when defined(silkyMetalTesting):
       if vertices.len > 0: unsafeAddr vertices[0] else: nil,
       vertices.len
     )
+    let commandBuffer = drawer.ctx.newCommandBuffer()
+    drawer.prepareAtlas(commandBuffer)
     let
-      commandBuffer = drawer.ctx.newCommandBuffer()
       renderPass = MTLRenderPassDescriptor.renderPassDescriptor()
       attachment = renderPass.colorAttachments().objectAtIndexedSubscript(0)
     attachment.setTexture(target)

@@ -118,6 +118,8 @@ jobs:
           nim r ${{ matrix.build_flags }} tests/test_button_vertices.nim
           nim r -d:silkyTesting tests/test_layout.nim
           nim r -d:silkyTesting tests/test_layout_regressions.nim
+          nim r -d:silkyTesting tests/test_isolated_drawing.nim
+          nim r ${{ matrix.build_flags }} tests/test_isolated_drawing.nim
           nim r ${{ matrix.build_flags }} tests/test_layout_clips.nim
           nim r ${{ matrix.build_flags }} tests/test_cpu_backend.nim
 
@@ -144,6 +146,10 @@ jobs:
           (cd examples/panels && nim c -d:emscripten panels.nim)
           (cd examples/the7gui && nim c -d:emscripten the7gui.nim)
           (cd examples/todomvc && nim c -d:emscripten todomvc.nim)
+
+      - name: Compile Metal compositing test
+        if: matrix.build_flags == '-d:useMetal4'
+        run: nim c -d:useMetal4 tests/test_metal_compositing.nim
 
       - name: Run example tests
         if: ${{ !matrix.emscripten }}

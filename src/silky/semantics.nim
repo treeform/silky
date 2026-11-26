@@ -316,6 +316,16 @@ type
       ## Logical window offset applied when the app removes safe-area insets.
     window*: Window
 
+  IsolatedDrawingState = object
+    ## Suspended drawing and semantic capture state for an isolated pass.
+    layers: array[2, seq[SilkyVertex]]
+    clipStack: ClipStack
+    layoutStack: seq[LayoutScope]
+    currentLayer: int
+    layerStack: seq[int]
+    inputs: TextInputs
+    semantic: SemanticCapture
+
 proc currentDrawLayer*(sk: Silky): int =
   sk.currentLayer
 
@@ -479,6 +489,33 @@ proc popClipRect*(sk: Silky) =
 proc clipRect*(sk: Silky): Rect =
   ## Returns the current clip intersection.
   sk.clipStack.clipRect()
+
+proc swapDrawingState(sk: Silky, state: var IsolatedDrawingState) =
+  ## Exchanges drawing queues and their layout and semantic metadata.
+  swap(sk.layers, state.layers)
+  swap(sk.clipStack, state.clipStack)
+  swap(sk.layoutStack, state.layoutStack)
+  swap(sk.currentLayer, state.currentLayer)
+  swap(sk.layerStack, state.layerStack)
+  swap(sk.inputs, state.inputs)
+  swap(sk.semantic, state.semantic)
+
+template isolatedDrawing*(sk: Silky, bounds: Rect, body: untyped) =
+  ## Runs drawing in fresh queues and restores the caller's state on exit.
+  ## Matches the native drawing scope without creating a window or GPU.
+  block:
+    let
+      drawingContext = sk
+      drawingBounds = bounds
+    var drawingState: IsolatedDrawingState
+    drawingContext.swapDrawingState(drawingState)
+    try:
+      drawingContext.semantic.reset()
+      drawingContext.pushLayout(drawingBounds.xy, drawingBounds.wh)
+      drawingContext.pushRawClipRect(drawingBounds)
+      body
+    finally:
+      drawingContext.swapDrawingState(drawingState)
 
 proc advance*(sk: Silky, amount: Vec2, spacing: float32) =
   ## Advances the current layout cursor with explicit spacing.
